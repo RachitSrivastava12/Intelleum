@@ -1,0 +1,249 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* INTELLEUM Dark Terminal Theme */
+    --background: 220 20% 4%;
+    --foreground: 210 20% 85%;
+
+    --card: 220 18% 6%;
+    --card-foreground: 210 20% 85%;
+
+    --popover: 220 18% 6%;
+    --popover-foreground: 210 20% 85%;
+
+    /* Cyan/Electric Blue Primary */
+    --primary: 190 95% 50%;
+    --primary-foreground: 220 20% 4%;
+
+    --secondary: 220 15% 12%;
+    --secondary-foreground: 210 20% 75%;
+
+    --muted: 220 15% 10%;
+    --muted-foreground: 215 15% 45%;
+
+    --accent: 190 90% 45%;
+    --accent-foreground: 220 20% 4%;
+
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 15% 15%;
+    --input: 220 15% 12%;
+    --ring: 190 95% 50%;
+
+    --radius: 0.125rem;
+
+    /* Custom INTELLEUM tokens */
+    --glow-primary: 190 95% 50%;
+    --glow-secondary: 200 90% 40%;
+    --surface-elevated: 220 18% 8%;
+    --grid-line: 220 15% 12%;
+    --text-dim: 215 15% 35%;
+    --signal-high: 0 70% 50%;
+    --signal-medium: 45 90% 50%;
+    --signal-low: 150 70% 45%;
+  }
+
+  .dark {
+    --background: 220 20% 4%;
+    --foreground: 210 20% 85%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  ::selection {
+    @apply bg-primary/30 text-foreground;
+  }
+}
+
+@layer components {
+  /* Grid overlay effect */
+  .grid-overlay {
+    background-image: 
+      linear-gradient(to right, hsl(var(--grid-line)) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--grid-line)) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+
+  .grid-overlay-subtle {
+    background-image: 
+      linear-gradient(to right, hsl(var(--grid-line) / 0.3) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--grid-line) / 0.3) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* Glow effects */
+  .glow-text {
+    text-shadow: 0 0 20px hsl(var(--glow-primary) / 0.5),
+                 0 0 40px hsl(var(--glow-primary) / 0.3);
+  }
+
+  .glow-box {
+    box-shadow: 0 0 30px hsl(var(--glow-primary) / 0.15),
+                0 0 60px hsl(var(--glow-primary) / 0.1);
+  }
+
+  .glow-border {
+    box-shadow: inset 0 0 0 1px hsl(var(--glow-primary) / 0.3),
+                0 0 20px hsl(var(--glow-primary) / 0.1);
+  }
+
+  /* Terminal-style panels */
+  .intel-panel {
+    @apply bg-card border border-border;
+    box-shadow: 
+      inset 0 1px 0 0 hsl(var(--border) / 0.5),
+      0 4px 20px hsl(0 0% 0% / 0.3);
+  }
+
+  .intel-panel-glow {
+    @apply intel-panel;
+    box-shadow: 
+      inset 0 1px 0 0 hsl(var(--primary) / 0.2),
+      0 0 40px hsl(var(--glow-primary) / 0.1),
+      0 4px 20px hsl(0 0% 0% / 0.3);
+  }
+
+  /* Monospace data display */
+  .mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .data-label {
+    @apply mono text-xs uppercase tracking-widest;
+    color: hsl(var(--text-dim));
+  }
+
+  .data-value {
+    @apply mono text-sm;
+    color: hsl(var(--primary));
+  }
+
+  /* Signal indicators */
+  .signal-high {
+    color: hsl(var(--signal-high));
+  }
+
+  .signal-medium {
+    color: hsl(var(--signal-medium));
+  }
+
+  .signal-low {
+    color: hsl(var(--signal-low));
+  }
+
+  /* Scan line effect */
+  .scanline {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .scanline::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.3), transparent);
+    animation: scanline 4s linear infinite;
+  }
+
+  @keyframes scanline {
+    0% { transform: translateY(-100%); opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { transform: translateY(100vh); opacity: 0; }
+  }
+
+  /* Fade in animation */
+  .fade-in-up {
+    animation: fadeInUp 0.6s ease-out forwards;
+    opacity: 0;
+  }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Stagger children */
+  .stagger-children > * {
+    opacity: 0;
+    animation: fadeInUp 0.5s ease-out forwards;
+  }
+
+  .stagger-children > *:nth-child(1) { animation-delay: 0.1s; }
+  .stagger-children > *:nth-child(2) { animation-delay: 0.2s; }
+  .stagger-children > *:nth-child(3) { animation-delay: 0.3s; }
+  .stagger-children > *:nth-child(4) { animation-delay: 0.4s; }
+  .stagger-children > *:nth-child(5) { animation-delay: 0.5s; }
+  .stagger-children > *:nth-child(6) { animation-delay: 0.6s; }
+
+  /* Pulse glow */
+  .pulse-glow {
+    animation: pulseGlow 3s ease-in-out infinite;
+  }
+
+  @keyframes pulseGlow {
+    0%, 100% { 
+      filter: drop-shadow(0 0 10px hsl(var(--primary) / 0.3));
+    }
+    50% { 
+      filter: drop-shadow(0 0 25px hsl(var(--primary) / 0.6));
+    }
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--glow-secondary)));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Horizontal line with glow */
+  .glow-line {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.5), transparent);
+  }
+
+  /* Data table styling */
+  .data-row {
+    @apply border-b border-border py-3 flex items-center justify-between;
+  }
+
+  .data-row:last-child {
+    @apply border-b-0;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
