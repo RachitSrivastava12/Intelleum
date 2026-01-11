@@ -19,11 +19,29 @@ const AccessForm = () => {
     message: "",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Form submission logic would go here
-    console.log("Form submitted");
-  };
+  // const handleSubmit = (e: React.FormEvent) => {
+  //   e.preventDefault();
+  //   // Form submission logic would go here
+  //   console.log("Form submitted");
+  // };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  await fetch("https://intelleum.onrender.com/access/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(formData),
+  });
+
+  setFormData({
+    name: "",
+    email: "",
+    organization: "",
+    useCase: "",
+    message: "",
+  });
+};
 
   return (
     <section id="access" className="relative py-32 px-6">
