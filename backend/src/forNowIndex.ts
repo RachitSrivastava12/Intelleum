@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { pool } from "./db/pool";
-
+import { Request, Response } from "express";
 const app = express();
 const PORT = 8081;
 
@@ -27,7 +27,7 @@ async function initDb() {
 }
 
 // Route: submit access request
-app.post("/access/request", async (req, res) => {
+app.post("/access/request", async (req: Request, res: Response) => {
   try {
     const { name, email, organization, useCase, message } = req.body;
 
