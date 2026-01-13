@@ -19,7 +19,7 @@ const Footer = () => {
             <Twitter size={18} />
           </a>
           <a
-            href="mailto:contact@intelleum.io"
+            href="mailto:intelleum.mev.solana@gmail.com"
             className="font-mono text-xs text-dim hover:text-primary transition-colors"
           >
             Contact
