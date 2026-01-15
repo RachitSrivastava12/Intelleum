@@ -10,7 +10,7 @@ const Footer = () => {
         
         <div className="flex items-center gap-8">
           <a
-            href="https://twitter.com"
+            href="https://x.com/Intelleumsol"
             target="_blank"
             rel="noopener noreferrer"
             className="text-dim hover:text-primary transition-colors"
