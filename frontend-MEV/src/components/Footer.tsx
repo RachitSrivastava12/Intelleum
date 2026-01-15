@@ -24,12 +24,7 @@ const Footer = () => {
           >
             Contact
           </a>
-          <a
-            href="#"
-            className="font-mono text-xs text-dim hover:text-primary transition-colors"
-          >
-            Privacy
-          </a>
+         
         </div>
       </div>
     </footer>
