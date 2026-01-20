@@ -164,7 +164,7 @@ const AccessForm = () => {
     setStatus("submitting");
 
     try {
-      const res = await fetch("https://intelleum.onrender.com/access/request", {
+      const res = await fetch("https://intelleum-z1yy.onrender.com/access/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),

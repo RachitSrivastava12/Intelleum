@@ -6,21 +6,18 @@ export async function getBlockSafe(slot: number, retries = 3) {
       const block = await connection.getBlock(slot, {
         maxSupportedTransactionVersion: 0,
         transactionDetails: "full",
-        rewards: true,
+        rewards: false,
       });
 
       return block;
     } catch (err) {
-      console.error(
-        `⚠️ getBlock failed for slot ${slot} (attempt ${attempt})`
-      );
+      console.error(`⚠️ getBlock failed for slot ${slot} (attempt ${attempt})`);
 
       if (attempt === retries) {
         console.error(`❌ Skipping slot ${slot}`);
         return null;
       }
 
-      // exponential-ish backoff
       await new Promise((r) => setTimeout(r, 500 * attempt));
     }
   }
