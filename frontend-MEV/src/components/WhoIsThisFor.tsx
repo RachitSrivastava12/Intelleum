@@ -83,31 +83,7 @@ const WhoIsThisFor = () => {
           ))}
         </div>
         
-        {/* Additional trust indicators */}
-        <motion.div 
-          className="mt-16 text-center"
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.6, delay: 0.4 }}
-        >
-          <p className="data-label mb-6">// Trusted By</p>
-          <div className="flex flex-wrap justify-center gap-8 md:gap-16 text-muted-foreground font-mono text-sm">
-            {["Top 10 Solana Protocols", "Institutional Funds", "Leading Validators", "Research Teams"].map((item, index) => (
-              <motion.span 
-                key={item}
-                className="hover:text-primary transition-colors cursor-default"
-                initial={{ opacity: 0, y: 10 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.4, delay: 0.5 + index * 0.1 }}
-                whileHover={{ scale: 1.05 }}
-              >
-                {item}
-              </motion.span>
-            ))}
-          </div>
-        </motion.div>
+       
       </div>
     </section>
   );
