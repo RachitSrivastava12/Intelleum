@@ -72,6 +72,15 @@
   ::selection {
     @apply bg-primary/30 text-foreground;
   }
+
+  /* IMPORTANT: Fix for form inputs */
+  input,
+  textarea,
+  select {
+    pointer-events: auto !important;
+    user-select: text !important;
+    text-align: left !important;
+  }
 }
 
 @layer components {

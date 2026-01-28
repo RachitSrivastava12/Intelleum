@@ -1,7 +1,7 @@
 import { Pool } from "pg";
 
 export const pool = new Pool({
-  connectionString: "postgresql://hhgyujgu_user:R15czxU4g48xpafF1Etw05jZu9YZTUVh@dpg-d5krj7ggjchc73bo03pg-a.virginia-postgres.render.com/hhgyujgu",
+  connectionString: "postgresql://intell:intell@localhost:5432/intelleum",
   ssl: {
     rejectUnauthorized: false, // REQUIRED for Render
   },

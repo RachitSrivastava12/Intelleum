@@ -6,8 +6,14 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
      "dev": "ts-node src/forNowIndex.ts",
+     "devooo":"ts-node src/step1/runIndexer.ts",
      "build": "tsc",
-       "start": "node dist/forNowIndex.js"
+       "start": "node dist/forNowIndex.js",
+       "step3": "ts-node src/step3/index.ts",
+       "step4": "ts-node src/step4/index.ts",
+       "step5": "ts-node src/step5/index.ts",
+       "step6": "ts-node src/step6/index.ts"
+       
   },
   "keywords": [],
   "author": "",
