@@ -144,7 +144,7 @@ export default function ForensicWindow() {
           </h2>
 
           <p className="text-lg leading-relaxed">
-            This analysis covers <b>17 Solana slots (~6.8 seconds)</b>.
+            This analysis covers <b>17 Solana slots </b>.
             In such a short window, execution is dominated by automated actors.
           </p>
 
