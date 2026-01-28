@@ -5,6 +5,7 @@ import LiveDemo from "@/components/LiveDemo";
 import WhoIsThisFor from "@/components/WhoIsThisFor";
 import AccessForm from "@/components/AccessForm";
 import Footer from "@/components/Footer";
+import ForensicWindow from "@/components/ForensicWindow";
 
 const Index = () => {
   return (
@@ -12,6 +13,8 @@ const Index = () => {
       <Hero />
       <div className="glow-line" />
       <AnalysisFlow />
+      <div className="glow-line" />
+      <ForensicWindow />
       <div className="glow-line" />
       <IntelligenceSignals />
       <div className="glow-line" />
