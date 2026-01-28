@@ -177,35 +177,7 @@ const LiveDemo = () => {
           </motion.div>
         </div>
         
-        {/* Additional Stats Row */}
-        <motion.div 
-          className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-6"
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.6, delay: 0.4 }}
-        >
-          {[
-            { label: "Total MEV Volume", value: "$2.4M", sublabel: "Last 24h" },
-            { label: "Active Entities", value: "47", sublabel: "Currently trading" },
-            { label: "Blocks Analyzed", value: "12.5K", sublabel: "Last hour" },
-            { label: "Alerts Triggered", value: "23", sublabel: "Today" },
-          ].map((stat, index) => (
-            <motion.div 
-              key={stat.label}
-              className="intel-panel p-5 text-center"
-              initial={{ opacity: 0, scale: 0.9 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.4, delay: 0.5 + index * 0.1 }}
-              whileHover={{ scale: 1.05 }}
-            >
-              <p className="font-mono text-2xl md:text-3xl text-primary font-bold">{stat.value}</p>
-              <p className="text-foreground text-sm mt-1">{stat.label}</p>
-              <p className="text-dim text-xs">{stat.sublabel}</p>
-            </motion.div>
-          ))}
-        </motion.div>
+        
       </div>
     </section>
   );
