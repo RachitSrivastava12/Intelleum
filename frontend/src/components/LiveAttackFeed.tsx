@@ -56,21 +56,19 @@ interface Props {
 export default function LiveAttackFeed({ filterType, maxItems = 50, compact = false }: Props) {
   const [attacks, setAttacks] = useState<Attack[]>([]);
   const [newIds, setNewIds] = useState<Set<number>>(new Set());
-  const [isPaused, setIsPaused] = useState(false);
   const [activeFilter, setActiveFilter] = useState<string>(filterType ?? "");
   const [error, setError] = useState<string | null>(null);
   const [selectedAttackId, setSelectedAttackId] = useState<number | null>(null);
   const [detailById, setDetailById] = useState<Record<number, AttackDetail>>({});
   const lastFetchRef = useRef<string | null>(null);
   const attacksRef = useRef<Attack[]>([]);
-  const isPausedRef = useRef(false);
 
   useEffect(() => {
     attacksRef.current = attacks;
   }, [attacks]);
 
   async function fetchAttacks() {
-    if (isPausedRef.current) return;
+
     try {
       const response = await api.attacks({
         type: activeFilter || undefined,
@@ -210,16 +208,6 @@ export default function LiveAttackFeed({ filterType, maxItems = 50, compact = fa
               </button>
             ))}
           </div>
-          <button
-            onClick={() => { isPausedRef.current = !isPausedRef.current; setIsPaused(p => !p); }}
-            className={`text-xs px-3 py-1 border ${
-              isPaused
-                ? "border-yellow-500/40 text-yellow-400"
-                : "border-border text-muted-foreground"
-            }`}
-          >
-            {isPaused ? "▶ RESUME" : "⏸ PAUSE"}
-          </button>
         </div>
       )}
 

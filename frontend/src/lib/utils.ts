@@ -63,20 +63,14 @@ export function surfaceProtocolLabel(pool?: string | null, fallbackProtocol?: st
 }
 
 export function formatRelativeTime(ts?: string | null) {
-  if (!ts) return "never";
-  const diff = Math.max(0, Date.now() - new Date(ts).getTime());
-  if (diff < 30_000) return "just now";
-  if (diff < 60_000) return "less than a minute ago";
-  if (diff < 3_600_000) {
-    const minutes = Math.floor(diff / 60_000);
-    return `${minutes} min ago`;
-  }
-  if (diff < 86_400_000) {
-    const hours = Math.floor(diff / 3_600_000);
-    return `${hours} hr ago`;
-  }
-  const days = Math.floor(diff / 86_400_000);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
+  if (!ts) return "—";
+  return new Date(ts).toLocaleTimeString("en-US", {
+    timeZone: "UTC",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  }) + " UTC";
 }
 
 export function formatDayLabel(ts?: string | null) {

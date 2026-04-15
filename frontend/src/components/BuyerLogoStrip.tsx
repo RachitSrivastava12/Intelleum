@@ -63,12 +63,12 @@ export default function BuyerLogoStrip() {
           These are target buyer profiles, not claims of current commercial relationships.
         </p>
 
-        <div className="mt-4 text-center">
+        <div className="mt-8 text-center">
           <Link
             to="/intel-api"
-            className="font-mono text-xs uppercase tracking-[0.2em] text-primary transition-colors hover:text-primary/80"
+            className="inline-block px-10 py-4 bg-primary text-background font-mono font-bold text-sm tracking-wider hover:bg-primary/90 transition-colors"
           >
-            see the api products →
+            SEE API PRODUCTS →
           </Link>
         </div>
       </div>
