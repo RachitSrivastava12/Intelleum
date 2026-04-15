@@ -342,9 +342,9 @@ function TeamPills({ teams }: { teams: BuyerTeam[] }) {
       {teams.map((team) => (
         <Tooltip key={team.name}>
           <TooltipTrigger asChild>
-            <div className="flex items-center gap-2 border border-border/70 bg-background/60 px-3 py-2">
-              <img src={faviconUrl(team.domain)} alt={team.name} className="h-4 w-4 object-contain" loading="lazy" />
-              <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-foreground">{team.name}</span>
+            <div className="flex items-center gap-2 border border-border/70 bg-background/60 px-4 py-2.5">
+              <img src={faviconUrl(team.domain)} alt={team.name} className="h-6 w-6 object-contain" loading="lazy" />
+              <span className="font-mono text-[13px] uppercase tracking-[0.14em] text-foreground">{team.name}</span>
             </div>
           </TooltipTrigger>
           <TooltipContent className="text-xs">
@@ -369,13 +369,13 @@ function EndpointSection({
     <section id={endpoint.id} className="scroll-mt-24 border border-border/70 bg-surface/35 p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-primary">{endpoint.badge}</div>
-          <h2 className="mt-3 text-[1.85rem] font-semibold tracking-tight text-foreground">{endpoint.title}</h2>
+          <div className="font-mono text-[13px] uppercase tracking-[0.2em] text-primary">{endpoint.badge}</div>
+          <h2 className="mt-3 text-[2.1rem] font-semibold tracking-tight text-foreground">{endpoint.title}</h2>
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <div className="border border-primary/30 bg-primary/10 px-2 py-1 font-mono text-[11px] uppercase tracking-[0.14em] text-primary">
+            <div className="border border-primary/30 bg-primary/10 px-2 py-1 font-mono text-[13px] uppercase tracking-[0.14em] text-primary">
               {endpoint.method}
             </div>
-            <div className="font-mono text-[12px] tracking-[0.08em] text-muted-foreground">{endpoint.endpoint}</div>
+            <div className="font-mono text-[14px] tracking-[0.08em] text-muted-foreground">{endpoint.endpoint}</div>
           </div>
         </div>
 
@@ -392,49 +392,49 @@ function EndpointSection({
         </button>
       </div>
 
-      <p className="mt-5 max-w-4xl text-[15px] leading-8 text-foreground">{endpoint.summary}</p>
+      <p className="mt-5 max-w-4xl text-[17px] leading-8 text-foreground">{endpoint.summary}</p>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <div className="border border-border/70 bg-background/50 p-4">
-          <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-primary">Why Teams Pay</div>
-          <p className="mt-3 text-[15px] leading-8 text-foreground">{endpoint.whyPay}</p>
+        <div className="border border-border/70 bg-background/50 p-5">
+          <div className="font-mono text-[13px] uppercase tracking-[0.16em] text-primary">Why Teams Pay</div>
+          <p className="mt-3 text-[16px] leading-8 text-foreground">{endpoint.whyPay}</p>
         </div>
-        <div className="border border-border/70 bg-background/50 p-4">
-          <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-primary">How It Saves Money</div>
-          <p className="mt-3 text-[15px] leading-8 text-foreground">{endpoint.saves}</p>
+        <div className="border border-border/70 bg-background/50 p-5">
+          <div className="font-mono text-[13px] uppercase tracking-[0.16em] text-primary">How It Saves Money</div>
+          <p className="mt-3 text-[16px] leading-8 text-foreground">{endpoint.saves}</p>
         </div>
       </div>
 
       <div className="mt-6 grid gap-4 xl:grid-cols-[1fr,1fr,1fr]">
-        <div className="border border-border/70 bg-background/50 p-4">
-          <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Inputs</div>
+        <div className="border border-border/70 bg-background/50 p-5">
+          <div className="font-mono text-[13px] uppercase tracking-[0.16em] text-muted-foreground">Inputs</div>
           <div className="mt-3 space-y-2">
             {endpoint.inputs.map((item) => (
               <div key={item} className="flex gap-3">
                 <span className="mt-[7px] inline-block h-1.5 w-1.5 rounded-full bg-primary" />
-                <span className="font-mono text-[12px] leading-6 text-foreground">{item}</span>
+                <span className="font-mono text-[14px] leading-7 text-foreground">{item}</span>
               </div>
             ))}
           </div>
         </div>
-        <div className="border border-border/70 bg-background/50 p-4">
-          <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Returns</div>
+        <div className="border border-border/70 bg-background/50 p-5">
+          <div className="font-mono text-[13px] uppercase tracking-[0.16em] text-muted-foreground">Returns</div>
           <div className="mt-3 space-y-2">
             {endpoint.returns.map((item) => (
               <div key={item} className="flex gap-3">
                 <span className="mt-[7px] inline-block h-1.5 w-1.5 rounded-full bg-primary" />
-                <span className="font-mono text-[12px] leading-6 text-foreground">{item}</span>
+                <span className="font-mono text-[14px] leading-7 text-foreground">{item}</span>
               </div>
             ))}
           </div>
         </div>
-        <div className="border border-border/70 bg-background/50 p-4">
-          <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Integration Pattern</div>
+        <div className="border border-border/70 bg-background/50 p-5">
+          <div className="font-mono text-[13px] uppercase tracking-[0.16em] text-muted-foreground">Integration Pattern</div>
           <div className="mt-3 space-y-2">
             {endpoint.integration.map((item) => (
               <div key={item} className="flex gap-3">
                 <span className="mt-[7px] inline-block h-1.5 w-1.5 rounded-full bg-primary" />
-                <span className="font-mono text-[12px] leading-6 text-foreground">{item}</span>
+                <span className="font-mono text-[14px] leading-7 text-foreground">{item}</span>
               </div>
             ))}
           </div>
@@ -442,12 +442,12 @@ function EndpointSection({
       </div>
 
       <div className="mt-6">
-        <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Buyer Profiles</div>
+        <div className="font-mono text-[13px] uppercase tracking-[0.16em] text-muted-foreground">Buyer Profiles</div>
         <div className="mt-3 flex flex-wrap gap-2">
           {endpoint.buyers.map((buyer) => (
             <div
               key={buyer}
-              className="border border-border/70 bg-background/60 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.1em] text-muted-foreground"
+              className="border border-border/70 bg-background/60 px-4 py-2 font-mono text-[13px] uppercase tracking-[0.1em] text-muted-foreground"
             >
               {buyer}
             </div>
@@ -456,7 +456,7 @@ function EndpointSection({
       </div>
 
       <div className="mt-6">
-        <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Relevant Buyer Teams</div>
+        <div className="font-mono text-[13px] uppercase tracking-[0.16em] text-muted-foreground">Relevant Buyer Teams</div>
         <div className="mt-3">
           <TeamPills teams={endpoint.teams} />
         </div>
@@ -580,17 +580,17 @@ export default function IntelApi() {
                     </p>
 
                     <div className="mt-8 grid gap-4 md:grid-cols-3">
-                      <div className="border border-border/70 bg-background/50 p-4">
-                        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">what teams buy</div>
-                        <p className="mt-3 text-sm leading-7 text-foreground">decision APIs, route scoring, live alerts, pool toxicity, validator context, and operator intelligence.</p>
+                      <div className="border border-border/70 bg-background/50 p-5">
+                        <div className="font-mono text-[13px] uppercase tracking-[0.2em] text-primary">what teams buy</div>
+                        <p className="mt-3 text-[15px] leading-7 text-foreground">decision APIs, route scoring, live alerts, pool toxicity, validator context, and operator intelligence.</p>
                       </div>
-                      <div className="border border-border/70 bg-background/50 p-4">
-                        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">how they integrate</div>
-                        <p className="mt-3 text-sm leading-7 text-foreground">call pre-trade, rank route candidates, downrank bad venues, trigger alerts, and feed route policy back into execution systems.</p>
+                      <div className="border border-border/70 bg-background/50 p-5">
+                        <div className="font-mono text-[13px] uppercase tracking-[0.2em] text-primary">how they integrate</div>
+                        <p className="mt-3 text-[15px] leading-7 text-foreground">call pre-trade, rank route candidates, downrank bad venues, trigger alerts, and feed route policy back into execution systems.</p>
                       </div>
-                      <div className="border border-border/70 bg-background/50 p-4">
-                        <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">why they pay</div>
-                        <p className="mt-3 text-sm leading-7 text-foreground">because avoiding even small amounts of toxic routing or LP drag can justify recurring spend on meaningful volume.</p>
+                      <div className="border border-border/70 bg-background/50 p-5">
+                        <div className="font-mono text-[13px] uppercase tracking-[0.2em] text-primary">why they pay</div>
+                        <p className="mt-3 text-[15px] leading-7 text-foreground">because avoiding even small amounts of toxic routing or LP drag can justify recurring spend on meaningful volume.</p>
                       </div>
                     </div>
                   </div>
