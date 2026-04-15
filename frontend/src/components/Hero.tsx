@@ -3,15 +3,15 @@ import { Link } from "react-router-dom";
 import IntelleumLogo from "./IntelleumLogo";
 
 const sideLegend = [
-  { label: "user tx", color: "bg-green-500/70", text: "text-muted-foreground" },
-  { label: "mev bot", color: "bg-red-500/70", text: "text-red-400" },
-  { label: "validator", color: "bg-primary/80", text: "text-primary" },
+  { label: "user tx",   color: "bg-green-500/70",  text: "text-muted-foreground" },
+  { label: "mev bot",   color: "bg-red-500/70",     text: "text-red-400" },
+  { label: "validator", color: "bg-primary/80",     text: "text-primary" },
 ];
 
 const rightCards = [
-  { title: "route risk", value: "avoid", meta: "bundle-heavy surface", tone: "text-red-300" },
-  { title: "pool toxicity", value: "elevated", meta: "repeat extraction pressure", tone: "text-yellow-300" },
-  { title: "live alerts", value: "exportable", meta: "ops + routing systems", tone: "text-primary" },
+  { title: "sandwich",  value: "+247", meta: "Last Hour", tone: "text-red-300" },
+  { title: "arbitrage", value: "+891", meta: "Last Hour", tone: "text-yellow-300" },
+  { title: "jit liquid",value: "+134", meta: "Last Hour", tone: "text-orange-300" },
 ];
 
 const attackTags = ["sandwich", "arbitrage", "jit", "backrun"];
@@ -22,6 +22,7 @@ export default function Hero() {
       <div className="absolute inset-0 grid-overlay-subtle opacity-35" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(6,214,247,0.10),transparent_32%),radial-gradient(circle_at_78%_20%,rgba(217,38,38,0.08),transparent_18%)]" />
 
+      {/* Left legend */}
       <motion.div
         className="absolute left-8 top-1/2 hidden -translate-y-1/2 lg:block"
         initial={{ opacity: 0, x: -16 }}
@@ -29,7 +30,7 @@ export default function Hero() {
         transition={{ duration: 0.6, delay: 0.15 }}
       >
         <div className="space-y-6">
-          {sideLegend.map((item, index) => (
+          {sideLegend.map((item) => (
             <div key={item.label} className="flex items-center gap-4">
               <div className={`h-3 w-3 rounded-full ${item.color}`} />
               <div className="h-px w-20 bg-gradient-to-r from-primary/50 to-transparent" />
@@ -39,6 +40,7 @@ export default function Hero() {
         </div>
       </motion.div>
 
+      {/* Right cards */}
       <motion.div
         className="absolute right-8 top-1/2 hidden -translate-y-1/2 space-y-4 lg:block"
         initial={{ opacity: 0, x: 16 }}
@@ -60,7 +62,10 @@ export default function Hero() {
         ))}
       </motion.div>
 
+      {/* Center content */}
       <div className="relative mx-auto flex min-h-[80vh] max-w-5xl flex-col items-center justify-center text-center">
+
+        {/* Logo + title */}
         <motion.div
           initial={{ opacity: 0, scale: 0.92 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -74,24 +79,27 @@ export default function Hero() {
           </div>
         </motion.div>
 
+        {/* Headline */}
         <motion.h1
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.65, delay: 0.12 }}
           className="mt-10 max-w-4xl text-[2rem] font-semibold leading-tight text-foreground md:text-[3.35rem]"
         >
-          See where Solana orderflow gets extracted, repriced, and routed, then expose that intelligence to the systems that can act on it.
+          See where Solana orderflow is getting extracted, repriced, and routed.
         </motion.h1>
 
+        {/* Subtext */}
         <motion.p
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.65, delay: 0.18 }}
           className="mt-5 max-w-3xl text-[15px] leading-7 text-muted-foreground md:text-lg"
         >
-          Track live MEV detections, operator behavior, route risk, toxic pools, validator-linked execution, and exportable live alerts in one Solana-native intelligence layer.
+          Track live MEV detections, wallet-level operator profiles, toxic pools, and validator-linked execution patterns in real-time.
         </motion.p>
 
+        {/* Attack tags */}
         <motion.div
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
@@ -108,25 +116,27 @@ export default function Hero() {
           ))}
         </motion.div>
 
+        {/* CTAs */}
         <motion.div
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.3 }}
           className="mt-10 flex flex-wrap justify-center gap-4"
         >
-          <Link
-            to="/dashboard"
+          <a
+            href="#access"
             className="border border-primary bg-primary px-7 py-4 font-mono text-xs uppercase tracking-[0.22em] text-background transition-colors hover:bg-primary/90"
           >
-            open live dashboard
-          </Link>
+            Request Early Access
+          </a>
           <Link
             to="/dashboard"
             className="px-4 py-4 text-base text-foreground transition-colors hover:text-primary"
           >
-            view intelligence demo
+            View Intelligence Demo
           </Link>
         </motion.div>
+
       </div>
     </section>
   );
