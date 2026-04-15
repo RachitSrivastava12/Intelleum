@@ -1,0 +1,36 @@
+# render.yaml — Deploy both services from one repo
+# Paste this in Render dashboard or use Infrastructure as Code
+
+services:
+  # ============================================================
+  # API SERVER — Web Service
+  # ============================================================
+  - type: web
+    name: intelleum-api
+    runtime: node
+    region: oregon
+    plan: starter
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: intelleum-db
+          property: connectionString
+      - key: FRONTEND_URL
+        sync: false   # e.g. https://intelleum.vercel.app
+    healthCheckPath: /health
+    autoDeploy: true
+
+# ============================================================
+# DATABASE — Postgres
+# ============================================================
+databases:
+  - name: intelleum-db
+    region: oregon
+    plan: starter
+    databaseName: intelleum
+    user: intelleum

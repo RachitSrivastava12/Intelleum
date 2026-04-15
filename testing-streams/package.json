@@ -1,0 +1,11 @@
+{
+  "name": "testing-streams",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tiny standalone webhook receiver for testing Solana QuickNode Streams",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node --watch server.js",
+    "start": "node server.js"
+  }
+}
