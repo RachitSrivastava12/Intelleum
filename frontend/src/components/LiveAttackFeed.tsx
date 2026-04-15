@@ -63,13 +63,14 @@ export default function LiveAttackFeed({ filterType, maxItems = 50, compact = fa
   const [detailById, setDetailById] = useState<Record<number, AttackDetail>>({});
   const lastFetchRef = useRef<string | null>(null);
   const attacksRef = useRef<Attack[]>([]);
+  const isPausedRef = useRef(false);
 
   useEffect(() => {
     attacksRef.current = attacks;
   }, [attacks]);
 
   async function fetchAttacks() {
-    if (isPaused) return;
+    if (isPausedRef.current) return;
     try {
       const response = await api.attacks({
         type: activeFilter || undefined,
@@ -115,7 +116,7 @@ export default function LiveAttackFeed({ filterType, maxItems = 50, compact = fa
     fetchAttacks();
     const t = setInterval(fetchAttacks, 5_000);
     return () => clearInterval(t);
-  }, [activeFilter, isPaused]);
+  }, [activeFilter]);
 
   useEffect(() => {
     if (!selectedAttackId || detailById[selectedAttackId]) return;
@@ -210,7 +211,7 @@ export default function LiveAttackFeed({ filterType, maxItems = 50, compact = fa
             ))}
           </div>
           <button
-            onClick={() => setIsPaused(p => !p)}
+            onClick={() => { isPausedRef.current = !isPausedRef.current; setIsPaused(p => !p); }}
             className={`text-xs px-3 py-1 border ${
               isPaused
                 ? "border-yellow-500/40 text-yellow-400"
