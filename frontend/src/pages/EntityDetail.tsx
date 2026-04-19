@@ -29,6 +29,8 @@ const TYPE_COLORS: Record<string, string> = {
   jit:         "text-orange-400",
   liquidation: "text-purple-400",
   backrun:     "text-blue-400",
+  liquidity_snipe: "text-pink-400",
+  liquidity_drain: "text-cyan-300",
 };
 
 export default function EntityDetail() {
@@ -61,6 +63,7 @@ export default function EntityDetail() {
 
   const { entity, wallets, recent_attacks, targeted_pools, validator_correlation, profit_timeline } = data;
   const maxProfit = Math.max(...profit_timeline.map(d => d.profit), 1);
+  const maxTargetedPoolAttacks = Math.max(...targeted_pools.map((pool) => pool.attack_count), 1);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -274,6 +277,53 @@ export default function EntityDetail() {
               </div>
             </div>
 
+            {/* Cluster evidence */}
+            <div className="intel-panel p-5">
+              <p className="text-xs font-mono text-muted-foreground mb-4">// Cluster Evidence</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="border border-border/70 p-3">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Shared Surfaces</div>
+                  <div className="mt-2 text-lg text-foreground">{data.cluster_evidence.shared_surface_count}</div>
+                </div>
+                <div className="border border-border/70 p-3">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Shared Validators</div>
+                  <div className="mt-2 text-lg text-foreground">{data.cluster_evidence.shared_validator_count}</div>
+                </div>
+                <div className="border border-border/70 p-3">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Shared Strategies</div>
+                  <div className="mt-2 text-lg text-foreground">{data.cluster_evidence.shared_strategy_count}</div>
+                </div>
+                <div className="border border-border/70 p-3">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Tight Windows</div>
+                  <div className="mt-2 text-lg text-foreground">{data.cluster_evidence.coordinated_window_count}</div>
+                </div>
+              </div>
+            </div>
+
+            {data.related_surfaces.length > 0 && (
+              <div className="intel-panel p-5">
+                <p className="text-xs font-mono text-muted-foreground mb-4">// Shared Surfaces</p>
+                <div className="space-y-3">
+                  {data.related_surfaces.map((surface) => (
+                    <div key={surface.surface} className="border border-border/70 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <CopyableValue
+                          value={surface.surface}
+                          display={formatPoolLabel(surface.surface)}
+                          className="text-xs text-foreground"
+                          title={formatPoolLabel(surface.surface)}
+                        />
+                        <span className="text-xs text-primary">{formatUSD(surface.total_profit)}</span>
+                      </div>
+                      <div className="mt-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                        {surface.wallet_count} wallets · {surface.attacks} attacks
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Targeted pools */}
             <div className="intel-panel p-5">
               <p className="text-xs font-mono text-muted-foreground mb-4">// Targeted Pools</p>
@@ -301,7 +351,7 @@ export default function EntityDetail() {
                       <motion.div
                         className="h-full bg-primary/50"
                         initial={{ width: 0 }}
-                        animate={{ width: `${(p.attack_count / targeted_pools[0]?.attack_count) * 100}%` }}
+                        animate={{ width: `${Math.min(100, (p.attack_count / maxTargetedPoolAttacks) * 100)}%` }}
                         transition={{ delay: i * 0.05 }}
                       />
                     </div>
@@ -317,13 +367,24 @@ export default function EntityDetail() {
                 <p className="text-xs font-mono text-muted-foreground mb-4">// Validator Correlation</p>
                 <div className="space-y-2">
                   {validator_correlation.map(v => (
-                    <div key={v.validator} className="flex justify-between text-xs font-mono">
-                      <CopyableValue
-                        value={v.validator}
-                        display={truncate(v.validator)}
-                        className="text-foreground"
-                      />
-                      <span className="text-muted-foreground">{v.attacks} attacks</span>
+                    <div key={v.validator} className="border border-border/70 p-3">
+                      <div className="flex items-start justify-between gap-3 text-xs font-mono">
+                        <CopyableValue
+                          value={v.validator}
+                          display={truncate(v.validator)}
+                          className="text-foreground"
+                        />
+                        <span className="text-primary">{v.attacks} attacks</span>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                        <div>share {v.exposure_share.toFixed(1)}%</div>
+                        <div>risk {(v.validator_risk * 100).toFixed(0)}%</div>
+                        <div>sandwich {v.observed_sandwich_rate.toFixed(1)}%</div>
+                        <div>centralize {v.stake_centralization_risk.toFixed(0)}</div>
+                      </div>
+                      <div className="mt-2 text-[10px] uppercase tracking-[0.2em] text-primary">
+                        action: {v.recommended_action}
+                      </div>
                     </div>
                   ))}
                 </div>

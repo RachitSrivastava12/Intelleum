@@ -5,12 +5,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 const teams = [
   { name: "Jupiter", domain: "jup.ag", type: "aggregator" },
   { name: "Orca", domain: "orca.so", type: "dex" },
-  { name: "Drift", domain: "drift.trade", type: "trading" },
-  { name: "Kamino", domain: "manage.kamino.com", type: "protocol" },
+  { name: "Kamino", domain: "kamino.finance", type: "protocol" },
   { name: "Helius", domain: "helius.dev", type: "infra" },
   { name: "Sanctum", domain: "sanctum.so", type: "staking infra" },
   { name: "Jito", domain: "jito.network", type: "validator infra" },
   { name: "Keyrock", domain: "keyrock.com", type: "market maker" },
+  { name: "Triton One", domain: "triton.one", type: "rpc infra" },
 ];
 
 function faviconUrl(domain: string) {
@@ -29,24 +29,31 @@ export default function BuyerLogoStrip() {
           </p>
         </div>
 
-        <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-5">
+        <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4">
           {teams.map((team, index) => (
             <Tooltip key={team.name}>
               <TooltipTrigger asChild>
                 <motion.div
                   initial={{ opacity: 0, y: 8 }}
                   whileInView={{ opacity: 1, y: 0 }}
+                  whileHover={{
+                    y: -4,
+                    borderColor: "rgba(6,214,247,0.26)",
+                    backgroundColor: "rgba(14,20,27,0.7)",
+                  }}
                   viewport={{ once: true }}
                   transition={{ duration: 0.35, delay: index * 0.03 }}
-                  className="group flex h-24 cursor-default flex-col items-center justify-center border border-border/70 bg-surface/40 px-4 text-center"
+                  className="group flex h-28 cursor-default flex-col items-center justify-center border border-border/70 bg-surface/40 px-4 text-center"
                 >
-                  <img
-                    src={faviconUrl(team.domain)}
-                    alt={team.name}
-                    className="h-10 w-10 object-contain opacity-95 transition-opacity group-hover:opacity-100"
-                    loading="lazy"
-                  />
-                  <div className="mt-3 font-mono text-xs uppercase tracking-[0.18em] text-foreground">
+                  <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-sm border border-border/70 bg-background/50 p-2">
+                    <img
+                      src={faviconUrl(team.domain)}
+                      alt={team.name}
+                      className="max-h-full max-w-full object-contain opacity-95 transition-opacity group-hover:opacity-100"
+                      loading="lazy"
+                    />
+                  </div>
+                  <div className="mt-4 font-mono text-xs uppercase tracking-[0.18em] text-foreground">
                     {team.name}
                   </div>
                   <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -66,7 +73,7 @@ export default function BuyerLogoStrip() {
         <div className="mt-8 text-center">
           <Link
             to="/intel-api"
-            className="inline-block px-10 py-4 bg-primary text-background font-mono font-bold text-sm tracking-wider hover:bg-primary/90 transition-colors"
+            className="inline-block bg-primary px-10 py-4 font-mono text-sm font-bold tracking-wider text-background transition-colors hover:bg-primary/90"
           >
             SEE API PRODUCTS →
           </Link>

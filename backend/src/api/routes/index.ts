@@ -1,21 +1,29 @@
 import express, { Request, Response } from "express";
+import crypto from "crypto";
 import {
   evaluateRoute,
   getAttacks,
   getEntities,
   getEntity,
   getIntegrationFeeds,
+  getExecutionQuality,
   getLiveAlerts,
+  getLpProtection,
   getPoolDetails,
   getPools,
+  getPredictionMarketExecution,
   getRouteRecommendations,
   getRouteRisks,
+  getSavingsSummary,
+  getSourceAttribution,
   getStats,
   getValidators,
   getWallet,
+  getFlowSegments,
+  preventionGuard,
   rankRoutes,
 } from "../liveData";
-import { ensureAccessSchema, pool } from "../../db/pool";
+import { ensureAccessSchema, ensureApiKeySchema, hashApiKey, pool } from "../../db/pool";
 import { liveChainService } from "../../services/liveChain";
 import { quickNodeStreamService } from "../../services/quickNodeStream";
 
@@ -131,6 +139,16 @@ router.get("/routes/risk", (req: Request, res: Response) => {
   res.json(liveChainService.hasLiveData() ? liveChainService.getRouteRisks(limit) : getRouteRisks(limit));
 });
 
+router.get("/analytics/execution-quality", (req: Request, res: Response) => {
+  const limit = Number.parseInt((req.query.limit as string) ?? "20", 10) || 20;
+  res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
+  res.json(
+    liveChainService.hasLiveData()
+      ? liveChainService.getExecutionQuality(limit)
+      : getExecutionQuality(limit),
+  );
+});
+
 router.get("/routes/recommendations", (req: Request, res: Response) => {
   const limit = Number.parseInt((req.query.limit as string) ?? "12", 10) || 12;
   res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
@@ -138,6 +156,27 @@ router.get("/routes/recommendations", (req: Request, res: Response) => {
     liveChainService.hasLiveData()
       ? liveChainService.getRouteRecommendations(limit)
       : getRouteRecommendations(limit),
+  );
+});
+
+router.get("/routes/policies", (req: Request, res: Response) => {
+  const limit = Number.parseInt((req.query.limit as string) ?? "20", 10) || 20;
+  const objective = (req.query.objective as string) ?? "protect_users";
+  res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
+  res.json(
+    liveChainService.hasLiveData()
+      ? liveChainService.getRoutePolicies(limit, objective as any)
+      : getRouteRisks(limit).map((route) => ({
+          route_key: route.route_key,
+          label: route.label,
+          objective,
+          policy_action: route.policy_action,
+          recommended_max_notional_usd: route.recommended_max_notional_usd,
+          estimated_savings_bps: route.estimated_savings_bps,
+          estimated_savings_usd: route.estimated_savings_usd,
+          reason_codes: route.reason_codes,
+          decomposition: route.decomposition,
+        })),
   );
 });
 
@@ -173,6 +212,16 @@ router.get("/integrations/live-alerts", (req: Request, res: Response) => {
   );
 });
 
+router.post("/prevention/guard", (req: Request, res: Response) => {
+  const body = req.body ?? {};
+  res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
+  res.json(
+    liveChainService.hasLiveData()
+      ? liveChainService.preventionGuard(body)
+      : preventionGuard(body),
+  );
+});
+
 router.get("/integrations/feeds", (req: Request, res: Response) => {
   const limit = Number.parseInt((req.query.limit as string) ?? "20", 10) || 20;
   res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
@@ -181,6 +230,27 @@ router.get("/integrations/feeds", (req: Request, res: Response) => {
       ? liveChainService.getIntegrationFeeds(limit)
       : getIntegrationFeeds(limit),
   );
+});
+
+router.get("/flows/segments", (_req: Request, res: Response) => {
+  res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
+  res.json(liveChainService.hasLiveData() ? liveChainService.getFlowSegments() : getFlowSegments());
+});
+
+router.get("/attribution/sources", (req: Request, res: Response) => {
+  const limit = Number.parseInt((req.query.limit as string) ?? "8", 10) || 8;
+  res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
+  res.json(
+    liveChainService.hasLiveData()
+      ? liveChainService.getSourceAttribution(limit)
+      : getSourceAttribution(limit),
+  );
+});
+
+router.get("/pools/lp-protection", (req: Request, res: Response) => {
+  const limit = Number.parseInt((req.query.limit as string) ?? "20", 10) || 20;
+  res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
+  res.json(liveChainService.hasLiveData() ? liveChainService.getLpProtection(limit) : getLpProtection(limit));
 });
 
 router.get("/pools/:address", (req: Request, res: Response) => {
@@ -195,6 +265,27 @@ router.get("/pools/:address", (req: Request, res: Response) => {
 router.get("/validators", (_req: Request, res: Response) => {
   res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
   res.json(liveChainService.hasLiveData() ? liveChainService.getValidators() : getValidators());
+});
+
+router.get("/validators/regimes", (req: Request, res: Response) => {
+  const limit = Number.parseInt((req.query.limit as string) ?? "10", 10) || 10;
+  res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
+  res.json((liveChainService.hasLiveData() ? liveChainService.getValidators() : getValidators()).slice(0, limit));
+});
+
+router.get("/savings/summary", (_req: Request, res: Response) => {
+  res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
+  res.json(liveChainService.hasLiveData() ? liveChainService.getSavingsSummary() : getSavingsSummary());
+});
+
+router.get("/prediction-markets/execution", (req: Request, res: Response) => {
+  const limit = Number.parseInt((req.query.limit as string) ?? "6", 10) || 6;
+  res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
+  res.json(
+    liveChainService.hasLiveData()
+      ? liveChainService.getPredictionMarketExecution(limit)
+      : getPredictionMarketExecution(limit),
+  );
 });
 
 router.get("/wallet/:address", (req: Request, res: Response) => {
@@ -230,6 +321,125 @@ router.post("/access/request", async (req: Request, res: Response) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to save access request" });
+  }
+});
+
+router.post("/access/api-key", async (req: Request, res: Response) => {
+  try {
+    const { walletAddress, name, email, organization, useCase, message } = req.body ?? {};
+    if (!walletAddress || typeof walletAddress !== "string") {
+      return res.status(400).json({ error: "walletAddress is required" });
+    }
+
+    await ensureApiKeySchema();
+
+    const existing = await pool.query(
+      `SELECT wallet_address, api_key_prefix, request_limit, request_count, status, created_at
+       FROM api_clients
+       WHERE wallet_address = $1`,
+      [walletAddress],
+    );
+
+    if (existing.rows[0]) {
+      const row = existing.rows[0];
+      return res.status(409).json({
+        error: "API key already issued for this wallet",
+        wallet_address: row.wallet_address,
+        api_key_prefix: row.api_key_prefix,
+        request_limit: row.request_limit,
+        request_count: row.request_count,
+        remaining_requests: Math.max(0, row.request_limit - row.request_count),
+        created_at: row.created_at,
+      });
+    }
+
+    const rawKey = `itl_live_${crypto.randomBytes(18).toString("hex")}`;
+    const keyHash = hashApiKey(rawKey);
+    const keyPrefix = `${rawKey.slice(0, 14)}...`;
+
+    await pool.query(
+      `INSERT INTO api_clients (
+        wallet_address,
+        name,
+        email,
+        organization,
+        use_case,
+        message,
+        api_key_hash,
+        api_key_prefix,
+        request_limit,
+        request_count,
+        status
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [
+        walletAddress,
+        name ?? null,
+        email ?? null,
+        organization ?? null,
+        useCase ?? null,
+        message ?? null,
+        keyHash,
+        keyPrefix,
+        5,
+        0,
+        "active",
+      ],
+    );
+
+    res.json({
+      success: true,
+      wallet_address: walletAddress,
+      api_key: rawKey,
+      api_key_prefix: keyPrefix,
+      request_limit: 5,
+      request_count: 0,
+      remaining_requests: 5,
+      required_header: "x-api-key",
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to issue API key" });
+  }
+});
+
+router.get("/access/api-key/status/:walletAddress", async (req: Request, res: Response) => {
+  try {
+    const walletAddress = req.params.walletAddress;
+    if (!walletAddress || typeof walletAddress !== "string") {
+      return res.status(400).json({ error: "walletAddress is required" });
+    }
+
+    await ensureApiKeySchema();
+
+    const result = await pool.query(
+      `SELECT wallet_address, api_key_prefix, request_limit, request_count, status, created_at, last_request_at
+       FROM api_clients
+       WHERE wallet_address = $1`,
+      [walletAddress],
+    );
+
+    const client = result.rows[0];
+    if (!client) {
+      return res.status(404).json({
+        error: "No API key issued for this wallet",
+        wallet_address: walletAddress,
+      });
+    }
+
+    res.json({
+      wallet_address: client.wallet_address,
+      api_key_prefix: client.api_key_prefix,
+      request_limit: client.request_limit,
+      request_count: client.request_count,
+      remaining_requests: Math.max(0, client.request_limit - client.request_count),
+      status: client.status,
+      created_at: client.created_at,
+      last_request_at: client.last_request_at,
+      required_header: "x-api-key",
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch API key status" });
   }
 });
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { api, GlobalStats } from "@/lib/api";
+import { api, GlobalStats, SavingsSummary } from "@/lib/api";
 import InfoHint from "@/components/InfoHint";
 
 // ============================================================
@@ -16,15 +16,20 @@ function formatUSD(n: number | null) {
 
 export default function StatsBar() {
   const [stats, setStats] = useState<GlobalStats | null>(null);
+  const [savings, setSavings] = useState<SavingsSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const data = await api.stats();
-        setStats(data);
+        const [statsData, savingsData] = await Promise.all([
+          api.stats(),
+          api.savingsSummary(),
+        ]);
+        setStats(statsData);
+        setSavings(savingsData);
         setError(null);
-        console.info("[stats] loaded", data);
+        console.info("[stats] loaded", statsData, savingsData);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown API error";
         console.error("[stats] failed to load", err);
@@ -39,15 +44,16 @@ export default function StatsBar() {
   }, []);
 
   const items = stats ? [
-    { label: "ATTACKS / 1H",  value: stats.attacks_1h?.toLocaleString() ?? "—",   accent: false, help: "Detected MEV events observed in the last hour." },
-    { label: "ATTACKS / 24H", value: stats.attacks_24h?.toLocaleString() ?? "—",  accent: false, help: "Detected MEV events observed in the last 24 hours." },
-    { label: "EXTRACTED 24H", value: formatUSD(stats.extracted_24h),               accent: true, help: "Estimated searcher-side extracted value observed over the last 24 hours."  },
-    { label: "TOTAL EXTRACTED", value: formatUSD(stats.total_extracted_usd),       accent: true, help: "Estimated cumulative extracted value in the current dataset."  },
-    { label: "ENTITIES",      value: stats.total_entities?.toLocaleString() ?? "—", accent: false, help: "Operator or wallet clusters currently surfaced by the system." },
-    { label: "VICTIMS",       value: stats.total_victims?.toLocaleString() ?? "—", accent: false, help: "Unique victim wallets seen in attacks with attributable user harm." },
-    { label: "SANDWICHES",    value: stats.sandwich_count?.toLocaleString() ?? "—", accent: false, help: "Sandwich detections in the current dataset." },
-    { label: "ARB",           value: stats.arb_count?.toLocaleString() ?? "—",     accent: false, help: "Arbitrage detections in the current dataset." },
-    { label: "JIT",           value: stats.jit_count?.toLocaleString() ?? "—",     accent: false, help: "JIT liquidity detections in the current dataset." },
+    { label: "LOSS AVOIDED / 24H", value: savings ? formatUSD(savings.estimated_loss_avoided_usd_24h) : "—", accent: true, help: "Estimated user / protocol loss avoided if flagged toxic routes are rerouted or blocked." },
+    { label: "AVG BPS SAVED", value: savings ? `${savings.estimated_bps_saved_avg.toFixed(2)} bps` : "—", accent: true, help: "Average basis points preserved across current flagged route surfaces." },
+    { label: "ROUTES FLAGGED", value: savings?.routes_flagged?.toLocaleString() ?? "—", accent: false, help: "Routes currently serious enough to reroute, penalize, or avoid." },
+    { label: "POOLS PROTECTED", value: savings?.pools_protected?.toLocaleString() ?? "—", accent: false, help: "Pools with material LVR / toxicity pressure that should be segmented or monitored closely." },
+    { label: "ATTACKS / 24H", value: stats.attacks_24h?.toLocaleString() ?? "—", accent: false, help: "Detected MEV events observed in the last 24 hours." },
+    { label: "EXTRACTED / 24H", value: formatUSD(stats.extracted_24h), accent: true, help: "Estimated searcher-side extracted value observed over the last 24 hours." },
+    { label: "ENTITIES", value: stats.total_entities?.toLocaleString() ?? "—", accent: false, help: "Operator or wallet clusters currently surfaced by the system." },
+    { label: "VICTIMS", value: stats.total_victims?.toLocaleString() ?? "—", accent: false, help: "Unique victim wallets seen in attacks with attributable user harm." },
+    { label: "SANDWICHES", value: stats.sandwich_count?.toLocaleString() ?? "—", accent: false, help: "Sandwich detections in the current dataset." },
+    { label: "ARBITRAGE", value: stats.arb_count?.toLocaleString() ?? "—", accent: false, help: "Arbitrage detections in the current dataset." },
   ] : [];
 
   return (

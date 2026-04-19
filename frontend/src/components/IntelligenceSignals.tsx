@@ -2,34 +2,40 @@ import { motion } from "framer-motion";
 
 interface SignalPanelProps {
   title: string;
-  description: string;
-  bullets: string[];
+  eyebrow: string;
+  subline: string;
+  points: string[];
   delay?: number;
 }
 
-function SignalPanel({ title, description, bullets, delay = 0 }: SignalPanelProps) {
+function SignalPanel({ title, eyebrow, subline, points, delay = 0 }: SignalPanelProps) {
   return (
     <motion.div
-      className="intel-panel-glow h-full p-6"
+      className="intel-panel-glow h-full min-h-[220px] p-4 transition-colors md:min-h-[236px]"
       initial={{ opacity: 0, y: 24 }}
       whileInView={{ opacity: 1, y: 0 }}
+      whileHover={{
+        y: -6,
+        borderColor: "rgba(6,214,247,0.28)",
+        boxShadow: "0 22px 60px rgba(0,0,0,0.28), 0 0 0 1px rgba(6,214,247,0.08)",
+      }}
       viewport={{ once: true }}
       transition={{ duration: 0.45, delay }}
     >
-      <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-primary">{title}</div>
-      <p className="mt-3 text-sm leading-6 text-muted-foreground">{description}</p>
-      <div className="mt-5 space-y-3 border-t border-border/70 pt-4">
-        {bullets.map((item, index) => (
+      <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-primary">{eyebrow}</div>
+      <div className="mt-2 text-[1.2rem] font-semibold leading-[1.08] tracking-tight text-foreground md:text-[1.32rem]">{title}</div>
+      <div className="mt-2 max-w-[13rem] text-[12px] leading-5 text-muted-foreground">{subline}</div>
+      <div className="mt-4 flex flex-wrap gap-2.5 border-t border-border/70 pt-3">
+        {points.map((item, index) => (
           <motion.div
             key={item}
             initial={{ opacity: 0, x: -8 }}
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.3, delay: delay + 0.1 + index * 0.05 }}
-            className="flex items-start gap-3"
+            className="flex aspect-square w-[72px] items-center justify-center border border-border/70 bg-background/30 p-2 text-center md:w-[76px]"
           >
-            <span className="mt-1 inline-block h-1.5 w-1.5 rounded-full bg-primary" />
-            <span className="font-mono text-xs leading-6 text-foreground">{item}</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.08em] text-foreground">{item}</span>
           </motion.div>
         ))}
       </div>
@@ -39,87 +45,70 @@ function SignalPanel({ title, description, bullets, delay = 0 }: SignalPanelProp
 
 export default function IntelligenceSignals() {
   return (
-    <section className="relative overflow-hidden px-6 py-20">
+    <section className="relative overflow-hidden px-6 py-10">
       <div className="absolute inset-0 grid-overlay-subtle opacity-20" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(6,214,247,0.06),transparent_35%)]" />
 
-      <div className="relative mx-auto max-w-7xl">
+      <div className="relative mx-auto max-w-[1280px]">
         <motion.div
-          className="mx-auto mb-12 max-w-3xl text-center"
+          className="mx-auto mb-7 max-w-[860px] text-center"
           initial={{ opacity: 0, y: 16 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.45 }}
         >
-          <div className="font-mono text-[10px] uppercase tracking-[0.26em] text-primary">// what intelleum actually does</div>
-          <h2 className="mt-4 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
-            Built to reduce toxic execution, not just visualize it after the fact.
+          <div className="font-mono text-[9px] uppercase tracking-[0.22em] text-primary">// what intelleum actually does</div>
+          <h2 className="mt-2 text-[1.7rem] font-semibold tracking-tight text-foreground md:whitespace-nowrap md:text-[2.15rem]">
+            Built to reduce toxic execution, not just chart it.
           </h2>
-          <p className="mt-4 text-[15px] leading-7 text-muted-foreground md:text-base">
-            Intelleum combines live detection, route risk, entity intelligence, validator context, and exportable
-            action feeds so Solana teams can see hostile flow and react faster.
+          <p className="mt-2 text-[13px] leading-5 text-muted-foreground md:text-[14px]">
+            Hostile flow, route pressure, and prevention outputs in one Solana-native system.
           </p>
         </motion.div>
 
-        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-2">
           <SignalPanel
-            title="Live Detection"
-            description="Surface sandwich attacks, arbitrage, JIT liquidity, liquidations, backruns, and suspicious flow as blocks land."
-            bullets={[
-              "real-time mev event stream",
-              "confidence-scored detection families",
-              "evidence trails for each surfaced event",
+            eyebrow="Live Detection"
+            title="Catch hostile flow as blocks land."
+            subline="Real-time detectors for sandwiches, arbitrage, JIT, and suspicious execution."
+            points={[
+              "Live feed",
+              "Confidence",
+              "Evidence",
             ]}
           />
           <SignalPanel
-            title="Route Risk"
-            description="Score venues and execution paths by hostile-flow pressure so routing systems can downrank toxic surfaces before more users get hit."
-            bullets={[
-              "avoid / penalize / monitor recommendations",
-              "bundle-share and operator concentration",
-              "execution-quality framing for wallets and aggregators",
+            eyebrow="Route Risk"
+            title="Score routes before more flow gets sent into them."
+            subline="Turn route pressure into decisions before more user flow gets burned."
+            points={[
+              "Avoid",
+              "Monitor",
+              "Reroute",
             ]}
             delay={0.05}
           />
           <SignalPanel
-            title="Pool Toxicity"
-            description="Rank where extraction pressure is concentrated and distinguish between exact pools, venues, and route-level surfaces honestly."
-            bullets={[
-              "repeat sandwich pressure",
-              "extracted value concentration",
-              "operator density across pools and venues",
+            eyebrow="Pool Toxicity"
+            title="See where LPs and users are getting picked off."
+            subline="Rank the surfaces where extraction pressure, drag, and stale quotes concentrate."
+            points={[
+              "LVR pressure",
+              "Value drag",
+              "Operator density",
             ]}
             delay={0.1}
           />
           <SignalPanel
-            title="Entity Intelligence"
-            description="Move beyond isolated wallets by clustering behavior into operators, tracking attack history, and surfacing repeat execution patterns."
-            bullets={[
-              "wallet-level operator profiles",
-              "behavioral clustering over time",
-              "attacker-side attribution context",
+            eyebrow="APIs & Integrations"
+            title="Push the intelligence straight into production systems."
+            subline="Expose live alerts, route checks, and guardrails through the API layer."
+            points={[
+              "Live alerts",
+              "Route APIs",
+              "Pre-trade guard",
             ]}
             delay={0.15}
-          />
-          <SignalPanel
-            title="Validator Context"
-            description="Watch where MEV-heavy flow repeatedly lands and where priority-fee or bundle-like execution pressure is concentrated."
-            bullets={[
-              "sandwich share by validator",
-              "wide-bracket activity concentration",
-              "jito-aligned / priority-fee execution context",
-            ]}
-            delay={0.2}
-          />
-          <SignalPanel
-            title="Integrations"
-            description="Expose the intelligence directly to production systems through route recommendations, live alerts, and exportable feeds."
-            bullets={[
-              "live alerts feed for ops and risk",
-              "route recommendations for routers",
-              "api surfaces for protocol-side monitoring",
-            ]}
-            delay={0.25}
           />
         </div>
       </div>

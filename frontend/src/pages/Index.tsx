@@ -1,13 +1,12 @@
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import Hero from "@/components/Hero";
-import AnalysisFlow from "@/components/AnalysisFlow";
 import IntelligenceSignals from "@/components/IntelligenceSignals";
 import BuyerLogoStrip from "@/components/BuyerLogoStrip";
-import WhoIsThisFor from "@/components/WhoIsThisFor";
 import AccessForm from "@/components/AccessForm";
 import Footer from "@/components/Footer";
-import ForensicWindow from "@/components/ForensicWindow";
+import AnalysisFlow from "@/components/AnalysisFlow";
+import WhoIsThisFor from "@/components/WhoIsThisFor";
 import { useEffect, useState } from "react";
 import { api, GlobalStats } from "@/lib/api";
 
@@ -34,8 +33,8 @@ const Index = () => {
       {/* CTA section linking to real dashboard */}
       <LiveDashboardCTA />
       <div className="glow-line" />
-
-      <WhoIsThisFor />
+       <WhoIsThisFor />
+      
       <div className="glow-line" />
       <AccessForm />
       <Footer />

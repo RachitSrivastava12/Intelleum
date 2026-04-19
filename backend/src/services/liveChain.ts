@@ -82,6 +82,15 @@ interface ApiPool {
   top_entity_id: string | null;
   top_entity_label: string | null;
   top_entity_risk: number | null;
+  lvr_proxy_score?: number;
+  adverse_selection_intensity?: number;
+  stale_quote_arb_frequency?: number;
+  lp_drag_estimate_usd?: number;
+  toxic_to_benign_volume_ratio?: number;
+  quote_freshness_stress?: number;
+  saved_fee_bps_if_segmented?: number;
+  primary_cause?: string;
+  reason_codes?: string[];
 }
 
 interface ApiRouteRisk {
@@ -101,7 +110,48 @@ interface ApiRouteRisk {
   bundle_share: number;
   risk_score: number;
   recommendation: "avoid" | "penalize" | "monitor";
+  execution_quality_score: number;
+  toxic_flow_rate: number;
+  realized_slippage_bps: number;
+  stale_quote_pickup_rate: number;
+  quote_freshness_ms: number;
+  markout_1s_bps: number;
+  markout_5s_bps: number;
+  markout_30s_bps: number;
+  flow_quality_score: number;
+  toxicity_probability: number;
+  retail_likelihood: number;
+  lp_adverse_selection_probability: number;
+  lvr_proxy_score: number;
+  priority_fee_pressure: number;
+  validator_markout_quality: number;
+  source_hint: string;
+  recommended_max_notional_usd: number;
+  estimated_savings_bps: number;
+  estimated_savings_usd: number;
+  policy_action: "allow" | "monitor" | "penalize" | "avoid" | "reroute";
+  reason_codes: string[];
+  decomposition: Array<{ label: string; value: number }>;
 }
+
+type ApiRouteRiskAccumulator = Pick<
+  ApiRouteRisk,
+  | "route_key"
+  | "route_kind"
+  | "protocol"
+  | "label"
+  | "sandwich_count"
+  | "arbitrage_count"
+  | "jit_count"
+  | "liquidation_count"
+  | "backrun_count"
+  | "total_attacks"
+  | "total_extracted_usd"
+> & {
+  confidence_sum: number;
+  bundle_sum: number;
+  attackers: Set<string>;
+};
 
 interface ApiRouteRecommendation {
   input_mint: string | null;
@@ -163,6 +213,26 @@ interface ApiRouteEvaluation {
   slippage_bps: number | null;
   objective: NonNullable<ApiRouteEvaluationRequest["objective"]>;
   confidence_band: "high" | "medium" | "exploratory";
+  execution_quality_score?: number;
+  toxic_flow_rate?: number;
+  realized_slippage_bps?: number;
+  markout_1s_bps?: number;
+  markout_5s_bps?: number;
+  markout_30s_bps?: number;
+  stale_quote_pickup_rate?: number;
+  quote_freshness_ms?: number;
+  flow_quality_score?: number;
+  toxicity_probability?: number;
+  retail_likelihood?: number;
+  lp_adverse_selection_probability?: number;
+  lvr_proxy_score?: number;
+  recommended_max_notional_usd?: number;
+  estimated_savings_bps?: number;
+  estimated_savings_usd?: number;
+  source_hint?: string;
+  reason_codes?: string[];
+  decomposition?: Array<{ label: string; value: number }>;
+  policy_action?: "allow" | "monitor" | "penalize" | "avoid" | "reroute";
   safer_alternatives: Array<{
     route_key: string;
     label: string;
@@ -197,6 +267,8 @@ interface ApiRouteRanking {
   selected_label: string | null;
   primary_action: "route" | "monitor" | "reroute" | "block";
   estimated_loss_avoided_usd: number;
+  estimated_bps_saved?: number;
+  counterfactual_worst_route_key?: string | null;
   ranked_candidates: Array<
     ApiRouteEvaluation & {
       rank: number;
@@ -277,6 +349,7 @@ interface LiquidityLegCandidate {
   token_mints: string[];
   stableValueDelta: number;
   priority_fee: number | null;
+  parsedLiquiditySignal: "add" | "remove" | "unknown";
 }
 
 interface DetectionMetrics {
@@ -289,6 +362,8 @@ interface DetectionMetrics {
   arbitrageCandidates: number;
   jitCandidates: number;
   liquidationCandidates: number;
+  liquiditySnipeCandidates: number;
+  liquidityDrainCandidates: number;
   suspiciousCandidates: number;
   backrunCandidates: number;
 }
@@ -321,6 +396,50 @@ interface LiveStatus {
   }>;
 }
 
+interface FlowSegmentRecord {
+  segment: string;
+  description: string;
+  attack_count: number;
+  flow_share: number;
+  avg_confidence: number;
+  avg_profit_usd: number;
+  toxicity_probability: number;
+}
+
+interface SourceAttributionRecord {
+  source_key: string;
+  label: string;
+  category: "aggregator" | "wallet" | "searcher" | "liquidation" | "bundle-lane";
+  flow_count: number;
+  flow_share: number;
+  flow_quality_score: number;
+  toxicity_probability: number;
+  retail_likelihood: number;
+  bundle_likelihood: number;
+  lp_adverse_selection_probability: number;
+  endorser_inference: "endorsed-like" | "unendorsed" | "unknown";
+}
+
+interface PreventionGuardRecord {
+  action: "allow" | "monitor" | "penalize" | "reroute" | "block";
+  reason_codes: string[];
+  expected_loss_at_risk_bps: number;
+  expected_loss_at_risk_usd: number;
+  recommended_max_notional_usd: number;
+  selected_route_key: string | null;
+  selected_label: string | null;
+  safer_alternatives: ApiRouteEvaluation["safer_alternatives"];
+  warning: string;
+}
+
+interface SavingsSummaryRecord {
+  estimated_loss_avoided_usd_24h: number;
+  estimated_bps_saved_avg: number;
+  routes_flagged: number;
+  pools_protected: number;
+  users_protected_proxy: number;
+}
+
 const MAX_ATTACKS = 500;
 const MAX_SWAP_HISTORY = 2000;
 const MAX_LIQUIDITY_HISTORY = 2000;
@@ -338,9 +457,11 @@ const MATERIAL_THRESHOLDS: Record<
 > = {
   sandwich: { minProfitUsd: 8, minVictimLossUsd: 15, requireKnownPool: true, minConfidence: 0.84 },
   arbitrage: { minProfitUsd: 25, minVictimLossUsd: 0, requireKnownPool: false, minConfidence: 0.82 },
-  jit: { minProfitUsd: 8, minVictimLossUsd: 5, requireKnownPool: true, minConfidence: 0.78 },
-  liquidation: { minProfitUsd: 20, minVictimLossUsd: 0, requireKnownPool: false, minConfidence: 0.78 },
+  jit: { minProfitUsd: 4, minVictimLossUsd: 4, requireKnownPool: false, minConfidence: 0.76 },
+  liquidation: { minProfitUsd: 10, minVictimLossUsd: 0, requireKnownPool: false, minConfidence: 0.74 },
   backrun: { minProfitUsd: 12, minVictimLossUsd: 25, requireKnownPool: false, minConfidence: 0.78 },
+  liquidity_snipe: { minProfitUsd: 0, minVictimLossUsd: 0, requireKnownPool: false, minConfidence: 0.8 },
+  liquidity_drain: { minProfitUsd: 0, minVictimLossUsd: 0, requireKnownPool: false, minConfidence: 0.8 },
 };
 
 function attackScore(attack: Pick<DetectedAttack, "confidence" | "victim_loss_usd" | "profit_usd">) {
@@ -405,6 +526,104 @@ function parseSurface(poolAddress: string) {
   };
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function round(value: number, digits = 1) {
+  return Number(value.toFixed(digits));
+}
+
+function inferSourceLabel(attack: ApiAttack) {
+  const surface = parseSurface(attack.pool_address);
+  const validator = attack.validator.toLowerCase();
+
+  if (attack.attack_type === "liquidation") {
+    return { key: "protocol-liquidation", label: "protocol liquidation flow", category: "liquidation" as const };
+  }
+  if (attack.attack_type === "liquidity_snipe") {
+    return { key: "launch-sniper", label: "launch sniper flow", category: "searcher" as const };
+  }
+  if (attack.attack_type === "liquidity_drain") {
+    return { key: "liquidity-drain", label: "liquidity drain flow", category: "searcher" as const };
+  }
+  if (validator.includes("jito") || (attack.tip_lamports ?? 0) >= 120_000) {
+    return { key: "bundle-lane", label: "bundle lane flow", category: "bundle-lane" as const };
+  }
+  if (surface.route_kind === "route") {
+    return { key: "aggregator-routed", label: "aggregator routed flow", category: "aggregator" as const };
+  }
+  if ((attack.entity_risk ?? 0) >= 0.72 || attack.attack_type === "arbitrage" || attack.attack_type === "backrun") {
+    return { key: "searcher-bot", label: "searcher / bot flow", category: "searcher" as const };
+  }
+  return { key: "wallet-originated", label: "wallet-originated flow", category: "wallet" as const };
+}
+
+function classifyFlowSegment(attack: ApiAttack) {
+  if (attack.attack_type === "sandwich") {
+    return {
+      segment: "informed-toxic",
+      description: "Flow likely to reprice a stale quote before the venue adapts.",
+    };
+  }
+  if (attack.attack_type === "arbitrage" || attack.attack_type === "backrun") {
+    return {
+      segment: "latency-arbitrage",
+      description: "Latency-sensitive flow harvesting stale quotes and short-lived spreads.",
+    };
+  }
+  if (attack.attack_type === "jit") {
+    return {
+      segment: "liquidity-opportunistic",
+      description: "Opportunistic liquidity insertion or removal around expected toxic flow.",
+    };
+  }
+  if (attack.attack_type === "liquidity_snipe") {
+    return {
+      segment: "launch-opportunistic",
+      description: "Pool-launch timing capture intended to win the first fill window.",
+    };
+  }
+  if (attack.attack_type === "liquidity_drain") {
+    return {
+      segment: "liquidity-drain",
+      description: "Aggressive liquidity withdrawal that can destabilize price and trap holders.",
+    };
+  }
+  if (attack.attack_type === "liquidation") {
+    return {
+      segment: "liquidation-opportunistic",
+      description: "Liquidation-driven flow that can still carry adverse selection pressure.",
+    };
+  }
+  return {
+    segment: "benign-retail-like",
+    description: "Flow with lower signs of informed toxicity and bundle pressure.",
+  };
+}
+
+function buildReasonCodes(metrics: {
+  sandwichRate?: number;
+  bundleShare?: number;
+  staleQuotePickupRate?: number;
+  markout30?: number;
+  lvrProxyScore?: number;
+  toxicFlowRate?: number;
+}) {
+  const reasons: string[] = [];
+  if ((metrics.sandwichRate ?? 0) >= 0.28) reasons.push("high_sandwich_concentration");
+  if ((metrics.bundleShare ?? 0) >= 58) reasons.push("bundle_lane_pressure");
+  if ((metrics.staleQuotePickupRate ?? 0) >= 42) reasons.push("stale_quote_pickups");
+  if ((metrics.markout30 ?? 0) >= 8) reasons.push("markout_deterioration");
+  if ((metrics.lvrProxyScore ?? 0) >= 56) reasons.push("lp_adverse_selection");
+  if ((metrics.toxicFlowRate ?? 0) >= 62) reasons.push("toxic_flow_dominance");
+  return reasons.length > 0 ? reasons : ["monitor_surface"];
+}
+
+function buildDecomposition(parts: Array<{ label: string; value: number }>) {
+  return parts.map((entry) => ({ ...entry, value: round(entry.value, 1) }));
+}
+
 function surfacePrecision(poolAddress: string): ApiAttack["surface_precision"] {
   if (poolAddress.startsWith("route:")) return "route-inferred";
   if (poolAddress.startsWith("venue:")) return "venue-inferred";
@@ -451,6 +670,8 @@ class LiveChainService {
     arbitrageCandidates: 0,
     jitCandidates: 0,
     liquidationCandidates: 0,
+    liquiditySnipeCandidates: 0,
+    liquidityDrainCandidates: 0,
     suspiciousCandidates: 0,
     backrunCandidates: 0,
   };
@@ -749,6 +970,22 @@ class LiveChainService {
       leaderIdentity,
       slot,
     );
+    const launchSnipes = this.detectLaunchSnipes(
+      candidateRows,
+      parsedBySig,
+      parsedSwaps,
+      blockTime,
+      leaderIdentity,
+      slot,
+    );
+    const liquidityDrains = this.detectLiquidityDrains(
+      liquidityLegs,
+      parsedBySig,
+      parsedSwaps,
+      blockTime,
+      leaderIdentity,
+      slot,
+    );
     const parsedBackruns = this.detectParsedBackruns(
       parsedSwaps,
       flowsByTx,
@@ -768,6 +1005,8 @@ class LiveChainService {
       arbitrageCandidates: parsedArbs.length,
       jitCandidates: rawJits.length + parsedJits.length,
       liquidationCandidates: parsedLiquidations.length,
+      liquiditySnipeCandidates: launchSnipes.length,
+      liquidityDrainCandidates: liquidityDrains.length,
       suspiciousCandidates: suspiciousOrderflow.length,
       backrunCandidates: parsedBackruns.length,
     };
@@ -781,6 +1020,8 @@ class LiveChainService {
       ...parsedArbs,
       ...parsedJits,
       ...parsedLiquidations,
+      ...launchSnipes,
+      ...liquidityDrains,
       ...parsedBackruns,
     ]);
     this.recentMetrics.detectedAttacks = detected.length;
@@ -1020,11 +1261,20 @@ class LiveChainService {
       const parsedDescription = (parsed?.description ?? "").toLowerCase();
       const inferredSource = this.inferSourceFromFlows(tx.flows, parsed);
       const parsedAddLiquidity =
-        parsedType.includes("ADD") && parsedType.includes("LIQUID") ||
-        parsedDescription.includes("add liquidity");
+        (parsedType.includes("ADD") && parsedType.includes("LIQUID")) ||
+        parsedType.includes("ADD_LIQUIDITY") ||
+        parsedType.includes("ADD_TO_POOL") ||
+        parsedType.includes("BOOTSTRAP_LIQUIDITY") ||
+        parsedType.includes("ADD_IMBALANCE_LIQUIDITY") ||
+        parsedDescription.includes("add liquidity") ||
+        parsedDescription.includes("deposit liquidity");
       const parsedRemoveLiquidity =
-        parsedType.includes("REMOVE") && parsedType.includes("LIQUID") ||
-        parsedDescription.includes("remove liquidity");
+        (parsedType.includes("REMOVE") && parsedType.includes("LIQUID")) ||
+        parsedType.includes("REMOVE_FROM_POOL") ||
+        (parsedType.includes("WITHDRAW") && parsedType.includes("LIQUID")) ||
+        parsedType.includes("WITHDRAW_LIQUIDITY") ||
+        parsedDescription.includes("remove liquidity") ||
+        parsedDescription.includes("withdraw liquidity");
       const byPool = new Map<
         string,
         {
@@ -1079,6 +1329,7 @@ class LiveChainService {
           token_mints: [...new Set([...summary.negativeMints, ...summary.positiveMints])],
           stableValueDelta: Number(summary.stableValueDelta.toFixed(2)),
           priority_fee: tx.priority_fee,
+          parsedLiquiditySignal: parsedAddLiquidity ? "add" : parsedRemoveLiquidity ? "remove" : "unknown",
         });
       }
     }
@@ -1168,6 +1419,45 @@ class LiveChainService {
 
     const profit = attack.profit_usd ?? 0;
     const victimLoss = attack.victim_loss_usd ?? 0;
+    if (attack.attack_type === "jit") {
+      const hasFullBracket = !!attack.frontrun_tx && !!attack.backrun_tx;
+      const hasVictim = !!attack.victim_wallet;
+      const parsedEvidence = attack.detector.includes("jit") || attack.detector.includes("liquidity");
+      if (hasFullBracket && hasVictim && attack.confidence >= 0.8) {
+        return true;
+      }
+      if (parsedEvidence && hasFullBracket && attack.confidence >= 0.82 && (profit >= 4 || victimLoss >= 4)) {
+        return true;
+      }
+    }
+    if (attack.attack_type === "liquidation") {
+      const parsedEvidence = attack.detector.includes("parsed_liquidation");
+      const hasVictim = !!attack.victim_wallet;
+      if (parsedEvidence && hasVictim && attack.confidence >= 0.78) {
+        return true;
+      }
+      const poolKey = attack.pool_address.toLowerCase();
+      const knownLendingSurface =
+        poolKey.includes("kamino") ||
+        poolKey.includes("marginfi") ||
+        poolKey.includes("solend") ||
+        poolKey.includes("drift") ||
+        poolKey.includes("save");
+      if (parsedEvidence && knownLendingSurface && attack.confidence >= 0.8 && profit >= 5) {
+        return true;
+      }
+      if (parsedEvidence && attack.confidence >= 0.84 && profit >= 12) {
+        return true;
+      }
+    }
+    if (attack.attack_type === "liquidity_snipe") {
+      const sameSlotLike = !!attack.frontrun_tx && !!attack.victim_tx;
+      if (sameSlotLike && attack.confidence >= 0.82) return true;
+    }
+    if (attack.attack_type === "liquidity_drain") {
+      const parsedEvidence = attack.detector.includes("liquidity_drain");
+      if (parsedEvidence && attack.confidence >= 0.82) return true;
+    }
     return profit >= thresholds.minProfitUsd || victimLoss >= thresholds.minVictimLossUsd;
   }
 
@@ -1200,6 +1490,16 @@ class LiveChainService {
       ].join(":");
     }
 
+    if (attack.attack_type === "liquidity_snipe") {
+      return [
+        attack.attack_type,
+        attack.attacker_wallet,
+        attack.pool_address,
+        attack.frontrun_tx ?? "no-create",
+        attack.victim_tx ?? "no-buy",
+      ].join(":");
+    }
+
     if (attack.attack_type === "arbitrage") {
       return [
         attack.attack_type,
@@ -1225,6 +1525,17 @@ class LiveChainService {
       hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
     }
     return `entity_${hash.toString(16).padStart(8, "0")}`;
+  }
+
+  private canonicalEntitySurface(poolAddress: string | null | undefined) {
+    if (!poolAddress || poolAddress === "unknown") return "unknown";
+
+    if (poolAddress.startsWith("route:") || poolAddress.startsWith("venue:")) {
+      const [, protocol, pair] = poolAddress.split(":");
+      return [protocol, pair].filter(Boolean).join(":") || poolAddress;
+    }
+
+    return poolAddress;
   }
 
   private sanitizeMoney(value: number | null | undefined, minimum = 1) {
@@ -1268,6 +1579,20 @@ class LiveChainService {
         hasVictim &&
         (profit >= 25 || victimLoss >= 50)
       ) {
+        return "confirmed";
+      }
+      return "likely";
+    }
+
+    if (attack.attack_type === "liquidity_snipe") {
+      if (attack.confidence >= 0.88 && !!attack.frontrun_tx && !!attack.victim_tx) {
+        return "confirmed";
+      }
+      return "likely";
+    }
+
+    if (attack.attack_type === "liquidity_drain") {
+      if (attack.confidence >= 0.88 && !!attack.frontrun_tx && ((attack.profit_usd ?? 0) >= 25 || !!attack.backrun_tx)) {
         return "confirmed";
       }
       return "likely";
@@ -1329,7 +1654,9 @@ class LiveChainService {
         });
       }
       const profile = profileByWallet.get(attack.attacker_wallet)!;
-      if (attack.pool_address && attack.pool_address !== "unknown") profile.pools.add(attack.pool_address);
+      if (attack.pool_address && attack.pool_address !== "unknown") {
+        profile.pools.add(this.canonicalEntitySurface(attack.pool_address));
+      }
       if (attack.validator) profile.validators.add(attack.validator);
       if (attack.attack_type) profile.strategies.add(attack.attack_type);
       if (attack.token_mint) profile.tokens.add(attack.token_mint);
@@ -1352,7 +1679,7 @@ class LiveChainService {
           profileB.attacks.some(
             (attackB) =>
               attackA.attack_type === attackB.attack_type &&
-              attackA.pool_address === attackB.pool_address &&
+              this.canonicalEntitySurface(attackA.pool_address) === this.canonicalEntitySurface(attackB.pool_address) &&
               Math.abs(attackA.slot - attackB.slot) <= 8,
           ),
         ).length;
@@ -1364,7 +1691,11 @@ class LiveChainService {
           sharedTokens +
           coordinatedWindows * 2;
 
-        if (score >= 6) union(a, b);
+        const strongCoordination =
+          (sharedPools >= 1 && coordinatedWindows >= 2) ||
+          (sharedValidators >= 2 && sharedStrategies >= 2 && sharedTokens >= 1 && coordinatedWindows >= 1);
+
+        if (score >= 5 || strongCoordination) union(a, b);
       }
     }
 
@@ -1635,8 +1966,15 @@ class LiveChainService {
     for (const row of txRows) {
       const parsed = parsedBySig.get(row.signature);
       const type = (parsed?.type ?? "").toUpperCase();
+      const source = (parsed?.source ?? "").toUpperCase();
       const looksLikeLiquidation =
         type.includes("LIQUID") ||
+        type.includes("LIQUIDATE") ||
+        type.includes("LIQUIDATED") ||
+        type.includes("FORECLOSE") ||
+        type.includes("MARGIN_CALL") ||
+        type.includes("REPAY_OBLIGATION_LIQUIDITY") ||
+        type.includes("BOT_LIQUIDATE") ||
         (parsed?.description ?? "").toLowerCase().includes("liquidat");
 
       if (!looksLikeLiquidation) continue;
@@ -1659,20 +1997,28 @@ class LiveChainService {
         flows.find((flow) => flow.program_id)?.program_id ?? null,
       );
       const victimWallet =
-        parsed?.tokenTransfers?.find((transfer) => transfer.toUserAccount !== row.signer)?.toUserAccount ??
+        parsed?.tokenTransfers?.find((transfer) => transfer.toUserAccount && transfer.toUserAccount !== row.signer)?.toUserAccount ??
+        parsed?.tokenTransfers?.find((transfer) => transfer.fromUserAccount && transfer.fromUserAccount !== row.signer)?.fromUserAccount ??
         null;
 
       const hasKnownVenue = poolAddress !== "unknown";
       const hasObservedGain = profit >= 5;
+      const knownLendingSource = ["KAMINO", "MARGINFI", "SOLEND", "DRIFT", "SAVE"].includes(source);
       if (!hasObservedGain && !victimWallet) continue;
-      if (!hasKnownVenue && !victimWallet) continue;
+      if (!hasKnownVenue && !victimWallet && !knownLendingSource) continue;
 
       const confidence =
         hasObservedGain && victimWallet && hasKnownVenue
-          ? 0.87
+          ? 0.88
+          : hasObservedGain && knownLendingSource
+            ? 0.85
           : hasObservedGain && (victimWallet || hasKnownVenue)
-            ? 0.82
-            : 0.76;
+            ? 0.84
+          : victimWallet && knownLendingSource
+              ? 0.81
+              : victimWallet || hasKnownVenue
+                ? 0.79
+                : 0.76;
 
       attacks.push({
         attack_type: "liquidation",
@@ -1699,6 +2045,181 @@ class LiveChainService {
           victimWallet
             ? "token transfer graph indicates third-party loss flow"
             : "counterparty account was not fully attributable from parsed transfers",
+        ],
+      });
+    }
+
+    return attacks;
+  }
+
+  private detectLaunchSnipes(
+    txRows: Array<{ signature: string; tx_index: number; signer: string; priority_fee: number | null }>,
+    parsedBySig: Map<string, HeliusEnhancedTx>,
+    swaps: ParsedSwapCandidate[],
+    blockTime: Date,
+    validator: string,
+    slot: number,
+  ): DetectedAttack[] {
+    const attacks: DetectedAttack[] = [];
+
+    for (const row of txRows) {
+      const parsed = parsedBySig.get(row.signature);
+      const type = (parsed?.type ?? "").toUpperCase();
+      const source = (parsed?.source ?? "").toUpperCase();
+      const description = (parsed?.description ?? "").toLowerCase();
+      const looksLikePoolCreate =
+        type.includes("CREATE_POOL") ||
+        type.includes("INITIALIZE_POOL") ||
+        type.includes("CREATE_MARKET") ||
+        type.includes("INITIALIZE") && description.includes("pool") ||
+        type.includes("ADD_LIQUIDITY") ||
+        type.includes("BOOTSTRAP_LIQUIDITY") ||
+        description.includes("create pool") ||
+        description.includes("initialize pool") ||
+        description.includes("initial liquidity");
+      const onSupportedLaunchSurface =
+        ["RAYDIUM", "PUMPFUN", "METEORA", "ORCA"].some((label) => source.includes(label));
+
+      if (!looksLikePoolCreate || !onSupportedLaunchSurface) continue;
+
+      const poolAddress = this.normalizePoolAddress(
+        null,
+        parsed?.source ?? null,
+        null,
+        null,
+        null,
+      );
+
+      const followUpSwaps = swaps
+        .filter(
+          (swap) =>
+            swap.signer &&
+            swap.slot >= slot &&
+            swap.slot <= slot + 1 &&
+            (swap.slot > slot || swap.tx_index > row.tx_index) &&
+            (
+              (!!swap.source && !!parsed?.source && swap.source === parsed.source) ||
+              (!!swap.pool_address && swap.pool_address === poolAddress)
+            ),
+        )
+        .sort((a, b) => a.slot - b.slot || a.tx_index - b.tx_index);
+
+      const firstSwap = followUpSwaps[0];
+      if (!firstSwap) continue;
+
+      const selfSnipe = firstSwap.signer === row.signer;
+      let confidence = firstSwap.slot === slot ? 0.86 : 0.82;
+      if ((firstSwap.priority_fee ?? 0) >= 10_000) confidence += 0.02;
+      if (selfSnipe) confidence += 0.01;
+      confidence = Math.min(0.92, Number(confidence.toFixed(2)));
+
+      attacks.push({
+        attack_type: "liquidity_snipe",
+        slot: firstSwap.slot,
+        block_time: new Date((parsed?.timestamp ?? Math.floor(blockTime.getTime() / 1000)) * 1000),
+        validator: firstSwap.validator ?? validator,
+        attacker_wallet: firstSwap.signer,
+        victim_wallet: selfSnipe ? null : row.signer,
+        pool_address: firstSwap.pool_address ?? poolAddress,
+        token_mint: firstSwap.output_mint ?? firstSwap.input_mint,
+        profit_usd: null,
+        victim_loss_usd: null,
+        frontrun_tx: row.signature,
+        victim_tx: firstSwap.signature,
+        backrun_tx: null,
+        tip_lamports: firstSwap.priority_fee ?? row.priority_fee,
+        confidence,
+        detector: selfSnipe ? "launch_liquidity_self_snipe" : "launch_liquidity_snipe",
+        evidence: [
+          "new pool / initial liquidity surface was created on a launch-sensitive venue",
+          firstSwap.slot === slot
+            ? "first buy landed in the same slot as pool initialization"
+            : "first buy landed one slot after pool initialization",
+          selfSnipe
+            ? "deployer and first buyer were the same wallet"
+            : "distinct wallet captured the first post-launch swap",
+        ],
+      });
+    }
+
+    return attacks;
+  }
+
+  private detectLiquidityDrains(
+    liquidityLegs: LiquidityLegCandidate[],
+    parsedBySig: Map<string, HeliusEnhancedTx>,
+    swaps: ParsedSwapCandidate[],
+    blockTime: Date,
+    validator: string,
+    slot: number,
+  ): DetectedAttack[] {
+    const attacks: DetectedAttack[] = [];
+
+    for (const leg of liquidityLegs.filter((item) => item.removed)) {
+      const parsed = parsedBySig.get(leg.signature);
+      const type = (parsed?.type ?? "").toUpperCase();
+      const description = (parsed?.description ?? "").toLowerCase();
+      const isDrainLike =
+        leg.parsedLiquiditySignal === "remove" ||
+        type.includes("REMOVE_LIQUIDITY") ||
+        type.includes("WITHDRAW_LIQUIDITY") ||
+        type.includes("CLOSE_POSITION") ||
+        description.includes("remove liquidity") ||
+        description.includes("withdraw liquidity");
+      if (!isDrainLike) continue;
+
+      const dumpSwap = swaps
+        .filter(
+          (swap) =>
+            swap.signer === leg.signer &&
+            (
+              swap.pool_address === leg.pool_address ||
+              (!!swap.source && !!leg.source && swap.source === leg.source)
+            ) &&
+            swap.slot >= leg.slot &&
+            swap.slot <= leg.slot + 5 &&
+            (swap.slot > leg.slot || swap.tx_index > leg.tx_index),
+        )
+        .sort((a, b) => a.slot - b.slot || a.tx_index - b.tx_index)[0];
+
+      const meaningfulWithdrawal =
+        Math.abs(leg.stableValueDelta) >= 25 ||
+        leg.token_mints.length >= 2 ||
+        !!dumpSwap;
+      if (!meaningfulWithdrawal) continue;
+
+      let confidence = dumpSwap ? 0.9 : 0.83;
+      if (Math.abs(leg.stableValueDelta) >= 250) confidence += 0.02;
+      if (leg.parsedLiquiditySignal === "remove") confidence += 0.02;
+      confidence = Math.min(0.94, Number(confidence.toFixed(2)));
+
+      attacks.push({
+        attack_type: "liquidity_drain",
+        slot: leg.slot,
+        block_time: parsed?.timestamp
+          ? new Date(parsed.timestamp * 1000)
+          : leg.block_time ?? blockTime,
+        validator: leg.validator ?? validator,
+        attacker_wallet: leg.signer,
+        victim_wallet: null,
+        pool_address: leg.pool_address,
+        token_mint: leg.token_mints[0] ?? null,
+        profit_usd: Math.abs(leg.stableValueDelta) > 0 ? Number(Math.abs(leg.stableValueDelta).toFixed(2)) : null,
+        victim_loss_usd: null,
+        frontrun_tx: leg.signature,
+        victim_tx: null,
+        backrun_tx: dumpSwap?.signature ?? null,
+        tip_lamports: leg.priority_fee,
+        confidence,
+        detector: dumpSwap ? "liquidity_drain_with_dump" : "liquidity_drain_remove",
+        evidence: [
+          "large liquidity-removal leg was parsed on a live pool surface",
+          dumpSwap
+            ? "same signer followed the liquidity removal with a dump-style swap"
+            : "liquidity was removed without a passive LP-style dwell window",
+          leg.parsedLiquiditySignal === "remove"
+            ? "parsed transaction labeling confirmed explicit liquidity removal"
+            : "liquidity removal inferred from token-balance deltas",
         ],
       });
     }
@@ -1838,9 +2359,12 @@ class LiveChainService {
     const attacks: DetectedAttack[] = [];
 
     for (const addLeg of currentLegs.filter((leg) => leg.added)) {
+      const overlappingTokens = (candidate: LiquidityLegCandidate) =>
+        candidate.token_mints.some((mint) => addLeg.token_mints.includes(mint));
       const sharesVenue = (candidate: LiquidityLegCandidate) =>
         candidate.pool_address === addLeg.pool_address ||
-        (!!candidate.source && !!addLeg.source && candidate.source === addLeg.source);
+        (!!candidate.source && !!addLeg.source && candidate.source === addLeg.source) ||
+        overlappingTokens(candidate);
 
       const removalCandidates = this.recentLiquidityLegs
         .filter(
@@ -1850,20 +2374,24 @@ class LiveChainService {
             candidate.signer === addLeg.signer &&
             sharesVenue(candidate) &&
             candidate.slot >= addLeg.slot &&
-            candidate.slot <= addLeg.slot + 8 &&
+            candidate.slot <= addLeg.slot + 12 &&
             (candidate.slot > addLeg.slot ||
               (candidate.slot === addLeg.slot && candidate.tx_index > addLeg.tx_index)),
         )
         .sort((a, b) => a.slot - b.slot || a.tx_index - b.tx_index);
 
-      const removeLeg = removalCandidates[0];
+      const removeLeg = removalCandidates.find((candidate) => overlappingTokens(candidate)) ?? removalCandidates[0];
       if (!removeLeg) continue;
 
       const victimCandidates = this.recentSwaps
         .filter(
           (swap) =>
-            (swap.pool_address === addLeg.pool_address ||
-              (!!swap.source && !!addLeg.source && swap.source === addLeg.source)) &&
+            (
+              swap.pool_address === addLeg.pool_address ||
+              (!!swap.source && !!addLeg.source && swap.source === addLeg.source) ||
+              swap.input_mint === addLeg.token_mints[0] ||
+              swap.output_mint === addLeg.token_mints[0]
+            ) &&
             swap.signer !== addLeg.signer &&
             swap.slot >= addLeg.slot &&
             swap.slot <= removeLeg.slot &&
@@ -1876,9 +2404,9 @@ class LiveChainService {
       const victim = victimCandidates.find(
         (candidate) =>
           (candidate.price_impact_hint ?? 0) >= 0.003 ||
-          (candidate.input_amount ?? 0) >= 100 ||
-          (candidate.output_amount ?? 0) >= 100 ||
-          (candidate.notional_usd ?? 0) >= 250,
+          (candidate.input_amount ?? 0) >= 25 ||
+          (candidate.output_amount ?? 0) >= 25 ||
+          (candidate.notional_usd ?? 0) >= 50,
       );
       if (!victim) continue;
 
@@ -1887,14 +2415,17 @@ class LiveChainService {
 
       const priorityFee = Math.max(addLeg.priority_fee ?? 0, removeLeg.priority_fee ?? 0);
       let confidence = 0.76;
+      if (addLeg.parsedLiquiditySignal === "add") confidence += 0.03;
+      if (removeLeg.parsedLiquiditySignal === "remove") confidence += 0.03;
       if (addLeg.slot === removeLeg.slot) confidence += 0.04;
       if (priorityFee >= 10_000) confidence += 0.03;
       if (victim.price_impact_hint && victim.price_impact_hint >= 0.003) confidence += 0.03;
       if (addLeg.validator === removeLeg.validator) confidence += 0.02;
       if (removeLeg.slot - addLeg.slot <= 3) confidence += 0.03;
       if (addLeg.source && removeLeg.source && addLeg.source === removeLeg.source) confidence += 0.02;
+      if ((removeLeg.stableValueDelta > 0) || (addLeg.stableValueDelta + removeLeg.stableValueDelta > 0)) confidence += 0.03;
 
-      if (confidence < 0.78) continue;
+      if (confidence < 0.76) continue;
 
       attacks.push({
         attack_type: "jit",
@@ -1929,6 +2460,9 @@ class LiveChainService {
         evidence: [
           "same signer added and removed multi-asset liquidity around a victim swap",
           `liquidity window spanned ${removeLeg.slot - addLeg.slot + 1} slot(s) in same pool`,
+          addLeg.parsedLiquiditySignal === "add" || removeLeg.parsedLiquiditySignal === "remove"
+            ? "parsed transaction labeling confirmed explicit liquidity entry/exit activity"
+            : "liquidity entry and exit inferred from token-balance changes",
           victim.price_impact_hint && victim.price_impact_hint >= 0.003
             ? `victim swap price-impact hint ${(victim.price_impact_hint * 100).toFixed(2)}%`
             : "sized victim swap observed between LP entry and exit legs",
@@ -2144,7 +2678,7 @@ class LiveChainService {
     this.attacks.unshift(persistedAttack);
     this.attackIndexByKey = new Map(this.attacks.map((item, index) => {
       const itemKey =
-        item.attack_type === "sandwich" || item.attack_type === "jit"
+        item.attack_type === "sandwich" || item.attack_type === "jit" || item.attack_type === "liquidity_snipe"
           ? [item.attack_type, item.slot, item.attacker_wallet, item.pool_address, item.frontrun_tx, item.backrun_tx].join(":")
           : [item.attack_type, item.slot, item.attacker_wallet, item.pool_address, item.victim_tx, item.backrun_tx].join(":");
       return [itemKey, index] as const;
@@ -2184,6 +2718,10 @@ class LiveChainService {
         ? 0.72
         : attack.attack_type === "jit"
           ? 0.6
+          : attack.attack_type === "liquidity_snipe"
+            ? 0.64
+            : attack.attack_type === "liquidity_drain"
+              ? 0.67
           : attack.attack_type === "liquidation"
             ? 0.55
             : 0.48;
@@ -2279,6 +2817,8 @@ class LiveChainService {
       sandwich_count: this.attacks.filter((attack) => attack.attack_type === "sandwich").length,
       arb_count: this.attacks.filter((attack) => attack.attack_type === "arbitrage").length,
       jit_count: this.attacks.filter((attack) => attack.attack_type === "jit").length,
+      liquidity_snipe_count: this.attacks.filter((attack) => attack.attack_type === "liquidity_snipe").length,
+      liquidity_drain_count: this.attacks.filter((attack) => attack.attack_type === "liquidity_drain").length,
     };
   }
 
@@ -2416,10 +2956,17 @@ class LiveChainService {
     const entity = this.getEntities({ limit: String(MAX_ATTACKS) }).find((item) => item.id === id);
     if (!entity) return null;
 
-    const targetWallets = new Set(entity.sample_wallets);
+    const entityContext = this.buildEntityContext();
+    const entityGroup = entityContext.groups.find((group) => group.id === id);
+    const memberWallets = entityGroup?.wallets ?? entity.sample_wallets;
+    const targetWallets = new Set(memberWallets);
     const recent_attacks = this.attacks.filter((attack) => targetWallets.has(attack.attacker_wallet));
+    const validatorIntel = new Map(this.getValidators().map((validator) => [validator.validator, validator]));
     const poolMap = new Map<string, { attack_count: number; total_profit: number }>();
     const validatorMap = new Map<string, number>();
+    const sharedSurfaceMap = new Map<string, { wallets: Set<string>; attacks: number; profit: number }>();
+    const sharedValidatorMap = new Map<string, Set<string>>();
+    const sharedStrategyMap = new Map<string, Set<string>>();
 
     for (const attack of recent_attacks) {
       poolMap.set(attack.pool_address, {
@@ -2427,25 +2974,96 @@ class LiveChainService {
         total_profit: (poolMap.get(attack.pool_address)?.total_profit ?? 0) + (attack.profit_usd ?? 0),
       });
       validatorMap.set(attack.validator, (validatorMap.get(attack.validator) ?? 0) + 1);
+
+      const canonicalSurface = this.canonicalEntitySurface(attack.pool_address);
+      if (!sharedSurfaceMap.has(canonicalSurface)) {
+        sharedSurfaceMap.set(canonicalSurface, {
+          wallets: new Set<string>(),
+          attacks: 0,
+          profit: 0,
+        });
+      }
+      const surfaceEntry = sharedSurfaceMap.get(canonicalSurface)!;
+      surfaceEntry.wallets.add(attack.attacker_wallet);
+      surfaceEntry.attacks += 1;
+      surfaceEntry.profit += attack.profit_usd ?? 0;
+
+      if (!sharedValidatorMap.has(attack.validator)) {
+        sharedValidatorMap.set(attack.validator, new Set<string>());
+      }
+      sharedValidatorMap.get(attack.validator)!.add(attack.attacker_wallet);
+
+      if (!sharedStrategyMap.has(attack.attack_type)) {
+        sharedStrategyMap.set(attack.attack_type, new Set<string>());
+      }
+      sharedStrategyMap.get(attack.attack_type)!.add(attack.attacker_wallet);
+    }
+
+    let coordinatedWindowCount = 0;
+    for (let i = 0; i < recent_attacks.length; i++) {
+      for (let j = i + 1; j < recent_attacks.length; j++) {
+        const a = recent_attacks[i];
+        const b = recent_attacks[j];
+        if (a.attacker_wallet === b.attacker_wallet) continue;
+        if (a.attack_type !== b.attack_type) continue;
+        if (this.canonicalEntitySurface(a.pool_address) !== this.canonicalEntitySurface(b.pool_address)) continue;
+        if (Math.abs(a.slot - b.slot) <= 8) coordinatedWindowCount += 1;
+      }
     }
 
     return {
       entity,
-      wallets: entity.sample_wallets.map((wallet) => ({
+      wallets: memberWallets.map((wallet) => ({
         wallet,
-        role: "operator",
+        role: wallet === entity.operator_wallet ? "operator" : "clustered",
         tx_count: recent_attacks.filter((attack) => attack.attacker_wallet === wallet).length,
         operator_label: wallet === entity.operator_wallet ? entity.label : null,
       })),
       recent_attacks,
-      targeted_pools: [...poolMap.entries()].map(([pool_address, values]) => ({
-        pool_address,
-        attack_count: values.attack_count,
-        total_profit: values.total_profit,
-      })),
+      targeted_pools: [...poolMap.entries()]
+        .map(([pool_address, values]) => ({
+          pool_address,
+          attack_count: values.attack_count,
+          total_profit: values.total_profit,
+        }))
+        .sort((a, b) => b.attack_count - a.attack_count || b.total_profit - a.total_profit),
       validator_correlation: [...validatorMap.entries()]
-        .map(([validator, attacks]) => ({ validator, attacks }))
-        .sort((a, b) => b.attacks - a.attacks),
+        .map(([validator, attacks]) => {
+          const intel = validatorIntel.get(validator);
+          const exposureShare = recent_attacks.length > 0 ? (attacks / recent_attacks.length) * 100 : 0;
+          const recommendedAction =
+            (intel?.stake_centralization_risk ?? 0) >= 70 || (intel?.observed_sandwich_rate ?? 0) >= 45
+              ? "reroute"
+              : (intel?.risk_score ?? 0) >= 0.6
+                ? "monitor"
+                : "observe";
+          return {
+            validator,
+            attacks,
+            exposure_share: Number(exposureShare.toFixed(1)),
+            validator_risk: intel?.risk_score ?? 0,
+            observed_sandwich_rate: intel?.observed_sandwich_rate ?? intel?.sandwich_share ?? 0,
+            stake_centralization_risk: intel?.stake_centralization_risk ?? 0,
+            recommended_action: recommendedAction,
+          };
+        })
+        .sort((a, b) => b.attacks - a.attacks || b.validator_risk - a.validator_risk),
+      cluster_evidence: {
+        shared_surface_count: [...sharedSurfaceMap.values()].filter((entry) => entry.wallets.size >= 2).length,
+        shared_validator_count: [...sharedValidatorMap.values()].filter((wallets) => wallets.size >= 2).length,
+        shared_strategy_count: [...sharedStrategyMap.values()].filter((wallets) => wallets.size >= 2).length,
+        coordinated_window_count: coordinatedWindowCount,
+      },
+      related_surfaces: [...sharedSurfaceMap.entries()]
+        .filter(([, entry]) => entry.wallets.size >= 2)
+        .map(([surface, entry]) => ({
+          surface,
+          wallet_count: entry.wallets.size,
+          attacks: entry.attacks,
+          total_profit: entry.profit,
+        }))
+        .sort((a, b) => b.wallet_count - a.wallet_count || b.attacks - a.attacks || b.total_profit - a.total_profit)
+        .slice(0, 8),
       profit_timeline: Array.from({ length: 7 }, (_, idx) => {
         const start = new Date();
         start.setUTCHours(0, 0, 0, 0);
@@ -2466,6 +3084,7 @@ class LiveChainService {
   }
 
   getPools(limit = 50): ApiPool[] {
+    const routeRiskBySurface = new Map(this.getRouteRisks(MAX_ATTACKS).map((route) => [route.route_key, route]));
     const entityContext = this.buildEntityContext();
     const map = new Map<string, ApiPool>();
 
@@ -2499,6 +3118,35 @@ class LiveChainService {
 
     return [...map.values()]
       .map((pool) => ({
+        ...(routeRiskBySurface.get(pool.pool_address)
+          ? {
+              lvr_proxy_score: routeRiskBySurface.get(pool.pool_address)!.lvr_proxy_score,
+              adverse_selection_intensity: round(
+                clamp(
+                  routeRiskBySurface.get(pool.pool_address)!.lp_adverse_selection_probability * 0.92,
+                  4,
+                  99,
+                ),
+              ),
+              stale_quote_arb_frequency: routeRiskBySurface.get(pool.pool_address)!.stale_quote_pickup_rate,
+              lp_drag_estimate_usd: round(routeRiskBySurface.get(pool.pool_address)!.estimated_savings_usd * Math.max(1.2, pool.total_attacks / 6), 2),
+              toxic_to_benign_volume_ratio: round(
+                clamp(
+                  routeRiskBySurface.get(pool.pool_address)!.toxic_flow_rate / Math.max(12, 100 - routeRiskBySurface.get(pool.pool_address)!.toxic_flow_rate),
+                  0.1,
+                  9.9,
+                ),
+                2,
+              ),
+              quote_freshness_stress: round(clamp(100 - routeRiskBySurface.get(pool.pool_address)!.quote_freshness_ms / 10, 4, 99)),
+              saved_fee_bps_if_segmented: round(routeRiskBySurface.get(pool.pool_address)!.estimated_savings_bps, 2),
+              primary_cause:
+                routeRiskBySurface.get(pool.pool_address)!.sandwich_count >= routeRiskBySurface.get(pool.pool_address)!.arbitrage_count
+                  ? "sandwich pressure"
+                  : "stale quote arbitrage",
+              reason_codes: routeRiskBySurface.get(pool.pool_address)!.reason_codes,
+            }
+          : {}),
         ...pool,
         unique_attackers: new Set(
           this.attacks
@@ -2516,20 +3164,171 @@ class LiveChainService {
             ).toFixed(1),
           ),
         ),
+        lvr_proxy_score: round(clamp(pool.toxicity_score * 0.72 + pool.arbitrage_count * 0.5 + pool.sandwich_count * 0.3, 8, 99)),
+        adverse_selection_intensity: round(clamp(pool.sandwich_count * 0.7 + pool.arbitrage_count * 0.48 + pool.jit_count * 0.42, 4, 99)),
+        stale_quote_arb_frequency: round(clamp((pool.arbitrage_count / Math.max(1, pool.total_attacks)) * 100, 1, 95)),
+        lp_drag_estimate_usd: round(pool.total_extracted_usd * 0.74, 2),
+        toxic_to_benign_volume_ratio: round(clamp(pool.toxicity_score / Math.max(12, 100 - pool.toxicity_score), 0.1, 9.9), 2),
+        quote_freshness_stress: round(clamp(pool.toxicity_score * 0.82 + pool.arbitrage_count * 0.35, 5, 99)),
+        saved_fee_bps_if_segmented: round(clamp(pool.toxicity_score * 0.11, 0.4, 12), 2),
+        primary_cause:
+          pool.sandwich_count >= pool.arbitrage_count && pool.sandwich_count >= pool.jit_count
+            ? "sandwich pressure"
+            : pool.arbitrage_count >= pool.jit_count
+              ? "stale quote arbitrage"
+              : "jit liquidity pressure",
+        reason_codes: buildReasonCodes({
+          sandwichRate: pool.sandwich_count / Math.max(1, pool.total_attacks),
+          staleQuotePickupRate: (pool.arbitrage_count / Math.max(1, pool.total_attacks)) * 100,
+          lvrProxyScore: pool.toxicity_score * 0.72,
+          toxicFlowRate: pool.toxicity_score,
+        }),
       }))
       .sort((a, b) => b.toxicity_score - a.toxicity_score)
       .slice(0, limit);
   }
 
-  getRouteRisks(limit = 25): ApiRouteRisk[] {
+  private normalizedPairKey(inputMint: string | null, outputMint: string | null) {
+    return [inputMint ?? "unknown", outputMint ?? "unknown"].join("->");
+  }
+
+  private swapPrice(swap: ParsedSwapCandidate) {
+    if (!swap.input_amount || !swap.output_amount || swap.input_amount <= 0 || swap.output_amount <= 0) return null;
+    return swap.output_amount / swap.input_amount;
+  }
+
+  private median(values: number[]) {
+    if (values.length === 0) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  }
+
+  private computeSwapQuoteAnalytics(target: ParsedSwapCandidate) {
+    const price = this.swapPrice(target);
+    if (!price) {
+      return {
+        expectedQuotePrice: null,
+        quoteFreshnessMs: null,
+        slippageBps: null,
+        markout1s: null,
+        markout5s: null,
+        markout30s: null,
+        staleQuotePickup: false,
+      };
+    }
+
+    const pairKey = this.normalizedPairKey(target.input_mint, target.output_mint);
+    const samePair = this.recentSwaps.filter(
+      (swap) =>
+        this.normalizedPairKey(swap.input_mint, swap.output_mint) === pairKey &&
+        swap.signature !== target.signature &&
+        swap.input_amount &&
+        swap.output_amount,
+    );
+    const targetTs = target.block_time.getTime();
+    const prior = samePair
+      .filter((swap) => swap.block_time.getTime() < targetTs)
+      .sort((a, b) => targetTs - b.block_time.getTime() - (targetTs - a.block_time.getTime()));
+    const recentPrior = prior.slice(0, 8);
+    const expectedQuotePrice = this.median(recentPrior.map((swap) => this.swapPrice(swap)).filter((v): v is number => v != null));
+    const latestPrior = recentPrior[0];
+    const quoteFreshnessMs = latestPrior ? targetTs - latestPrior.block_time.getTime() : null;
+    const slippageBps =
+      expectedQuotePrice && expectedQuotePrice > 0
+        ? Math.max(0, ((expectedQuotePrice - price) / expectedQuotePrice) * 10_000)
+        : null;
+
+    const futureWindow = (ms: number) =>
+      this.median(
+        samePair
+          .filter((swap) => {
+            const dt = swap.block_time.getTime() - targetTs;
+            return dt >= 0 && dt <= ms;
+          })
+          .map((swap) => this.swapPrice(swap))
+          .filter((v): v is number => v != null),
+      );
+    const markoutFromFuture = (futurePrice: number | null) =>
+      futurePrice && price > 0 ? Math.max(0, ((futurePrice - price) / price) * 10_000) : null;
+
+    const markout1s = markoutFromFuture(futureWindow(1_000));
+    const markout5s = markoutFromFuture(futureWindow(5_000));
+    const markout30s = markoutFromFuture(futureWindow(30_000));
+
+    const staleQuotePickup =
+      (quoteFreshnessMs ?? 0) >= 1_000 &&
+      (markout5s ?? 0) >= 3 &&
+      (slippageBps ?? 0) >= 2;
+
+    return {
+      expectedQuotePrice,
+      quoteFreshnessMs,
+      slippageBps,
+      markout1s,
+      markout5s,
+      markout30s,
+      staleQuotePickup,
+    };
+  }
+
+  private buildSwapAnalyticsBySurface() {
     const grouped = new Map<
       string,
-      Omit<ApiRouteRisk, "avg_confidence" | "risk_score" | "recommendation" | "unique_attackers" | "bundle_share"> & {
-        confidence_sum: number;
-        bundle_sum: number;
-        attackers: Set<string>;
+      {
+        slippageBps: number[];
+        markout1s: number[];
+        markout5s: number[];
+        markout30s: number[];
+        quoteFreshnessMs: number[];
+        staleQuotePickups: number;
+        swaps: number;
+        pairKeys: Set<string>;
+        sourceCounts: Map<string, number>;
+        validatorMarkouts: Map<string, number[]>;
       }
     >();
+
+    for (const swap of this.recentSwaps) {
+      const surfaceKey = swap.pool_address ?? (swap.input_mint || swap.output_mint ? `pair:${this.normalizedPairKey(swap.input_mint, swap.output_mint)}` : "unknown");
+      const analytics = this.computeSwapQuoteAnalytics(swap);
+      if (!grouped.has(surfaceKey)) {
+        grouped.set(surfaceKey, {
+          slippageBps: [],
+          markout1s: [],
+          markout5s: [],
+          markout30s: [],
+          quoteFreshnessMs: [],
+          staleQuotePickups: 0,
+          swaps: 0,
+          pairKeys: new Set(),
+          sourceCounts: new Map(),
+          validatorMarkouts: new Map(),
+        });
+      }
+
+      const entry = grouped.get(surfaceKey)!;
+      entry.swaps += 1;
+      entry.pairKeys.add(this.normalizedPairKey(swap.input_mint, swap.output_mint));
+      if (swap.source) {
+        entry.sourceCounts.set(swap.source.toLowerCase(), (entry.sourceCounts.get(swap.source.toLowerCase()) ?? 0) + 1);
+      }
+      if (analytics.slippageBps != null) entry.slippageBps.push(analytics.slippageBps);
+      if (analytics.markout1s != null) entry.markout1s.push(analytics.markout1s);
+      if (analytics.markout5s != null) entry.markout5s.push(analytics.markout5s);
+      if (analytics.markout30s != null) entry.markout30s.push(analytics.markout30s);
+      if (analytics.quoteFreshnessMs != null) entry.quoteFreshnessMs.push(analytics.quoteFreshnessMs);
+      if (analytics.staleQuotePickup) entry.staleQuotePickups += 1;
+      if (!entry.validatorMarkouts.has(swap.validator)) entry.validatorMarkouts.set(swap.validator, []);
+      if (analytics.markout30s != null) entry.validatorMarkouts.get(swap.validator)!.push(analytics.markout30s);
+    }
+
+    return grouped;
+  }
+
+  getRouteRisks(limit = 25): ApiRouteRisk[] {
+    const swapAnalytics = this.buildSwapAnalyticsBySurface();
+    const grouped = new Map<string, ApiRouteRiskAccumulator>();
 
     for (const attack of this.attacks) {
       const surface = parseSurface(attack.pool_address);
@@ -2569,8 +3368,13 @@ class LiveChainService {
 
     return [...grouped.values()]
       .map((item) => {
+        const liveAnalytics = swapAnalytics.get(item.route_key);
         const avgConfidence = item.total_attacks > 0 ? item.confidence_sum / item.total_attacks : 0;
         const bundleShare = item.total_attacks > 0 ? item.bundle_sum / item.total_attacks : 0;
+        const sandwichRate = item.total_attacks > 0 ? item.sandwich_count / item.total_attacks : 0;
+        const backrunRate = item.total_attacks > 0 ? item.backrun_count / item.total_attacks : 0;
+        const arbitrageRate = item.total_attacks > 0 ? item.arbitrage_count / item.total_attacks : 0;
+        const jitRate = item.total_attacks > 0 ? item.jit_count / item.total_attacks : 0;
         const riskScore = Math.min(
           100,
           Number(
@@ -2587,6 +3391,110 @@ class LiveChainService {
             ).toFixed(1),
           ),
         );
+        const toxicFlowRate = round(
+          clamp(sandwichRate * 58 + backrunRate * 32 + jitRate * 18 + arbitrageRate * 14 + item.attackers.size * 2.5, 3, 99),
+        );
+        const liveStaleRate =
+          liveAnalytics && liveAnalytics.swaps > 0
+            ? (liveAnalytics.staleQuotePickups / liveAnalytics.swaps) * 100
+            : null;
+        const staleQuotePickupRate = round(
+          clamp(liveStaleRate ?? (arbitrageRate * 48 + sandwichRate * 36 + bundleShare * 18), 1, 98),
+        );
+        const quoteFreshnessMs = round(
+          clamp(
+            liveAnalytics?.quoteFreshnessMs.length
+              ? this.median(liveAnalytics.quoteFreshnessMs) ?? 400
+              : 920 - riskScore * 5.2 - item.total_attacks * 13,
+            65,
+            980,
+          ),
+          0,
+        );
+        const realizedSlippageBps = round(
+          clamp(
+            liveAnalytics?.slippageBps.length
+              ? this.median(liveAnalytics.slippageBps) ?? 2
+              : riskScore * 0.07 + sandwichRate * 8 + bundleShare * 3.8,
+            0.8,
+            28,
+          ),
+          2,
+        );
+        const markout1 = round(
+          clamp(
+            liveAnalytics?.markout1s.length
+              ? this.median(liveAnalytics.markout1s) ?? 1
+              : realizedSlippageBps * 0.6 + sandwichRate * 2.2 + bundleShare * 0.15,
+            0.5,
+            18,
+          ),
+          2,
+        );
+        const markout5 = round(
+          clamp(
+            liveAnalytics?.markout5s.length
+              ? this.median(liveAnalytics.markout5s) ?? 1.5
+              : realizedSlippageBps * 0.95 + sandwichRate * 4.1 + staleQuotePickupRate * 0.05,
+            0.8,
+            26,
+          ),
+          2,
+        );
+        const markout30 = round(
+          clamp(
+            liveAnalytics?.markout30s.length
+              ? this.median(liveAnalytics.markout30s) ?? 2
+              : realizedSlippageBps * 1.2 + sandwichRate * 5.5 + staleQuotePickupRate * 0.08,
+            1,
+            32,
+          ),
+          2,
+        );
+        const executionQualityScore = round(clamp(100 - (markout30 * 2 + realizedSlippageBps * 1.7 + toxicFlowRate * 0.42), 4, 98));
+        const flowQualityScore = round(clamp(100 - toxicFlowRate * 0.72 - bundleShare * 16 + (item.route_kind === "venue" ? 6 : 0), 3, 97));
+        const toxicityProbability = round(clamp(toxicFlowRate * 0.88 + bundleShare * 19, 4, 99));
+        const retailLikelihood = round(clamp(100 - toxicFlowRate * 0.92 - bundleShare * 24, 2, 92));
+        const lpAdverseSelectionProbability = round(clamp(staleQuotePickupRate * 0.62 + markout30 * 2.1 + sandwichRate * 21, 3, 99));
+        const lvrProxyScore = round(clamp(staleQuotePickupRate * 0.58 + markout30 * 1.95 + arbitrageRate * 18 + sandwichRate * 12, 2, 99));
+        const priorityFeePressure = round(clamp(bundleShare * 0.68 + avgConfidence * 12, 2, 98));
+        const validatorMarkoutQuality = round(clamp(100 - markout5 * 3.1 - bundleShare * 24, 3, 96));
+        const recommendedMaxNotionalUsd = round(clamp(180_000 - toxicFlowRate * 1_250 - bundleShare * 650, 7_500, 180_000), 0);
+        const estimatedSavingsBps = round(clamp(markout30 * 0.55 + lvrProxyScore * 0.05, 0.3, 18), 2);
+        const estimatedSavingsUsd = round((50_000 * estimatedSavingsBps) / 10_000, 2);
+        const reasonCodes = buildReasonCodes({
+          sandwichRate,
+          bundleShare: bundleShare * 100,
+          staleQuotePickupRate,
+          markout30,
+          lvrProxyScore,
+          toxicFlowRate,
+        });
+        const policyAction =
+          riskScore >= 86 || toxicityProbability >= 82
+            ? "avoid"
+            : riskScore >= 72 || lvrProxyScore >= 58
+              ? "reroute"
+              : riskScore >= 55
+                ? "penalize"
+                : riskScore >= 28
+                  ? "monitor"
+                  : "allow";
+        const decomposition = buildDecomposition([
+          { label: "sandwich_concentration", value: sandwichRate * 100 },
+          { label: "stale_quote_pickups", value: staleQuotePickupRate },
+          { label: "bundle_pressure", value: bundleShare * 100 },
+          { label: "markout_deterioration", value: markout30 * 3 },
+          { label: "lp_adverse_selection", value: lvrProxyScore },
+        ]);
+        const sourceHint =
+          liveAnalytics && liveAnalytics.sourceCounts.size > 0
+            ? [...liveAnalytics.sourceCounts.entries()].sort((a, b) => b[1] - a[1])[0][0]
+            : item.route_kind === "route"
+              ? "aggregator-routed"
+              : bundleShare >= 0.55
+                ? "bundle-lane"
+                : "searcher-bot";
 
         return {
           route_key: item.route_key,
@@ -2605,6 +3513,28 @@ class LiveChainService {
           bundle_share: Number((bundleShare * 100).toFixed(1)),
           risk_score: riskScore,
           recommendation: riskScore >= 80 ? "avoid" : riskScore >= 55 ? "penalize" : "monitor",
+          execution_quality_score: executionQualityScore,
+          toxic_flow_rate: toxicFlowRate,
+          realized_slippage_bps: realizedSlippageBps,
+          stale_quote_pickup_rate: staleQuotePickupRate,
+          quote_freshness_ms: quoteFreshnessMs,
+          markout_1s_bps: markout1,
+          markout_5s_bps: markout5,
+          markout_30s_bps: markout30,
+          flow_quality_score: flowQualityScore,
+          toxicity_probability: toxicityProbability,
+          retail_likelihood: retailLikelihood,
+          lp_adverse_selection_probability: lpAdverseSelectionProbability,
+          lvr_proxy_score: lvrProxyScore,
+          priority_fee_pressure: priorityFeePressure,
+          validator_markout_quality: validatorMarkoutQuality,
+          source_hint: sourceHint,
+          recommended_max_notional_usd: recommendedMaxNotionalUsd,
+          estimated_savings_bps: estimatedSavingsBps,
+          estimated_savings_usd: estimatedSavingsUsd,
+          policy_action: policyAction,
+          reason_codes: reasonCodes,
+          decomposition,
         } satisfies ApiRouteRisk;
       })
       .sort((a, b) => b.risk_score - a.risk_score || b.total_extracted_usd - a.total_extracted_usd)
@@ -2757,6 +3687,8 @@ class LiveChainService {
         `matched against ${matched_on.replace("_", " ")} intel for ${selected.label}`,
         `${selected.total_attacks} detections and ${selected.unique_attackers} unique operators are attached to this surface`,
         `bundle-heavy share is ${selected.bundle_share.toFixed(0)}% and average detector confidence is ${selected.avg_confidence.toFixed(0)}%`,
+        `30s markout is ${selected.markout_30s_bps.toFixed(1)} bps and stale quote pickup rate is ${selected.stale_quote_pickup_rate.toFixed(0)}%`,
+        `estimated LVR proxy score is ${selected.lvr_proxy_score.toFixed(0)} with flow quality ${selected.flow_quality_score.toFixed(0)}`,
       ],
       integration_actions: [
         decision === "reroute" || decision === "avoid"
@@ -2768,7 +3700,28 @@ class LiveChainService {
         decision === "avoid" || decision === "reroute"
           ? "trigger a high-severity ops alert for repeated toxic execution on this pair"
           : "keep this surface under live alert monitoring",
+        `cap order size near $${selected.recommended_max_notional_usd.toLocaleString()} unless the venue state improves`,
       ],
+      execution_quality_score: selected.execution_quality_score,
+      toxic_flow_rate: selected.toxic_flow_rate,
+      realized_slippage_bps: selected.realized_slippage_bps,
+      markout_1s_bps: selected.markout_1s_bps,
+      markout_5s_bps: selected.markout_5s_bps,
+      markout_30s_bps: selected.markout_30s_bps,
+      stale_quote_pickup_rate: selected.stale_quote_pickup_rate,
+      quote_freshness_ms: selected.quote_freshness_ms,
+      flow_quality_score: selected.flow_quality_score,
+      toxicity_probability: selected.toxicity_probability,
+      retail_likelihood: selected.retail_likelihood,
+      lp_adverse_selection_probability: selected.lp_adverse_selection_probability,
+      lvr_proxy_score: selected.lvr_proxy_score,
+      recommended_max_notional_usd: selected.recommended_max_notional_usd,
+      estimated_savings_bps: selected.estimated_savings_bps,
+      estimated_savings_usd: Number(((notionalUsd * selected.estimated_savings_bps) / 10_000).toFixed(2)),
+      source_hint: selected.source_hint,
+      reason_codes: selected.reason_codes,
+      decomposition: selected.decomposition,
+      policy_action: selected.policy_action,
     };
   }
 
@@ -2817,6 +3770,14 @@ class LiveChainService {
       selected_label: chosen?.label ?? null,
       primary_action,
       estimated_loss_avoided_usd: Number(Math.max(0, worstLoss - chosenLoss).toFixed(2)),
+      estimated_bps_saved: Number(
+        Math.max(
+          0,
+          (ranked[ranked.length - 1]?.estimated_bps_at_risk ?? chosen?.estimated_bps_at_risk ?? 0) -
+            (chosen?.estimated_bps_at_risk ?? 0),
+        ).toFixed(2),
+      ),
+      counterfactual_worst_route_key: ranked[ranked.length - 1]?.route_key ?? null,
       ranked_candidates: ranked,
     };
   }
@@ -2960,7 +3921,244 @@ class LiveChainService {
       route_risk: this.getRouteRisks(limit),
       pool_toxicity: this.getPools(limit),
       route_recommendations: this.getRouteRecommendations(Math.min(limit, 12)),
+      execution_quality: this.getExecutionQuality(limit),
+      lp_protection: this.getLpProtection(limit),
+      flow_segments: this.getFlowSegments(),
+      source_attribution: this.getSourceAttribution(limit),
+      savings_summary: this.getSavingsSummary(),
     };
+  }
+
+  getExecutionQuality(limit = 20) {
+    return this.getRouteRisks(Math.max(limit, 20)).slice(0, limit).map((route) => ({
+      route_key: route.route_key,
+      label: route.label,
+      protocol: route.protocol,
+      execution_quality_score: route.execution_quality_score,
+      realized_slippage_bps: route.realized_slippage_bps,
+      quote_freshness_ms: route.quote_freshness_ms,
+      markout_1s_bps: route.markout_1s_bps,
+      markout_5s_bps: route.markout_5s_bps,
+      markout_30s_bps: route.markout_30s_bps,
+      stale_quote_pickup_rate: route.stale_quote_pickup_rate,
+      toxic_flow_rate: route.toxic_flow_rate,
+      estimated_savings_bps: route.estimated_savings_bps,
+      estimated_savings_usd: route.estimated_savings_usd,
+      reason_codes: route.reason_codes,
+    }));
+  }
+
+  getLpProtection(limit = 20) {
+    return this.getPools(limit).map((pool) => ({
+      pool_address: pool.pool_address,
+      protocol: pool.protocol,
+      toxicity_score: pool.toxicity_score,
+      lvr_proxy_score: pool.lvr_proxy_score ?? 0,
+      adverse_selection_intensity: pool.adverse_selection_intensity ?? 0,
+      stale_quote_arb_frequency: pool.stale_quote_arb_frequency ?? 0,
+      lp_drag_estimate_usd: pool.lp_drag_estimate_usd ?? 0,
+      toxic_to_benign_volume_ratio: pool.toxic_to_benign_volume_ratio ?? 0,
+      quote_freshness_stress: pool.quote_freshness_stress ?? 0,
+      saved_fee_bps_if_segmented: pool.saved_fee_bps_if_segmented ?? 0,
+      primary_cause: pool.primary_cause ?? "unknown",
+      reason_codes: pool.reason_codes ?? [],
+    }));
+  }
+
+  getFlowSegments() {
+    const grouped = new Map<string, { description: string; attacks: ApiAttack[] }>();
+    for (const attack of this.attacks) {
+      const segment = classifyFlowSegment(attack);
+      if (!grouped.has(segment.segment)) {
+        grouped.set(segment.segment, { description: segment.description, attacks: [] });
+      }
+      grouped.get(segment.segment)!.attacks.push(attack);
+    }
+
+    const segments: FlowSegmentRecord[] = [...grouped.entries()]
+      .map(([segment, entry]) => ({
+        segment,
+        description: entry.description,
+        attack_count: entry.attacks.length,
+        flow_share: round((entry.attacks.length / Math.max(1, this.attacks.length)) * 100),
+        avg_confidence: round(entry.attacks.reduce((sum, attack) => sum + attack.confidence, 0) / Math.max(1, entry.attacks.length) * 100),
+        avg_profit_usd: round(entry.attacks.reduce((sum, attack) => sum + (attack.profit_usd ?? 0), 0) / Math.max(1, entry.attacks.length), 2),
+        toxicity_probability: round(
+          clamp(
+            entry.attacks.reduce((sum, attack) => sum + (((attack.tip_lamports ?? 0) >= 120_000 ? 28 : 12) + attack.confidence * 32), 0) /
+              Math.max(1, entry.attacks.length),
+            8,
+            99,
+          ),
+        ),
+      }))
+      .sort((a, b) => b.flow_share - a.flow_share);
+
+    return {
+      segments,
+      sources: this.getSourceAttribution(8),
+    };
+  }
+
+  getSourceAttribution(limit = 8) {
+    const grouped = new Map<
+      string,
+      {
+        label: string;
+        category: SourceAttributionRecord["category"];
+        attacks: ApiAttack[];
+        swaps: ParsedSwapCandidate[];
+      }
+    >();
+
+    for (const swap of this.recentSwaps) {
+      const rawSource = swap.source?.toLowerCase() ?? (swap.pool_address?.startsWith("route:") ? "aggregator-routed" : "wallet-originated");
+      const category: SourceAttributionRecord["category"] =
+        rawSource.includes("jupiter") || rawSource.includes("route") ? "aggregator" :
+        rawSource.includes("jito") ? "bundle-lane" :
+        rawSource.includes("liquidation") ? "liquidation" :
+        rawSource.includes("raydium") || rawSource.includes("orca") || rawSource.includes("meteora") ? "searcher" :
+        "wallet";
+      if (!grouped.has(rawSource)) {
+        grouped.set(rawSource, {
+          label: rawSource,
+          category,
+          attacks: [],
+          swaps: [],
+        });
+      }
+      grouped.get(rawSource)!.swaps.push(swap);
+    }
+
+    for (const attack of this.attacks) {
+      const meta = inferSourceLabel(attack);
+      const key = meta.key;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          label: meta.label,
+          category: meta.category,
+          attacks: [],
+          swaps: [],
+        });
+      }
+      grouped.get(key)!.attacks.push(attack);
+    }
+
+    return [...grouped.values()]
+      .map(({ label, category, attacks, swaps }) => {
+        const avgBundle =
+          (attacks.reduce((sum, attack) => sum + (((attack.tip_lamports ?? 0) >= 120_000 || attack.validator.toLowerCase().includes("jito")) ? 72 : 24), 0) +
+            swaps.reduce((sum, swap) => sum + (((swap.priority_fee ?? 0) >= 120_000 || swap.validator.toLowerCase().includes("jito")) ? 72 : 18), 0)) /
+          Math.max(1, attacks.length + swaps.length);
+        const avgRisk =
+          (attacks.reduce((sum, attack) => sum + (attack.entity_risk ?? attack.confidence), 0) +
+            swaps.reduce((sum, swap) => sum + (((swap.priority_fee ?? 0) > 20_000 ? 0.74 : 0.38) + ((swap.notional_usd ?? 0) > 25_000 ? 0.08 : 0)), 0)) /
+          Math.max(1, attacks.length + swaps.length);
+        const toxicityProbability = round(clamp(avgRisk * 72 + avgBundle * 0.28, 6, 98));
+        return {
+          source_key: label,
+          label,
+          category,
+          flow_count: attacks.length + swaps.length,
+          flow_share: round(((attacks.length + swaps.length) / Math.max(1, this.attacks.length + this.recentSwaps.length)) * 100),
+          flow_quality_score: round(clamp(100 - toxicityProbability * 0.72 - avgBundle * 0.12, 4, 96)),
+          toxicity_probability: toxicityProbability,
+          retail_likelihood: round(clamp(category === "wallet" ? 76 : 100 - toxicityProbability * 0.88, 3, 90)),
+          bundle_likelihood: round(clamp(avgBundle, 4, 97)),
+          lp_adverse_selection_probability: round(clamp(toxicityProbability * 0.82 + (category === "searcher" ? 12 : 0), 3, 99)),
+          endorser_inference: category === "aggregator" ? "endorsed-like" : category === "searcher" ? "unendorsed" : "unknown",
+        } satisfies SourceAttributionRecord;
+      })
+      .sort((a, b) => b.flow_share - a.flow_share)
+      .slice(0, limit);
+  }
+
+  getRoutePolicies(limit = 20, objective: NonNullable<ApiRouteEvaluationRequest["objective"]> = "protect_users") {
+    return this.getRouteRisks(Math.max(limit, 20))
+      .slice(0, limit)
+      .map((route) => ({
+        route_key: route.route_key,
+        label: route.label,
+        objective,
+        policy_action: route.policy_action,
+        recommended_max_notional_usd: route.recommended_max_notional_usd,
+        estimated_savings_bps: route.estimated_savings_bps,
+        estimated_savings_usd: route.estimated_savings_usd,
+        reason_codes: route.reason_codes,
+        decomposition: route.decomposition,
+      }));
+  }
+
+  preventionGuard(request: ApiRouteEvaluationRequest & { candidates?: ApiRouteRankingRequest["candidates"] }): PreventionGuardRecord {
+    const objective = request.objective ?? "protect_users";
+    const ranking = request.candidates?.length
+      ? this.rankRoutes({
+          input_mint: request.input_mint,
+          output_mint: request.output_mint,
+          notional_usd: request.notional_usd,
+          slippage_bps: request.slippage_bps,
+          objective,
+          candidates: request.candidates,
+        })
+      : null;
+    const evaluation = ranking?.ranked_candidates[0]
+      ? ranking.ranked_candidates[0]
+      : this.evaluateRoute(request);
+
+    const action =
+      evaluation.decision === "avoid" ? "block" :
+      evaluation.decision === "reroute" ? "reroute" :
+      evaluation.decision;
+
+    return {
+      action,
+      reason_codes: evaluation.reason_codes ?? [],
+      expected_loss_at_risk_bps: evaluation.estimated_bps_at_risk,
+      expected_loss_at_risk_usd: evaluation.estimated_loss_usd,
+      recommended_max_notional_usd: evaluation.recommended_max_notional_usd ?? 25_000,
+      selected_route_key: evaluation.route_key,
+      selected_label: evaluation.label,
+      safer_alternatives: evaluation.safer_alternatives,
+      warning:
+        action === "block"
+          ? `block this route now: expected loss-at-risk is ${evaluation.estimated_bps_at_risk.toFixed(1)} bps`
+          : action === "reroute"
+            ? `reroute flow: ${evaluation.safer_alternatives[0]?.label ?? "safer alternative"} looks materially cleaner`
+            : `monitor surface closely: toxicity probability is ${(evaluation.toxicity_probability ?? 0).toFixed(0)}%`,
+    };
+  }
+
+  getSavingsSummary(): SavingsSummaryRecord {
+    const risks = this.getRouteRisks(MAX_ATTACKS);
+    const pools = this.getPools(MAX_ATTACKS);
+    return {
+      estimated_loss_avoided_usd_24h: round(risks.reduce((sum, route) => sum + route.estimated_savings_usd, 0), 2),
+      estimated_bps_saved_avg: round(risks.reduce((sum, route) => sum + route.estimated_savings_bps, 0) / Math.max(1, risks.length), 2),
+      routes_flagged: risks.filter((route) => route.policy_action === "avoid" || route.policy_action === "reroute").length,
+      pools_protected: pools.filter((pool) => (pool.lvr_proxy_score ?? 0) >= 45).length,
+      users_protected_proxy: risks.reduce((sum, route) => sum + Math.max(1, route.total_attacks), 0),
+    };
+  }
+
+  getPredictionMarketExecution(limit = 6) {
+    return this.getRouteRisks(Math.max(limit, 12))
+      .filter((route) => route.route_kind === "venue" || route.route_kind === "route")
+      .slice(0, limit)
+      .map((route) => ({
+        market_type: "prediction",
+        route_key: route.route_key,
+        label: route.label,
+        protocol: route.protocol,
+        execution_quality_score: route.execution_quality_score,
+        liquidity_stress_score: round(clamp(route.toxic_flow_rate * 0.7 + route.bundle_share * 0.22, 4, 99)),
+        toxic_flow_flag: route.toxicity_probability >= 64 || route.policy_action === "avoid",
+        recommended_action: route.policy_action === "avoid" ? "avoid" : route.execution_quality_score >= 60 ? "prefer" : "monitor",
+        estimated_slippage_bps: route.realized_slippage_bps,
+        rationale: [
+          `${route.label} is scored for event-driven flow where short-lived repricing can dominate outcomes`,
+          `execution quality is ${route.execution_quality_score.toFixed(0)} and markout 30s is ${route.markout_30s_bps.toFixed(1)} bps`,
+        ],
+      }));
   }
 
   getPoolDetails(address: string) {
@@ -2981,6 +4179,7 @@ class LiveChainService {
 
   getValidators() {
     const entityContext = this.buildEntityContext();
+    const swapAnalytics = this.buildSwapAnalyticsBySurface();
     const map = new Map<
       string,
       {
@@ -3031,8 +4230,12 @@ class LiveChainService {
       if (attack.tip_lamports) item.tips.push(attack.tip_lamports);
     }
 
+    const totalValidatorAttacks = [...map.values()].reduce((sum, item) => sum + item.total_mev_attacks, 0);
+
     return [...map.values()]
       .map((item) => {
+        const validatorMarkouts = [...swapAnalytics.values()]
+          .flatMap((surface) => surface.validatorMarkouts.get(item.validator) ?? []);
         const sandwichShare = item.total_mev_attacks > 0 ? item.sandwich_count / item.total_mev_attacks : 0;
         const wideShare = item.sandwich_count > 0 ? item.wide_sandwich_count / item.sandwich_count : 0;
         const confirmedShare = item.total_mev_attacks > 0 ? item.confirmed_count / item.total_mev_attacks : 0;
@@ -3068,6 +4271,25 @@ class LiveChainService {
             ).toFixed(2),
           ),
         );
+        const jitoBundleShare = round(clamp((avgTip / 220_000) * 62 + sandwichShare * 28, 4, 97));
+        const priorityFeePressure = round(clamp(avgTip / 2_500, 2, 99));
+        const medianValidatorMarkout = validatorMarkouts.length > 0 ? this.median(validatorMarkouts) ?? 0 : 0;
+        const markoutQualityScore = round(
+          clamp(100 - sandwichShare * 72 - priorityFeePressure * 0.24 - medianValidatorMarkout * 2.6, 5, 96),
+        );
+        const mevShareOfFlow = round(clamp((item.total_mev_attacks / Math.max(1, totalValidatorAttacks)) * 100 * 2.4, 3, 95));
+        const entityConcentrationScore = round(clamp((1 - entityConcentration) * 100, 3, 99));
+        const stakeCentralizationRisk = round(
+          clamp(mevShareOfFlow * 0.46 + sandwichShare * 32 + entityConcentrationScore * 0.34 + wideShare * 18, 4, 99),
+        );
+        const regime =
+          jitoBundleShare >= 62
+            ? "jito-dominant"
+            : priorityFeePressure >= 58
+              ? "priority-fee heavy"
+              : markoutQualityScore >= 68
+                ? "balanced"
+                : "searcher-dense";
 
         return {
           validator: item.validator,
@@ -3085,6 +4307,14 @@ class LiveChainService {
           sandwich_share: Number((sandwichShare * 100).toFixed(1)),
           risk_score: riskScore,
           avg_tip_lamports: avgTip,
+          jito_bundle_share: jitoBundleShare,
+          priority_fee_pressure: priorityFeePressure,
+          markout_quality_score: markoutQualityScore,
+          mev_share_of_flow: mevShareOfFlow,
+          observed_sandwich_rate: round(clamp(sandwichShare * 100, 0, 99.9), 1),
+          entity_concentration_score: entityConcentrationScore,
+          stake_centralization_risk: stakeCentralizationRisk,
+          regime,
         };
       })
       .sort((a, b) => b.risk_score - a.risk_score || b.total_mev_attacks - a.total_mev_attacks);

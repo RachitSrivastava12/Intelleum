@@ -1,4 +1,5 @@
 import "dotenv/config";
+import crypto from "crypto";
 import { Pool } from "pg";
 
 const connectionString = process.env.DATABASE_URL;
@@ -31,6 +32,7 @@ const createdPool = connectionString
 export const pool = createdPool as Pool;
 
 let accessSchemaReady = false;
+let apiKeySchemaReady = false;
 let intelligenceSchemaReady = false;
 
 function requirePool(): Pool {
@@ -61,9 +63,48 @@ export async function ensureAccessSchema(): Promise<void> {
   accessSchemaReady = true;
 }
 
+export function hashApiKey(apiKey: string): string {
+  return crypto.createHash("sha256").update(apiKey).digest("hex");
+}
+
+export async function ensureApiKeySchema(): Promise<void> {
+  if (apiKeySchemaReady) return;
+
+  const db = requirePool();
+  await db.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS api_clients (
+      id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      wallet_address  TEXT NOT NULL UNIQUE,
+      name            TEXT,
+      email           TEXT,
+      organization    TEXT,
+      use_case        TEXT,
+      message         TEXT,
+      api_key_hash    TEXT NOT NULL UNIQUE,
+      api_key_prefix  TEXT NOT NULL,
+      request_limit   INTEGER NOT NULL DEFAULT 5,
+      request_count   INTEGER NOT NULL DEFAULT 0,
+      status          TEXT NOT NULL DEFAULT 'active',
+      last_request_at TIMESTAMPTZ,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS idx_api_clients_api_key_hash
+    ON api_clients (api_key_hash)
+  `);
+  await db.query(`
+    CREATE INDEX IF NOT EXISTS idx_api_clients_status
+    ON api_clients (status)
+  `);
+  apiKeySchemaReady = true;
+}
+
 export async function initDb(): Promise<void> {
   if (!createdPool) return;
   await ensureAccessSchema();
+  await ensureApiKeySchema();
 }
 
 export async function ensureIntelligenceSchema(): Promise<void> {

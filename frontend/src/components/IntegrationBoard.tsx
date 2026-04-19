@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { api, LiveAlert, RouteRecommendation } from "@/lib/api";
+import { api, LiveAlert, RouteRecommendation, SavingsSummary } from "@/lib/api";
 import CopyableValue from "@/components/CopyableValue";
 import InfoHint from "@/components/InfoHint";
 import { formatRelativeTime } from "@/lib/utils";
@@ -20,15 +20,18 @@ function actionTone(value: LiveAlert["action"]) {
 export default function IntegrationBoard() {
   const [alerts, setAlerts] = useState<LiveAlert[]>([]);
   const [recommendations, setRecommendations] = useState<RouteRecommendation[]>([]);
+  const [savings, setSavings] = useState<SavingsSummary | null>(null);
 
   useEffect(() => {
     const load = async () => {
-      const [nextAlerts, nextRecommendations] = await Promise.all([
+      const [nextAlerts, nextRecommendations, nextSavings] = await Promise.all([
         api.liveAlerts(4),
         api.routeRecommendations(3),
+        api.savingsSummary(),
       ]);
       setAlerts(nextAlerts);
       setRecommendations(nextRecommendations);
+      setSavings(nextSavings);
     };
 
     void load();
@@ -37,7 +40,37 @@ export default function IntegrationBoard() {
   }, []);
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[1.1fr,0.9fr]">
+    <div className="space-y-4">
+      {savings && (
+        <div className="grid gap-3 md:grid-cols-4">
+          <div className="intel-panel p-4">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              Saved / 24H <InfoHint text="Estimated loss avoided if flagged toxic routes are rerouted or blocked." />
+            </div>
+            <div className="mt-2 text-lg text-primary">${savings.estimated_loss_avoided_usd_24h.toLocaleString()}</div>
+          </div>
+          <div className="intel-panel p-4">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              Avg Bps Saved <InfoHint text="Average basis points preserved across current route actions." />
+            </div>
+            <div className="mt-2 text-lg text-cyan-300">{savings.estimated_bps_saved_avg.toFixed(2)} bps</div>
+          </div>
+          <div className="intel-panel p-4">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              Routes Flagged <InfoHint text="Routes currently serious enough to reroute or avoid." />
+            </div>
+            <div className="mt-2 text-lg text-foreground">{savings.routes_flagged}</div>
+          </div>
+          <div className="intel-panel p-4">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              Pools Protected <InfoHint text="Pools under enough toxic pressure to deserve segmentation or monitoring." />
+            </div>
+            <div className="mt-2 text-lg text-foreground">{savings.pools_protected}</div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-4 xl:grid-cols-[1.1fr,0.9fr]">
       <div className="intel-panel p-4">
         <div className="mb-3 text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
           Live Alert Feed <InfoHint text="Webhook-style alert output that protocols, routers, or risk systems could ingest directly." />
@@ -119,6 +152,7 @@ export default function IntegrationBoard() {
             </motion.div>
           ))}
         </div>
+      </div>
       </div>
     </div>
   );

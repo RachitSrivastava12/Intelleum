@@ -17,6 +17,8 @@ const TYPE_CONFIG: Record<string, { label: string; color: string; bg: string }> 
   jit:         { label: "JIT",         color: "text-orange-400", bg: "bg-orange-500/10 border-orange-500/30" },
   liquidation: { label: "LIQUIDATION", color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/30" },
   backrun:     { label: "BACKRUN",     color: "text-blue-400",   bg: "bg-blue-500/10 border-blue-500/30" },
+  liquidity_snipe: { label: "LAUNCH SNIPE", color: "text-pink-400", bg: "bg-pink-500/10 border-pink-500/30" },
+  liquidity_drain: { label: "LIQUIDITY DRAIN", color: "text-cyan-300", bg: "bg-cyan-500/10 border-cyan-500/30" },
 };
 
 function displayTypeLabel(attack: Attack) {
@@ -45,6 +47,44 @@ const TOKEN_SYMBOLS: Record<string, string> = {
 function tokenLabel(mint?: string | null) {
   if (!mint) return "UNKNOWN";
   return TOKEN_SYMBOLS[mint] ?? truncateAddress(mint, 6, 4);
+}
+
+function profitLabel(attack: Attack) {
+  if (attack.attack_type === "liquidation") return "Liquidator Gain";
+  if (attack.attack_type === "jit") return "LP Capture";
+  if (attack.attack_type === "liquidity_drain") return "Removed Value";
+  if (attack.attack_type === "liquidity_snipe") return "First Fill";
+  return "Searcher PnL";
+}
+
+function harmLabel(attack: Attack) {
+  if (attack.attack_type === "liquidation") return "Borrower Loss";
+  if (attack.attack_type === "jit") return "User Impact";
+  if (attack.attack_type === "liquidity_drain") return "Holder Risk";
+  if (attack.attack_type === "liquidity_snipe") return "Launch Risk";
+  return "User Harm";
+}
+
+function attackSummary(attack: Attack) {
+  if (attack.attack_type === "jit") {
+    return "Liquidity entered, victim flow landed, liquidity exited.";
+  }
+  if (attack.attack_type === "liquidation") {
+    return "Parsed liquidation-like flow with liquidator-side gain and counterparty loss signals.";
+  }
+  if (attack.attack_type === "liquidity_snipe") {
+    return "Pool initialization was followed immediately by a first-buy capture window.";
+  }
+  if (attack.attack_type === "liquidity_drain") {
+    return "Liquidity was removed aggressively, with dump-style follow-through or drain-like timing.";
+  }
+  if (attack.attack_type === "sandwich") {
+    return "Bracketed victim execution across a hostile route window.";
+  }
+  if (attack.attack_type === "backrun") {
+    return "Post-victim execution harvested downstream repricing.";
+  }
+  return "Cross-venue stale-quote capture with inventory ending near-flat.";
 }
 
 interface Props {
@@ -194,7 +234,7 @@ export default function LiveAttackFeed({ filterType, maxItems = 50, compact = fa
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
             {/* Type filter tabs */}
-            {["", "sandwich", "arbitrage", "backrun", "jit", "liquidation"].map(type => (
+            {["", "sandwich", "arbitrage", "backrun", "jit", "liquidation", "liquidity_snipe", "liquidity_drain"].map(type => (
               <button
                 key={type || "all"}
                 onClick={() => { setActiveFilter(type); setAttacks([]); lastFetchRef.current = null; }}
@@ -254,11 +294,6 @@ export default function LiveAttackFeed({ filterType, maxItems = 50, compact = fa
                     {attack.entity_label && (
                       <span className="ml-2 text-xs text-primary">[{attack.entity_label}]</span>
                     )}
-                    {attack.attack_quality && (
-                      <span className="ml-2 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                        {attack.attack_quality}
-                      </span>
-                    )}
                   </div>
 
                     {/* Victim */}
@@ -274,29 +309,26 @@ export default function LiveAttackFeed({ filterType, maxItems = 50, compact = fa
                     )}
                   </div>
 
-                  <div className="flex items-center gap-6 text-right">
+                  <div className="flex items-center gap-4 text-right">
                     <div>
                       <div className="text-xs text-muted-foreground">
-                        Detector <InfoHint text="The detection family that surfaced this event, such as parsed swap sandwich, backrun, or liquidity-JIT inference." />
+                        Model <InfoHint text="The detection family that surfaced this event, such as parsed swap sandwich, backrun, or liquidity-JIT inference." />
                       </div>
                       <div className="text-xs text-foreground">{attack.detector ?? "unknown"}</div>
-                      <div className="mt-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                        {attack.detection_basis ?? "heuristic"} basis
-                      </div>
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground">
                         Confidence <InfoHint text="Heuristic confidence for this classification based on the evidence currently available. Higher means stronger corroboration, not mathematical certainty." />
                       </div>
                       <div className={`text-xs font-bold ${cfg.color}`}>
-                        {confidenceLabel(attack.confidence)} {(attack.confidence * 100).toFixed(0)}%
+                        {confidenceLabel(attack.confidence)} · {(attack.confidence * 100).toFixed(0)}%
                       </div>
                     </div>
                     {attack.profit_usd != null && (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <div>
-                            <div className="text-xs text-muted-foreground">Searcher PnL</div>
+                            <div className="text-xs text-muted-foreground">{profitLabel(attack)}</div>
                             <div className={`text-sm font-bold ${cfg.color}`}>{formatUSD(attack.profit_usd)}</div>
                           </div>
                         </TooltipTrigger>
@@ -309,7 +341,7 @@ export default function LiveAttackFeed({ filterType, maxItems = 50, compact = fa
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <div>
-                            <div className="text-xs text-muted-foreground">User Harm</div>
+                            <div className="text-xs text-muted-foreground">{harmLabel(attack)}</div>
                             <div className="text-sm text-red-400">{formatUSD(attack.victim_loss_usd)}</div>
                           </div>
                         </TooltipTrigger>
@@ -320,12 +352,12 @@ export default function LiveAttackFeed({ filterType, maxItems = 50, compact = fa
                     )}
                     <div>
                       <div className="text-xs text-muted-foreground">
-                        Pool / Route <InfoHint text="The observed execution surface. When exact pool certainty is weak, Intelleum falls back to a route, venue, or token-pair level label instead of overstating precision." />
+                        Surface <InfoHint text="The observed execution surface. When exact pool certainty is weak, Intelleum falls back to a route, venue, or token-pair level label instead of overstating precision." />
                       </div>
                       <CopyableValue
                         value={attack.pool_address}
                         display={formatPoolLabel(attack.pool_address)}
-                        className="max-w-[180px] truncate text-xs text-foreground"
+                        className="max-w-[150px] truncate text-xs text-foreground"
                         title={formatPoolLabel(attack.pool_address)}
                       />
                       <div className="mt-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
@@ -333,10 +365,33 @@ export default function LiveAttackFeed({ filterType, maxItems = 50, compact = fa
                       </div>
                     </div>
                     <div>
-                      <div className="text-xs text-muted-foreground">Seen</div>
+                      <div className="text-xs text-muted-foreground">Time</div>
                       <div className="text-xs text-foreground">{formatRelativeTime(attack.block_time)}</div>
                     </div>
                   </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.16em]">
+                  <span className="border border-border/60 bg-background/35 px-2 py-1 text-muted-foreground">
+                    lane · <span className="text-foreground">{attack.execution_lane ?? "standard"}</span>
+                  </span>
+                  <span className="border border-border/60 bg-background/35 px-2 py-1 text-muted-foreground">
+                    basis · <span className="text-foreground">{attack.detection_basis ?? "heuristic"}</span>
+                  </span>
+                  {attack.bundle_likelihood != null && (
+                    <span className="border border-border/60 bg-background/35 px-2 py-1 text-muted-foreground">
+                      bundle · <span className="text-foreground">{(attack.bundle_likelihood * 100).toFixed(0)}%</span>
+                    </span>
+                  )}
+                  {attack.surface_precision && (
+                    <span className="border border-border/60 bg-background/35 px-2 py-1 text-muted-foreground">
+                      precision · <span className="text-foreground">{attack.surface_precision}</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-2 text-xs text-muted-foreground">
+                  {attackSummary(attack)}
                 </div>
 
                 {!!attack.evidence?.length && (
@@ -461,7 +516,7 @@ export default function LiveAttackFeed({ filterType, maxItems = 50, compact = fa
         {displayedAttacks.length === 0 && !error && (
           <div className="text-center text-muted-foreground text-xs py-8">
             <motion.span animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 1.5, repeat: Infinity }}>
-              Scanning blockchain for MEV activity...
+              Watching Solana for toxic flow...
             </motion.span>
           </div>
         )}

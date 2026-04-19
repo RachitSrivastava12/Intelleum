@@ -9,6 +9,9 @@ import EntityExplorer from "./EntityExplorer";
 import PoolToxicityDashboard from "@/components/PoolToxicityDashboard";
 import RouteRiskBoard from "@/components/RouteRiskBoard";
 import IntegrationBoard from "@/components/IntegrationBoard";
+import FlowSegmentationPanel from "@/components/FlowSegmentationPanel";
+import JitoExecutionPanel from "@/components/JitoExecutionPanel";
+import SystemicRiskPanel from "@/components/SystemicRiskPanel";
 
 // ============================================================
 // DASHBOARD — the real intelligence app
@@ -21,21 +24,21 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<Tab>("feed");
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: "feed",     label: "// Live Feed"    },
-    { id: "entities", label: "// Entities"     },
-    { id: "routes", label: "// Route Risk" },
-    { id: "pools",    label: "// Pool Toxicity" },
-    { id: "validators", label: "// Validators" },
-    { id: "integrations", label: "// Integrations" },
+    { id: "feed", label: "Live Feed" },
+    { id: "entities", label: "Entities" },
+    { id: "routes", label: "Route Risk" },
+    { id: "pools", label: "Pool Toxicity" },
+    { id: "validators", label: "Validators" },
+    { id: "integrations", label: "Integrations" },
   ];
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      
+      <StatsBar />
 
       <div className="max-w-7xl mx-auto px-6 py-6">
         {/* Tab nav */}
-        <div className="flex items-center gap-1 mb-6 border-b border-border pb-4">
+        <div className="mb-6 flex items-center gap-1 border-b border-border pb-4">
           <Link
             to="/"
             className="mr-3 border border-border px-3 py-1 text-xs font-mono tracking-wider text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
@@ -43,11 +46,12 @@ export default function Dashboard() {
             ← HOME
           </Link>
 
+          <div className="flex flex-1 items-center gap-1 overflow-x-auto">
           {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 text-xs font-mono tracking-wider transition-all ${
+              className={`whitespace-nowrap px-4 py-2 text-xs font-mono tracking-wider transition-all ${
                 activeTab === tab.id
                   ? "text-primary border-b-2 border-primary -mb-[17px]"
                   : "text-muted-foreground hover:text-foreground"
@@ -56,6 +60,7 @@ export default function Dashboard() {
               {tab.label}
             </button>
           ))}
+          </div>
 
           <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
             <Link
@@ -83,9 +88,14 @@ export default function Dashboard() {
           {activeTab === "feed" && (
             <div>
               <EngineStatusPanel />
+              <div className="mb-4 grid gap-4 xl:grid-cols-3">
+                <FlowSegmentationPanel />
+                <JitoExecutionPanel />
+                <SystemicRiskPanel />
+              </div>
               <div className="mb-4">
                 <p className="text-xs text-muted-foreground">
-                  Real-time stream of MEV events detected on-chain. Updated every 5 seconds.
+                  Live MEV detections, refreshed every 5 seconds.
                 </p>
               </div>
               <LiveAttackFeed maxItems={100} />
@@ -98,7 +108,7 @@ export default function Dashboard() {
             <div>
               <div className="mb-4">
                 <p className="text-xs text-muted-foreground">
-                  Route and venue surfaces ranked by toxic execution pressure. This is the clearest “reduce waste before routing” view for aggregators, wallets, and protocols.
+                  Rank routes and venues by toxic execution pressure before more flow is routed into them.
                 </p>
               </div>
               <RouteRiskBoard />
@@ -109,7 +119,7 @@ export default function Dashboard() {
             <div>
               <div className="mb-4">
                 <p className="text-xs text-muted-foreground">
-                  Pools ranked by MEV toxicity score. Higher score = more capital at risk from extraction.
+                  Rank pools by extraction pressure, LP drag, and toxic flow concentration.
                 </p>
               </div>
               <PoolToxicityDashboard />
@@ -120,8 +130,11 @@ export default function Dashboard() {
             <div>
               <div className="mb-4">
                 <p className="text-xs text-muted-foreground">
-                  Validator-side MEV risk based on observed sandwich share, wide-bracket activity, entity concentration, and observed priority-fee behavior.
+                  Surface validator-side bundle pressure, sandwich share, and operator concentration.
                 </p>
+              </div>
+              <div className="mb-4">
+                <SystemicRiskPanel />
               </div>
               <LiveValidatorBoard />
             </div>
@@ -131,7 +144,7 @@ export default function Dashboard() {
             <div>
               <div className="mb-4">
                 <p className="text-xs text-muted-foreground">
-                  Production-facing outputs for routers, wallets, protocols, and risk systems: live alerts, route recommendations, and exportable toxic-flow intelligence.
+                  Production outputs for routers, wallets, protocols, and risk systems.
                 </p>
               </div>
               <IntegrationBoard />

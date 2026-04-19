@@ -101,6 +101,8 @@ export default function EntityExplorer() {
               <option value="arbitrage">Arbitrage</option>
               <option value="jit">JIT Liquidity</option>
               <option value="liquidation">Liquidation</option>
+              <option value="liquidity_snipe">Launch Snipe</option>
+              <option value="liquidity_drain">Liquidity Drain</option>
             </select>
             <motion.div
               className="w-2 h-2 rounded-full bg-primary"

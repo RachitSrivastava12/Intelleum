@@ -41,8 +41,38 @@ export default function PoolToxicityDashboard() {
     return () => clearInterval(t);
   }, []);
 
+  const totalLpDrag = pools.reduce((sum, pool) => sum + (pool.lp_drag_estimate_usd ?? 0), 0);
+  const avgLvr = pools.length > 0 ? pools.reduce((sum, pool) => sum + (pool.lvr_proxy_score ?? 0), 0) / pools.length : 0;
+  const stressedPools = pools.filter((pool) => (pool.quote_freshness_stress ?? 0) >= 50 || (pool.lvr_proxy_score ?? 0) >= 50).length;
+
   return (
     <div className="font-mono">
+      {!loading && pools.length > 0 && (
+        <div className="mb-3 grid gap-3 md:grid-cols-3">
+          <div className="intel-panel p-4">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              LP Drag <InfoHint text="Aggregate LP-side drag proxy across surfaced toxic pools." />
+            </div>
+            <div className="mt-2 text-lg text-primary">{formatUSD(totalLpDrag)}</div>
+            <div className="mt-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">estimated adverse selection cost</div>
+          </div>
+          <div className="intel-panel p-4">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              LVR Pressure <InfoHint text="Average LVR-style pressure across currently surfaced pools." />
+            </div>
+            <div className="mt-2 text-lg text-foreground">{avgLvr.toFixed(0)}</div>
+            <div className="mt-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">loss-versus-rebalancing proxy</div>
+          </div>
+          <div className="intel-panel p-4">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              Stressed Pools <InfoHint text="Pools with materially stale quote pressure or elevated LVR proxy that deserve segmentation or reranking." />
+            </div>
+            <div className="mt-2 text-lg text-cyan-300">{stressedPools}</div>
+            <div className="mt-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">segment or downrank</div>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-3">
         {loading && (
           <div className="text-center text-muted-foreground text-xs py-8">
@@ -131,6 +161,43 @@ export default function PoolToxicityDashboard() {
                 </div>
               </div>
             </div>
+
+            <div className="mt-3 grid gap-2 border-t border-border/50 pt-3 text-[10px] uppercase tracking-[0.16em] text-muted-foreground md:grid-cols-6">
+              <div>
+                LVR Proxy <InfoHint text="Loss-versus-rebalancing style proxy for how much stale-quote drag LPs are experiencing on this pool." />
+                <div className="mt-1 text-foreground">{pool.lvr_proxy_score?.toFixed(0) ?? "—"}</div>
+              </div>
+              <div>
+                LP Drag <InfoHint text="Estimated LP-side drag proxy attributed to observed extraction on this pool." />
+                <div className="mt-1 text-foreground">{pool.lp_drag_estimate_usd != null ? formatUSD(pool.lp_drag_estimate_usd) : "—"}</div>
+              </div>
+              <div>
+                Stale Quote <InfoHint text="Frequency proxy for stale-quote arbitrage / quote pickup behavior on this pool." />
+                <div className="mt-1 text-foreground">{pool.stale_quote_arb_frequency?.toFixed(0) ?? "—"}%</div>
+              </div>
+              <div>
+                Adverse Sel. <InfoHint text="Adverse selection intensity proxy showing how often informed flow is likely picking off this venue." />
+                <div className="mt-1 text-foreground">{pool.adverse_selection_intensity?.toFixed(0) ?? "—"}</div>
+              </div>
+              <div>
+                Fee Saved <InfoHint text="Estimated fee basis points this pool could preserve if toxic flow is segmented or downranked." />
+                <div className="mt-1 text-foreground">{pool.saved_fee_bps_if_segmented?.toFixed(1) ?? "—"} bps</div>
+              </div>
+              <div>
+                Cause <InfoHint text="Dominant primary cause behind the pool’s current toxicity profile." />
+                <div className="mt-1 text-foreground">{pool.primary_cause ?? "—"}</div>
+              </div>
+            </div>
+
+            {pool.reason_codes && pool.reason_codes.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                {pool.reason_codes.slice(0, 3).map((reason) => (
+                  <span key={reason} className="border border-border/60 px-2 py-1">
+                    {reason.replaceAll("_", " ")}
+                  </span>
+                ))}
+              </div>
+            )}
 
             {/* Toxicity bar */}
             <div className="mt-3 w-full h-1 bg-border">

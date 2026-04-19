@@ -22,7 +22,14 @@ export interface TxFlow {
 }
 
 export interface DetectedAttack {
-  attack_type: "sandwich" | "arbitrage" | "jit" | "liquidation" | "backrun";
+  attack_type:
+    | "sandwich"
+    | "arbitrage"
+    | "jit"
+    | "liquidation"
+    | "backrun"
+    | "liquidity_snipe"
+    | "liquidity_drain";
   slot: number;
   block_time: Date;
   validator: string;

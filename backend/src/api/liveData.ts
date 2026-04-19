@@ -58,6 +58,15 @@ interface PoolRecord {
   top_entity_id: string | null;
   top_entity_label: string | null;
   top_entity_risk: number | null;
+  lvr_proxy_score?: number;
+  adverse_selection_intensity?: number;
+  stale_quote_arb_frequency?: number;
+  lp_drag_estimate_usd?: number;
+  toxic_to_benign_volume_ratio?: number;
+  quote_freshness_stress?: number;
+  saved_fee_bps_if_segmented?: number;
+  primary_cause?: string;
+  reason_codes?: string[];
 }
 
 interface RouteRiskRecord {
@@ -77,7 +86,49 @@ interface RouteRiskRecord {
   bundle_share: number;
   risk_score: number;
   recommendation: "avoid" | "penalize" | "monitor";
+  execution_quality_score: number;
+  toxic_flow_rate: number;
+  realized_slippage_bps: number;
+  stale_quote_pickup_rate: number;
+  quote_freshness_ms: number;
+  markout_1s_bps: number;
+  markout_5s_bps: number;
+  markout_30s_bps: number;
+  flow_quality_score: number;
+  toxicity_probability: number;
+  retail_likelihood: number;
+  lp_adverse_selection_probability: number;
+  lvr_proxy_score: number;
+  priority_fee_pressure: number;
+  validator_markout_quality: number;
+  source_hint: string;
+  recommended_max_notional_usd: number;
+  estimated_savings_bps: number;
+  estimated_savings_usd: number;
+  policy_action: "allow" | "monitor" | "penalize" | "avoid" | "reroute";
+  reason_codes: string[];
+  decomposition: Array<{ label: string; value: number }>;
 }
+
+type RouteRiskAccumulator = Pick<
+  RouteRiskRecord,
+  | "route_key"
+  | "route_kind"
+  | "protocol"
+  | "label"
+  | "sandwich_count"
+  | "arbitrage_count"
+  | "jit_count"
+  | "liquidation_count"
+  | "backrun_count"
+  | "total_attacks"
+  | "total_extracted_usd"
+  | "unique_attackers"
+> & {
+  confidence_sum: number;
+  bundle_sum: number;
+  attackers: Set<string>;
+};
 
 interface RouteRecommendationRecord {
   input_mint: string | null;
@@ -116,6 +167,72 @@ interface LiveAlertRecord {
   rationale: string[];
 }
 
+interface FlowSegmentRecord {
+  segment: string;
+  description: string;
+  attack_count: number;
+  flow_share: number;
+  avg_confidence: number;
+  avg_profit_usd: number;
+  toxicity_probability: number;
+}
+
+interface SourceAttributionRecord {
+  source_key: string;
+  label: string;
+  category: "aggregator" | "wallet" | "searcher" | "liquidation" | "bundle-lane";
+  flow_count: number;
+  flow_share: number;
+  flow_quality_score: number;
+  toxicity_probability: number;
+  retail_likelihood: number;
+  bundle_likelihood: number;
+  lp_adverse_selection_probability: number;
+  endorser_inference: "endorsed-like" | "unendorsed" | "unknown";
+}
+
+interface PreventionGuardRequest {
+  input_mint?: string | null;
+  output_mint?: string | null;
+  notional_usd?: number | null;
+  slippage_bps?: number | null;
+  objective?: RouteEvaluationRequest["objective"];
+  candidates?: RouteRankingRequest["candidates"];
+}
+
+interface PreventionGuardRecord {
+  action: "allow" | "monitor" | "penalize" | "reroute" | "block";
+  reason_codes: string[];
+  expected_loss_at_risk_bps: number;
+  expected_loss_at_risk_usd: number;
+  recommended_max_notional_usd: number;
+  selected_route_key: string | null;
+  selected_label: string | null;
+  safer_alternatives: RouteEvaluationRecord["safer_alternatives"];
+  warning: string;
+}
+
+interface SavingsSummaryRecord {
+  estimated_loss_avoided_usd_24h: number;
+  estimated_bps_saved_avg: number;
+  routes_flagged: number;
+  pools_protected: number;
+  users_protected_proxy: number;
+}
+
+interface PredictionMarketExecutionRecord {
+  market_type: "prediction";
+  route_key: string;
+  label: string;
+  protocol: string | null;
+  execution_quality_score: number;
+  liquidity_stress_score: number;
+  toxic_flow_flag: boolean;
+  recommended_action: "prefer" | "monitor" | "avoid";
+  estimated_slippage_bps: number;
+  rationale: string[];
+}
+
 interface RouteEvaluationRequest {
   input_mint?: string | null;
   output_mint?: string | null;
@@ -139,6 +256,26 @@ interface RouteEvaluationRecord {
   slippage_bps: number | null;
   objective: NonNullable<RouteEvaluationRequest["objective"]>;
   confidence_band: "high" | "medium" | "exploratory";
+  execution_quality_score?: number;
+  toxic_flow_rate?: number;
+  realized_slippage_bps?: number;
+  markout_1s_bps?: number;
+  markout_5s_bps?: number;
+  markout_30s_bps?: number;
+  stale_quote_pickup_rate?: number;
+  quote_freshness_ms?: number;
+  flow_quality_score?: number;
+  toxicity_probability?: number;
+  retail_likelihood?: number;
+  lp_adverse_selection_probability?: number;
+  lvr_proxy_score?: number;
+  recommended_max_notional_usd?: number;
+  estimated_savings_bps?: number;
+  estimated_savings_usd?: number;
+  source_hint?: string;
+  reason_codes?: string[];
+  decomposition?: Array<{ label: string; value: number }>;
+  policy_action?: "allow" | "monitor" | "penalize" | "avoid" | "reroute";
   safer_alternatives: Array<{
     route_key: string;
     label: string;
@@ -173,6 +310,8 @@ interface RouteRankingRecord {
   selected_label: string | null;
   primary_action: "route" | "monitor" | "reroute" | "block";
   estimated_loss_avoided_usd: number;
+  estimated_bps_saved?: number;
+  counterfactual_worst_route_key?: string | null;
   ranked_candidates: Array<RouteEvaluationRecord & { rank: number }>;
 }
 
@@ -185,6 +324,18 @@ interface ValidatorRecord {
   sandwich_count: number;
   jit_count: number;
   avg_tip_lamports: number;
+  arbitrage_count?: number;
+  liquidation_count?: number;
+  wide_sandwich_count?: number;
+  wide_sandwich_share?: number;
+  confirmed_share?: number;
+  sandwich_share?: number;
+  risk_score?: number;
+  jito_bundle_share?: number;
+  priority_fee_pressure?: number;
+  markout_quality_score?: number;
+  mev_share_of_flow?: number;
+  regime?: string;
 }
 
 const NOW = Date.now();
@@ -514,6 +665,86 @@ function sortByNewest<T extends { block_time: string }>(items: T[]): T[] {
   );
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function round(value: number, digits = 1) {
+  return Number(value.toFixed(digits));
+}
+
+function inferSourceLabel(attack: AttackRecord) {
+  const surface = parseSurface(attack.pool_address);
+  const validator = attack.validator.toLowerCase();
+
+  if (attack.attack_type === "liquidation") {
+    return { key: "protocol-liquidation", label: "protocol liquidation flow", category: "liquidation" as const };
+  }
+  if (validator.includes("jito") || (attack.tip_lamports ?? 0) >= 120_000) {
+    return { key: "bundle-lane", label: "bundle lane flow", category: "bundle-lane" as const };
+  }
+  if (surface.route_kind === "route") {
+    return { key: "aggregator-routed", label: "aggregator routed flow", category: "aggregator" as const };
+  }
+  if ((attack.entity_risk ?? 0) >= 0.72 || attack.attack_type === "arbitrage" || attack.attack_type === "backrun") {
+    return { key: "searcher-bot", label: "searcher / bot flow", category: "searcher" as const };
+  }
+  return { key: "wallet-originated", label: "wallet-originated flow", category: "wallet" as const };
+}
+
+function classifyFlowSegment(attack: AttackRecord) {
+  if (attack.attack_type === "sandwich") {
+    return {
+      segment: "informed-toxic",
+      description: "Flow likely to reprice a stale quote before the venue adapts.",
+    };
+  }
+  if (attack.attack_type === "arbitrage" || attack.attack_type === "backrun") {
+    return {
+      segment: "latency-arbitrage",
+      description: "Latency-sensitive flow harvesting stale quotes and short-lived spreads.",
+    };
+  }
+  if (attack.attack_type === "jit") {
+    return {
+      segment: "liquidity-opportunistic",
+      description: "Opportunistic liquidity insertion or removal around expected toxic flow.",
+    };
+  }
+  if (attack.attack_type === "liquidation") {
+    return {
+      segment: "liquidation-opportunistic",
+      description: "Liquidation-driven flow that can still carry adverse selection pressure.",
+    };
+  }
+  return {
+    segment: "benign-retail-like",
+    description: "Flow with lower signs of informed toxicity and bundle pressure.",
+  };
+}
+
+function buildReasonCodes(metrics: {
+  sandwichRate?: number;
+  bundleShare?: number;
+  staleQuotePickupRate?: number;
+  markout30?: number;
+  lvrProxyScore?: number;
+  toxicFlowRate?: number;
+}) {
+  const reasons: string[] = [];
+  if ((metrics.sandwichRate ?? 0) >= 0.28) reasons.push("high_sandwich_concentration");
+  if ((metrics.bundleShare ?? 0) >= 58) reasons.push("bundle_lane_pressure");
+  if ((metrics.staleQuotePickupRate ?? 0) >= 42) reasons.push("stale_quote_pickups");
+  if ((metrics.markout30 ?? 0) >= 8) reasons.push("markout_deterioration");
+  if ((metrics.lvrProxyScore ?? 0) >= 56) reasons.push("lp_adverse_selection");
+  if ((metrics.toxicFlowRate ?? 0) >= 62) reasons.push("toxic_flow_dominance");
+  return reasons.length > 0 ? reasons : ["monitor_surface"];
+}
+
+function buildDecomposition(parts: Array<{ label: string; value: number }>) {
+  return parts.map((entry) => ({ ...entry, value: round(entry.value, 1) }));
+}
+
 function buildStats() {
   const totalExtracted = attacks.reduce((sum, attack) => sum + (attack.profit_usd ?? 0), 0);
   const victims = new Set(attacks.map((attack) => attack.victim_wallet).filter(Boolean));
@@ -658,6 +889,40 @@ export function getPools(limit = 50) {
     .map((pool) => ({
       ...pool,
       protocol: pool.protocol ?? parseSurface(pool.pool_address).protocol,
+      lvr_proxy_score:
+        pool.lvr_proxy_score ??
+        round(clamp(pool.toxicity_score * 0.72 + pool.arbitrage_count * 0.5 + pool.sandwich_count * 0.3, 8, 99)),
+      adverse_selection_intensity:
+        pool.adverse_selection_intensity ??
+        round(clamp(pool.sandwich_count * 0.7 + pool.arbitrage_count * 0.48 + pool.jit_count * 0.42, 4, 99)),
+      stale_quote_arb_frequency:
+        pool.stale_quote_arb_frequency ??
+        round(clamp((pool.arbitrage_count / Math.max(1, pool.total_attacks)) * 100, 1, 95)),
+      lp_drag_estimate_usd:
+        pool.lp_drag_estimate_usd ?? round(pool.total_extracted_usd * 0.74, 2),
+      toxic_to_benign_volume_ratio:
+        pool.toxic_to_benign_volume_ratio ??
+        round(clamp(pool.toxicity_score / Math.max(12, 100 - pool.toxicity_score), 0.1, 9.9), 2),
+      quote_freshness_stress:
+        pool.quote_freshness_stress ??
+        round(clamp(pool.toxicity_score * 0.82 + pool.arbitrage_count * 0.35, 5, 99)),
+      saved_fee_bps_if_segmented:
+        pool.saved_fee_bps_if_segmented ?? round(clamp(pool.toxicity_score * 0.11, 0.4, 12), 2),
+      primary_cause:
+        pool.primary_cause ??
+        (pool.sandwich_count >= pool.arbitrage_count && pool.sandwich_count >= pool.jit_count
+          ? "sandwich pressure"
+          : pool.arbitrage_count >= pool.jit_count
+            ? "stale quote arbitrage"
+            : "jit liquidity pressure"),
+      reason_codes:
+        pool.reason_codes ??
+        buildReasonCodes({
+          sandwichRate: pool.sandwich_count / Math.max(1, pool.total_attacks),
+          staleQuotePickupRate: (pool.arbitrage_count / Math.max(1, pool.total_attacks)) * 100,
+          lvrProxyScore: pool.lvr_proxy_score ?? pool.toxicity_score * 0.72,
+          toxicFlowRate: pool.toxicity_score,
+        }),
     }))
     .sort((a, b) => b.toxicity_score - a.toxicity_score)
     .slice(0, limit);
@@ -684,18 +949,45 @@ export function getPoolDetails(address: string) {
 }
 
 export function getValidators() {
-  return validators;
+  const totalAttacks = validators.reduce((sum, validator) => sum + validator.total_mev_attacks, 0);
+  return validators.map((validator) => {
+    const jitoBundleShare = round(
+      clamp((validator.avg_tip_lamports / 220_000) * 62 + (validator.sandwich_count / Math.max(1, validator.total_mev_attacks)) * 28, 4, 97),
+    );
+    const priorityFeePressure = round(clamp(validator.avg_tip_lamports / 2_500, 2, 99));
+    const markoutQualityScore = round(
+      clamp(100 - (validator.sandwich_count / Math.max(1, validator.total_mev_attacks)) * 72 - priorityFeePressure * 0.24, 5, 96),
+    );
+    const mevShareOfFlow = round(clamp((validator.total_mev_attacks / Math.max(1, totalAttacks)) * 100 * 2.4, 3, 95));
+    const regime =
+      jitoBundleShare >= 62
+        ? "jito-dominant"
+        : priorityFeePressure >= 58
+          ? "priority-fee heavy"
+          : markoutQualityScore >= 68
+            ? "balanced"
+            : "searcher-dense";
+
+    return {
+      ...validator,
+      arbitrage_count: Math.max(4, Math.round(validator.total_mev_attacks * 0.18)),
+      liquidation_count: Math.max(2, Math.round(validator.total_mev_attacks * 0.06)),
+      wide_sandwich_count: Math.round(validator.sandwich_count * 0.28),
+      wide_sandwich_share: round((validator.sandwich_count * 0.28 / Math.max(1, validator.sandwich_count)) * 100),
+      confirmed_share: round(clamp(62 + jitoBundleShare * 0.18, 44, 96)),
+      sandwich_share: round((validator.sandwich_count / Math.max(1, validator.total_mev_attacks)) * 100),
+      risk_score: round(clamp((validator.sandwich_count / Math.max(1, validator.total_mev_attacks)) * 0.58 + jitoBundleShare / 100 * 0.24 + priorityFeePressure / 100 * 0.18, 0.08, 0.97), 2),
+      jito_bundle_share: jitoBundleShare,
+      priority_fee_pressure: priorityFeePressure,
+      markout_quality_score: markoutQualityScore,
+      mev_share_of_flow: mevShareOfFlow,
+      regime,
+    };
+  });
 }
 
 export function getRouteRisks(limit = 25): RouteRiskRecord[] {
-  const grouped = new Map<
-    string,
-    Omit<RouteRiskRecord, "avg_confidence" | "risk_score" | "recommendation" | "bundle_share"> & {
-      confidence_sum: number;
-      bundle_sum: number;
-      attackers: Set<string>;
-    }
-  >();
+  const grouped = new Map<string, RouteRiskAccumulator>();
 
   for (const attack of attacks) {
     const surface = parseSurface(attack.pool_address);
@@ -740,6 +1032,10 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
     .map((item) => {
       const avgConfidence = item.total_attacks > 0 ? item.confidence_sum / item.total_attacks : 0;
       const bundleShare = item.total_attacks > 0 ? item.bundle_sum / item.total_attacks : 0;
+      const sandwichRate = item.total_attacks > 0 ? item.sandwich_count / item.total_attacks : 0;
+      const backrunRate = item.total_attacks > 0 ? item.backrun_count / item.total_attacks : 0;
+      const arbitrageRate = item.total_attacks > 0 ? item.arbitrage_count / item.total_attacks : 0;
+      const jitRate = item.total_attacks > 0 ? item.jit_count / item.total_attacks : 0;
       const riskScore = Math.min(
         100,
         Number(
@@ -756,6 +1052,52 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
           ).toFixed(1),
         ),
       );
+      const toxicFlowRate = round(
+        clamp(sandwichRate * 58 + backrunRate * 32 + jitRate * 18 + arbitrageRate * 14 + item.attackers.size * 2.5, 3, 99),
+      );
+      const staleQuotePickupRate = round(clamp(arbitrageRate * 48 + sandwichRate * 36 + bundleShare * 18, 1, 98));
+      const quoteFreshnessMs = round(clamp(920 - riskScore * 5.2 - item.total_attacks * 13, 65, 980), 0);
+      const realizedSlippageBps = round(clamp(riskScore * 0.07 + sandwichRate * 8 + bundleShare * 3.8, 0.8, 28), 2);
+      const markout1 = round(clamp(realizedSlippageBps * 0.6 + sandwichRate * 2.2 + bundleShare * 0.15, 0.5, 18), 2);
+      const markout5 = round(clamp(realizedSlippageBps * 0.95 + sandwichRate * 4.1 + staleQuotePickupRate * 0.05, 0.8, 26), 2);
+      const markout30 = round(clamp(realizedSlippageBps * 1.2 + sandwichRate * 5.5 + staleQuotePickupRate * 0.08, 1, 32), 2);
+      const executionQualityScore = round(clamp(100 - (markout30 * 2 + realizedSlippageBps * 1.7 + toxicFlowRate * 0.42), 4, 98));
+      const flowQualityScore = round(clamp(100 - toxicFlowRate * 0.72 - bundleShare * 16 + (item.route_kind === "venue" ? 6 : 0), 3, 97));
+      const toxicityProbability = round(clamp(toxicFlowRate * 0.88 + bundleShare * 19, 4, 99));
+      const retailLikelihood = round(clamp(100 - toxicFlowRate * 0.92 - bundleShare * 24, 2, 92));
+      const lpAdverseSelectionProbability = round(clamp(staleQuotePickupRate * 0.62 + markout30 * 2.1 + sandwichRate * 21, 3, 99));
+      const lvrProxyScore = round(clamp(staleQuotePickupRate * 0.58 + markout30 * 1.95 + arbitrageRate * 18 + sandwichRate * 12, 2, 99));
+      const priorityFeePressure = round(clamp(bundleShare * 0.68 + avgConfidence * 12, 2, 98));
+      const validatorMarkoutQuality = round(clamp(100 - markout5 * 3.1 - bundleShare * 24, 3, 96));
+      const recommendedMaxNotionalUsd = round(clamp(180_000 - toxicFlowRate * 1_250 - bundleShare * 650, 7_500, 180_000), 0);
+      const estimatedSavingsBps = round(clamp(markout30 * 0.55 + lvrProxyScore * 0.05, 0.3, 18), 2);
+      const estimatedSavingsUsd = round((50_000 * estimatedSavingsBps) / 10_000, 2);
+      const reasonCodes = buildReasonCodes({
+        sandwichRate,
+        bundleShare: bundleShare * 100,
+        staleQuotePickupRate,
+        markout30,
+        lvrProxyScore,
+        toxicFlowRate,
+      });
+      const policyAction =
+        riskScore >= 86 || toxicityProbability >= 82
+          ? "avoid"
+          : riskScore >= 72 || lvrProxyScore >= 58
+            ? "reroute"
+            : riskScore >= 55
+              ? "penalize"
+              : riskScore >= 28
+                ? "monitor"
+                : "allow";
+      const decomposition = buildDecomposition([
+        { label: "sandwich_concentration", value: sandwichRate * 100 },
+        { label: "stale_quote_pickups", value: staleQuotePickupRate },
+        { label: "bundle_pressure", value: bundleShare * 100 },
+        { label: "markout_deterioration", value: markout30 * 3 },
+        { label: "lp_adverse_selection", value: lvrProxyScore },
+      ]);
+      const sourceHint = item.route_kind === "route" ? "aggregator-routed" : bundleShare >= 0.55 ? "bundle-lane" : "searcher-bot";
 
       return {
         route_key: item.route_key,
@@ -774,6 +1116,28 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
         bundle_share: Number((bundleShare * 100).toFixed(1)),
         risk_score: riskScore,
         recommendation: riskScore >= 80 ? "avoid" : riskScore >= 55 ? "penalize" : "monitor",
+        execution_quality_score: executionQualityScore,
+        toxic_flow_rate: toxicFlowRate,
+        realized_slippage_bps: realizedSlippageBps,
+        stale_quote_pickup_rate: staleQuotePickupRate,
+        quote_freshness_ms: quoteFreshnessMs,
+        markout_1s_bps: markout1,
+        markout_5s_bps: markout5,
+        markout_30s_bps: markout30,
+        flow_quality_score: flowQualityScore,
+        toxicity_probability: toxicityProbability,
+        retail_likelihood: retailLikelihood,
+        lp_adverse_selection_probability: lpAdverseSelectionProbability,
+        lvr_proxy_score: lvrProxyScore,
+        priority_fee_pressure: priorityFeePressure,
+        validator_markout_quality: validatorMarkoutQuality,
+        source_hint: sourceHint,
+        recommended_max_notional_usd: recommendedMaxNotionalUsd,
+        estimated_savings_bps: estimatedSavingsBps,
+        estimated_savings_usd: estimatedSavingsUsd,
+        policy_action: policyAction,
+        reason_codes: reasonCodes,
+        decomposition,
       } satisfies RouteRiskRecord;
     })
     .sort((a, b) => b.risk_score - a.risk_score || b.total_extracted_usd - a.total_extracted_usd)
@@ -921,6 +1285,8 @@ export function evaluateRoute(request: RouteEvaluationRequest): RouteEvaluationR
       `matched against ${matched_on.replace("_", " ")} intel for ${selected.label}`,
       `${selected.total_attacks} detections and ${selected.unique_attackers} unique operators are attached to this surface`,
       `bundle-heavy share is ${selected.bundle_share.toFixed(0)}% and average detector confidence is ${selected.avg_confidence.toFixed(0)}%`,
+      `30s markout is ${selected.markout_30s_bps.toFixed(1)} bps and stale quote pickup rate is ${selected.stale_quote_pickup_rate.toFixed(0)}%`,
+      `estimated LVR proxy score is ${selected.lvr_proxy_score.toFixed(0)} with flow quality ${selected.flow_quality_score.toFixed(0)}`,
     ],
     integration_actions: [
       decision === "reroute" || decision === "avoid"
@@ -932,7 +1298,28 @@ export function evaluateRoute(request: RouteEvaluationRequest): RouteEvaluationR
       decision === "avoid" || decision === "reroute"
         ? "trigger a high-severity ops alert for repeated toxic execution on this pair"
         : "keep this surface under live alert monitoring",
+      `cap order size near $${selected.recommended_max_notional_usd.toLocaleString()} unless the venue state improves`,
     ],
+    execution_quality_score: selected.execution_quality_score,
+    toxic_flow_rate: selected.toxic_flow_rate,
+    realized_slippage_bps: selected.realized_slippage_bps,
+    markout_1s_bps: selected.markout_1s_bps,
+    markout_5s_bps: selected.markout_5s_bps,
+    markout_30s_bps: selected.markout_30s_bps,
+    stale_quote_pickup_rate: selected.stale_quote_pickup_rate,
+    quote_freshness_ms: selected.quote_freshness_ms,
+    flow_quality_score: selected.flow_quality_score,
+    toxicity_probability: selected.toxicity_probability,
+    retail_likelihood: selected.retail_likelihood,
+    lp_adverse_selection_probability: selected.lp_adverse_selection_probability,
+    lvr_proxy_score: selected.lvr_proxy_score,
+    recommended_max_notional_usd: selected.recommended_max_notional_usd,
+    estimated_savings_bps: selected.estimated_savings_bps,
+    estimated_savings_usd: Number(((notionalUsd * selected.estimated_savings_bps) / 10_000).toFixed(2)),
+    source_hint: selected.source_hint,
+    reason_codes: selected.reason_codes,
+    decomposition: selected.decomposition,
+    policy_action: selected.policy_action,
   };
 }
 
@@ -980,6 +1367,14 @@ export function rankRoutes(request: RouteRankingRequest): RouteRankingRecord {
     selected_label: chosen?.label ?? null,
     primary_action,
     estimated_loss_avoided_usd: Number(Math.max(0, worstLoss - chosenLoss).toFixed(2)),
+    estimated_bps_saved: Number(
+      Math.max(
+        0,
+        (ranked[ranked.length - 1]?.estimated_bps_at_risk ?? chosen?.estimated_bps_at_risk ?? 0) -
+          (chosen?.estimated_bps_at_risk ?? 0),
+      ).toFixed(2),
+    ),
+    counterfactual_worst_route_key: ranked[ranked.length - 1]?.route_key ?? null,
     ranked_candidates: ranked,
   };
 }
@@ -1092,7 +1487,190 @@ export function getIntegrationFeeds(limit = 20) {
     route_risk: getRouteRisks(limit),
     pool_toxicity: getPools(limit),
     route_recommendations: getRouteRecommendations(Math.min(limit, 12)),
+    execution_quality: getExecutionQuality(limit),
+    lp_protection: getLpProtection(limit),
+    flow_segments: getFlowSegments(),
+    source_attribution: getSourceAttribution(limit),
+    savings_summary: getSavingsSummary(),
   };
+}
+
+export function getExecutionQuality(limit = 20) {
+  return getRouteRisks(Math.max(limit, 20)).slice(0, limit).map((route) => ({
+    route_key: route.route_key,
+    label: route.label,
+    protocol: route.protocol,
+    execution_quality_score: route.execution_quality_score,
+    realized_slippage_bps: route.realized_slippage_bps,
+    quote_freshness_ms: route.quote_freshness_ms,
+    markout_1s_bps: route.markout_1s_bps,
+    markout_5s_bps: route.markout_5s_bps,
+    markout_30s_bps: route.markout_30s_bps,
+    stale_quote_pickup_rate: route.stale_quote_pickup_rate,
+    toxic_flow_rate: route.toxic_flow_rate,
+    estimated_savings_bps: route.estimated_savings_bps,
+    estimated_savings_usd: route.estimated_savings_usd,
+    reason_codes: route.reason_codes,
+  }));
+}
+
+export function getLpProtection(limit = 20) {
+  return getPools(limit).map((pool) => ({
+    pool_address: pool.pool_address,
+    protocol: pool.protocol,
+    toxicity_score: pool.toxicity_score,
+    lvr_proxy_score: pool.lvr_proxy_score ?? 0,
+    adverse_selection_intensity: pool.adverse_selection_intensity ?? 0,
+    stale_quote_arb_frequency: pool.stale_quote_arb_frequency ?? 0,
+    lp_drag_estimate_usd: pool.lp_drag_estimate_usd ?? 0,
+    toxic_to_benign_volume_ratio: pool.toxic_to_benign_volume_ratio ?? 0,
+    quote_freshness_stress: pool.quote_freshness_stress ?? 0,
+    saved_fee_bps_if_segmented: pool.saved_fee_bps_if_segmented ?? 0,
+    primary_cause: pool.primary_cause ?? "unknown",
+    reason_codes: pool.reason_codes ?? [],
+  }));
+}
+
+export function getFlowSegments() {
+  const grouped = new Map<string, { description: string; attacks: AttackRecord[] }>();
+  for (const attack of attacks) {
+    const segment = classifyFlowSegment(attack);
+    if (!grouped.has(segment.segment)) {
+      grouped.set(segment.segment, { description: segment.description, attacks: [] });
+    }
+    grouped.get(segment.segment)!.attacks.push(attack);
+  }
+
+  const segments: FlowSegmentRecord[] = [...grouped.entries()].map(([segment, entry]) => ({
+    segment,
+    description: entry.description,
+    attack_count: entry.attacks.length,
+    flow_share: round((entry.attacks.length / Math.max(1, attacks.length)) * 100),
+    avg_confidence: round(entry.attacks.reduce((sum, attack) => sum + attack.confidence, 0) / Math.max(1, entry.attacks.length) * 100),
+    avg_profit_usd: round(entry.attacks.reduce((sum, attack) => sum + (attack.profit_usd ?? 0), 0) / Math.max(1, entry.attacks.length), 2),
+    toxicity_probability: round(
+      clamp(
+        entry.attacks.reduce((sum, attack) => sum + ((attack.tip_lamports ?? 0) >= 120_000 ? 28 : 12) + attack.confidence * 32, 0) /
+          Math.max(1, entry.attacks.length),
+        8,
+        99,
+      ),
+    ),
+  })).sort((a, b) => b.flow_share - a.flow_share);
+
+  return {
+    segments,
+    sources: getSourceAttribution(8),
+  };
+}
+
+export function getSourceAttribution(limit = 8) {
+  const grouped = new Map<string, { meta: ReturnType<typeof inferSourceLabel>; attacks: AttackRecord[] }>();
+  for (const attack of attacks) {
+    const meta = inferSourceLabel(attack);
+    if (!grouped.has(meta.key)) grouped.set(meta.key, { meta, attacks: [] });
+    grouped.get(meta.key)!.attacks.push(attack);
+  }
+
+  return [...grouped.values()]
+    .map(({ meta, attacks: sourceAttacks }) => {
+      const avgBundle = sourceAttacks.reduce((sum, attack) => sum + (((attack.tip_lamports ?? 0) >= 120_000 || attack.validator.toLowerCase().includes("jito")) ? 72 : 24), 0) / Math.max(1, sourceAttacks.length);
+      const avgRisk = sourceAttacks.reduce((sum, attack) => sum + (attack.entity_risk ?? attack.confidence), 0) / Math.max(1, sourceAttacks.length);
+      const toxicityProbability = round(clamp(avgRisk * 72 + avgBundle * 0.28, 6, 98));
+      return {
+        source_key: meta.key,
+        label: meta.label,
+        category: meta.category,
+        flow_count: sourceAttacks.length,
+        flow_share: round((sourceAttacks.length / Math.max(1, attacks.length)) * 100),
+        flow_quality_score: round(clamp(100 - toxicityProbability * 0.72 - avgBundle * 0.12, 4, 96)),
+        toxicity_probability: toxicityProbability,
+        retail_likelihood: round(clamp(meta.category === "wallet" ? 76 : 100 - toxicityProbability * 0.88, 3, 90)),
+        bundle_likelihood: round(clamp(avgBundle, 4, 97)),
+        lp_adverse_selection_probability: round(clamp(toxicityProbability * 0.82 + (meta.category === "searcher" ? 12 : 0), 3, 99)),
+        endorser_inference: meta.category === "aggregator" ? "endorsed-like" : meta.category === "searcher" ? "unendorsed" : "unknown",
+      } satisfies SourceAttributionRecord;
+    })
+    .sort((a, b) => b.flow_share - a.flow_share)
+    .slice(0, limit);
+}
+
+export function preventionGuard(request: PreventionGuardRequest): PreventionGuardRecord {
+  const objective = request.objective ?? "protect_users";
+  const ranking = request.candidates?.length
+    ? rankRoutes({
+        input_mint: request.input_mint,
+        output_mint: request.output_mint,
+        notional_usd: request.notional_usd,
+        slippage_bps: request.slippage_bps,
+        objective,
+        candidates: request.candidates,
+      })
+    : null;
+  const evaluation = ranking?.ranked_candidates[0]
+    ? ranking.ranked_candidates[0]
+    : evaluateRoute({
+        input_mint: request.input_mint,
+        output_mint: request.output_mint,
+        notional_usd: request.notional_usd,
+        slippage_bps: request.slippage_bps,
+        objective,
+      });
+
+  const action =
+    evaluation.decision === "avoid" ? "block" :
+    evaluation.decision === "reroute" ? "reroute" :
+    evaluation.decision;
+
+  return {
+    action,
+    reason_codes: evaluation.reason_codes ?? [],
+    expected_loss_at_risk_bps: evaluation.estimated_bps_at_risk,
+    expected_loss_at_risk_usd: evaluation.estimated_loss_usd,
+    recommended_max_notional_usd: evaluation.recommended_max_notional_usd ?? request.notional_usd ?? 0,
+    selected_route_key: evaluation.route_key,
+    selected_label: evaluation.label,
+    safer_alternatives: evaluation.safer_alternatives,
+    warning:
+      action === "block"
+        ? `block this route now: expected loss-at-risk is ${evaluation.estimated_bps_at_risk.toFixed(1)} bps`
+        : action === "reroute"
+          ? `reroute flow: ${evaluation.safer_alternatives[0]?.label ?? "safer alternative"} looks materially cleaner`
+          : `monitor surface closely: toxicity probability is ${(evaluation.toxicity_probability ?? 0).toFixed(0)}%`,
+  };
+}
+
+export function getSavingsSummary(): SavingsSummaryRecord {
+  const risks = getRouteRisks(100);
+  const pools = getPools(100);
+  return {
+    estimated_loss_avoided_usd_24h: round(risks.reduce((sum, route) => sum + route.estimated_savings_usd, 0), 2),
+    estimated_bps_saved_avg: round(risks.reduce((sum, route) => sum + route.estimated_savings_bps, 0) / Math.max(1, risks.length), 2),
+    routes_flagged: risks.filter((route) => route.policy_action === "avoid" || route.policy_action === "reroute").length,
+    pools_protected: pools.filter((pool) => (pool.lvr_proxy_score ?? 0) >= 45).length,
+    users_protected_proxy: risks.reduce((sum, route) => sum + Math.max(1, route.total_attacks), 0),
+  };
+}
+
+export function getPredictionMarketExecution(limit = 6) {
+  return getRouteRisks(Math.max(limit, 12))
+    .filter((route) => route.route_kind === "venue" || route.route_kind === "route")
+    .slice(0, limit)
+    .map((route) => ({
+      market_type: "prediction",
+      route_key: route.route_key,
+      label: route.label,
+      protocol: route.protocol,
+      execution_quality_score: route.execution_quality_score,
+      liquidity_stress_score: round(clamp(route.toxic_flow_rate * 0.7 + route.bundle_share * 0.22, 4, 99)),
+      toxic_flow_flag: route.toxicity_probability >= 64 || route.policy_action === "avoid",
+      recommended_action: route.policy_action === "avoid" ? "avoid" : route.execution_quality_score >= 60 ? "prefer" : "monitor",
+      estimated_slippage_bps: route.realized_slippage_bps,
+      rationale: [
+        `${route.label} is scored for event-driven flow where short-lived repricing can dominate outcomes`,
+        `execution quality is ${route.execution_quality_score.toFixed(0)} and markout 30s is ${route.markout_30s_bps.toFixed(1)} bps`,
+      ],
+    } satisfies PredictionMarketExecutionRecord));
 }
 
 export function getWallet(address: string) {

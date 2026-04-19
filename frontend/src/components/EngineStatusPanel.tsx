@@ -10,6 +10,11 @@ function statusTone(mode: SystemStatus["mode"]) {
     : "text-yellow-300 border-yellow-500/30 bg-yellow-500/10";
 }
 
+function percentage(value: number, base: number) {
+  if (!base || base <= 0) return 0;
+  return Math.max(0, Math.min(100, (value / base) * 100));
+}
+
 export default function EngineStatusPanel() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +67,9 @@ export default function EngineStatusPanel() {
     sandwichCandidates: status.recentMetrics?.sandwichCandidates ?? 0,
     arbitrageCandidates: status.recentMetrics?.arbitrageCandidates ?? 0,
     jitCandidates: status.recentMetrics?.jitCandidates ?? 0,
+    liquidationCandidates: status.recentMetrics?.liquidationCandidates ?? 0,
+    liquiditySnipeCandidates: status.recentMetrics?.liquiditySnipeCandidates ?? 0,
+    liquidityDrainCandidates: status.recentMetrics?.liquidityDrainCandidates ?? 0,
     suspiciousCandidates: status.recentMetrics?.suspiciousCandidates ?? 0,
     backrunCandidates: status.recentMetrics?.backrunCandidates ?? 0,
   };
@@ -69,6 +77,38 @@ export default function EngineStatusPanel() {
   const quicknode = status.quicknode;
   const quicknodeActive = (quicknode?.payloadCount ?? 0) > 0;
   const validatorPreview = status.recentValidatorPreview ?? [];
+  const funnel = [
+    {
+      label: "Blocks",
+      value: status.blocksProcessed,
+      bar: 100,
+      help: "Total blocks processed by the live engine since startup.",
+    },
+    {
+      label: "Successful TX",
+      value: metrics.rawSlotTxs,
+      bar: percentage(metrics.rawSlotTxs, Math.max(metrics.rawSlotTxs, metrics.candidateRows, metrics.parsedTransactions, metrics.parsedSwaps, metrics.detectedAttacks, 1)),
+      help: "Successful transactions seen in the latest slot window before deeper filtering.",
+    },
+    {
+      label: "Candidates",
+      value: metrics.candidateRows,
+      bar: percentage(metrics.candidateRows, Math.max(metrics.rawSlotTxs, 1)),
+      help: "Transactions selected for deeper inspection based on DEX, lending, or swap-like signals.",
+    },
+    {
+      label: "Parsed Swaps",
+      value: metrics.parsedSwaps,
+      bar: percentage(metrics.parsedSwaps, Math.max(metrics.candidateRows, 1)),
+      help: "Swap-like events successfully reconstructed from candidate transactions.",
+    },
+    {
+      label: "Detections",
+      value: metrics.detectedAttacks,
+      bar: percentage(metrics.detectedAttacks, Math.max(metrics.parsedSwaps, 1)),
+      help: "Confirmed detections that survived filtering in the latest processed slot window.",
+    },
+  ];
 
   return (
     <div className="intel-panel mb-6 p-5 font-mono">
@@ -100,19 +140,56 @@ export default function EngineStatusPanel() {
         )}
       </div>
 
+      <div className="mb-4 border border-border/70 bg-background/30 p-3">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
+            Processing Funnel
+            <InfoHint text="Why blocks processed can be much higher than attacks detected: only a subset of successful transactions become swap candidates, only some candidates parse cleanly into swaps, and only a smaller subset satisfy the detector rules." />
+          </div>
+          <div className="text-[11px] text-muted-foreground">
+            Latest slot pipeline
+          </div>
+        </div>
+        <div className="grid gap-2 md:grid-cols-5">
+          {funnel.map((step, index) => (
+            <div key={step.label} className="border border-border/60 bg-background/40 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                  {step.label}
+                  <InfoHint text={step.help} />
+                </div>
+                <div className="text-xs text-foreground">{step.value.toLocaleString()}</div>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-border/50">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    index === funnel.length - 1 ? "bg-cyan-400" : "bg-primary/80"
+                  }`}
+                  style={{ width: `${Math.max(step.bar, step.value > 0 ? 8 : 0)}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="grid gap-3 md:grid-cols-4">
           {[
             { label: "Blocks Processed", value: status.blocksProcessed.toLocaleString(), help: "Cumulative blocks processed by the live engine since startup." },
             { label: "Total Attacks", value: status.attacksDetected.toLocaleString(), help: "Cumulative detections inserted into the live attack surface since startup." },
-            { label: "Last Slot Detections", value: metrics.detectedAttacks.toLocaleString(), help: "Detections that survived filtering in the most recently processed slot window." },
-            { label: "Last Slot Parsed TX", value: metrics.parsedTransactions.toLocaleString(), help: "Transactions that were successfully enriched/parsed in the latest processing window." },
-            { label: "Last Slot Parsed Swaps", value: metrics.parsedSwaps.toLocaleString(), help: "Parsed swap-like events reconstructed from the latest processing window." },
-            { label: "Last Slot Candidates", value: metrics.candidateRows.toLocaleString(), help: "Transactions selected for deeper inspection based on DEX/lending/swap-like signals." },
-            { label: "Last Slot Successful TX", value: metrics.rawSlotTxs.toLocaleString(), help: "Successful transactions observed in the latest processed slot before deeper filtering." },
+            { label: "Latest Slot Detections", value: metrics.detectedAttacks.toLocaleString(), help: "Detections that survived filtering in the most recently processed slot window." },
+            { label: "Latest Slot Parsed TX", value: metrics.parsedTransactions.toLocaleString(), help: "Transactions that were successfully enriched and parsed in the latest processing window." },
+            { label: "Latest Slot Parsed Swaps", value: metrics.parsedSwaps.toLocaleString(), help: "Parsed swap-like events reconstructed from the latest processing window." },
+            { label: "Latest Slot Candidates", value: metrics.candidateRows.toLocaleString(), help: "Transactions selected for deeper inspection based on DEX, lending, or swap-like signals." },
+            { label: "Latest Slot Successful TX", value: metrics.rawSlotTxs.toLocaleString(), help: "Successful transactions observed in the latest processed slot before deeper filtering." },
+            { label: "JIT Candidates", value: metrics.jitCandidates.toLocaleString(), help: "JIT-style liquidity bracket candidates seen in the latest processing window before final deduping." },
+            { label: "Liquidation Candidates", value: metrics.liquidationCandidates.toLocaleString(), help: "Parsed liquidation-like candidates seen in the latest processing window before final filtering." },
+            { label: "Launch Snipe Candidates", value: metrics.liquiditySnipeCandidates.toLocaleString(), help: "Pool-launch creation plus first-buy patterns seen in the latest processing window before final filtering." },
+            { label: "Liquidity Drain Candidates", value: metrics.liquidityDrainCandidates.toLocaleString(), help: "Large liquidity-removal patterns seen in the latest processing window before final filtering." },
             ...(quicknode
               ? [
-                  { label: "QN Payloads", value: quicknode.payloadCount.toLocaleString(), help: "QuickNode stream payloads received by the webhook service." },
-                  { label: "QN Requests", value: quicknode.requestsReceived.toLocaleString(), help: "Webhook requests received from QuickNode, including heartbeat traffic." },
+                  { label: "QuickNode Payloads", value: quicknode.payloadCount.toLocaleString(), help: "QuickNode stream payloads received by the webhook service." },
+                  { label: "QuickNode Requests", value: quicknode.requestsReceived.toLocaleString(), help: "Webhook requests received from QuickNode, including heartbeat traffic." },
                 ]
               : []),
           ].map((item) => (
@@ -124,10 +201,6 @@ export default function EngineStatusPanel() {
             <div className="mt-2 text-lg font-bold text-foreground">{item.value}</div>
           </div>
         ))}
-      </div>
-
-      <div className="mt-3 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-        Latest-slot telemetry is shown for parsed tx, swaps, candidates, raw tx, and detections. Blocks and total attacks are cumulative since restart.
       </div>
 
       {recentAttackPreview.length > 0 && (

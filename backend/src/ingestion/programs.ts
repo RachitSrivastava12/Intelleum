@@ -34,6 +34,7 @@ export const LENDING_PROGRAMS: Record<string, string> = {
   "MFv2hWf31Z9kbCa1snEPdcgp168vLLAkezvaP73jE57":  "marginfi",
   "4UpD2fh7xH3VP9QQaXtsS1YY3bxzWhtfpks7FatyKvdY": "kamino",
   "JD3bq9hGdy38PuWQ4h2YJpELmHVGPPfFSuFkpzAd9zfu": "solend_v2",
+  "dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH": "drift",
 };
 
 export const WRAPPED_SOL = "So11111111111111111111111111111111111111112";
