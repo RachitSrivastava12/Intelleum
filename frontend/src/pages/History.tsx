@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { api, Attack, EngineSnapshot } from "@/lib/api";
-import StatsBar from "@/components/StatsBar";
 import CopyableValue from "@/components/CopyableValue";
 import InfoHint from "@/components/InfoHint";
 import { formatPoolLabel, formatRelativeTime, truncateAddress } from "@/lib/utils";
@@ -51,8 +50,6 @@ export default function History() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <StatsBar />
-
       <div className="mx-auto max-w-7xl px-6 py-8 font-mono">
         <div className="mb-6 flex items-center gap-2 text-xs text-muted-foreground">
           <Link to="/dashboard" className="hover:text-primary transition-colors">Dashboard</Link>

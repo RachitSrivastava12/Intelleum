@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { api, EntityDetail as EntityDetailType } from "@/lib/api";
-import StatsBar from "@/components/StatsBar";
 import CopyableValue from "@/components/CopyableValue";
 import InfoHint from "@/components/InfoHint";
 import { canOpenSolscanAccount, formatCalendarDate, formatDayLabel, formatPoolLabel, formatRelativeTime, truncateAddress } from "@/lib/utils";
@@ -67,8 +66,6 @@ export default function EntityDetail() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <StatsBar />
-
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground mb-6">

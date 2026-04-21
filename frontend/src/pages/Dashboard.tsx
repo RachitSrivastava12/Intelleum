@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import StatsBar from "@/components/StatsBar";
 import LiveAttackFeed from "@/components/LiveAttackFeed";
 import EngineStatusPanel from "@/components/EngineStatusPanel";
 import LiveValidatorBoard from "@/components/LiveValidatorBoard";
@@ -34,8 +33,6 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <StatsBar />
-
       <div className="max-w-7xl mx-auto px-6 py-6">
         {/* Tab nav */}
         <div className="mb-6 flex items-center gap-1 border-b border-border pb-4">
