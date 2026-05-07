@@ -48,6 +48,10 @@ function LiveDashboardCTA() {
 
   useEffect(() => {
     api.stats().then(setStats).catch(() => {});
+    const interval = setInterval(() => {
+      api.stats().then(setStats).catch(() => {});
+    }, 30_000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -62,26 +66,26 @@ function LiveDashboardCTA() {
           Watch attacks, suspicious orderflow, wallet-level operators, and toxic pools update from the same live intelligence loop.
         </p>
 
-        {stats && (
-          <div className="flex justify-center gap-10 mb-8 font-mono">
-            <div>
-              <div className="text-3xl font-bold text-primary">{stats.attacks_24h?.toLocaleString() ?? "—"}</div>
-              <div className="text-xs text-muted-foreground mt-1">Attacks today</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-primary">
-                {stats.extracted_24h >= 1000
-                  ? `$${(stats.extracted_24h / 1000).toFixed(0)}K`
-                  : `$${stats.extracted_24h?.toFixed(0)}`}
-              </div>
-              <div className="text-xs text-muted-foreground mt-1">Extracted (24h)</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-primary">{stats.total_entities?.toLocaleString() ?? "—"}</div>
-              <div className="text-xs text-muted-foreground mt-1">Active operators</div>
-            </div>
+        <div className="flex justify-center gap-10 mb-8 font-mono">
+          <div>
+            <div className="text-3xl font-bold text-primary">{stats ? (stats.attacks_24h?.toLocaleString() ?? "0") : "—"}</div>
+            <div className="text-xs text-muted-foreground mt-1">Attacks today</div>
           </div>
-        )}
+          <div>
+            <div className="text-3xl font-bold text-primary">
+              {stats
+                ? stats.extracted_24h >= 1000
+                  ? `$${(stats.extracted_24h / 1000).toFixed(0)}K`
+                  : `$${stats.extracted_24h?.toFixed(0) ?? "0"}`
+                : "—"}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">Extracted (24h)</div>
+          </div>
+          <div>
+            <div className="text-3xl font-bold text-primary">{stats ? (stats.total_entities?.toLocaleString() ?? "0") : "—"}</div>
+            <div className="text-xs text-muted-foreground mt-1">Active operators</div>
+          </div>
+        </div>
 
         <div className="flex flex-wrap justify-center gap-4">
           <motion.button

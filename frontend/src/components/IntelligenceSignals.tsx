@@ -11,7 +11,7 @@ interface SignalPanelProps {
 function SignalPanel({ title, eyebrow, subline, points, delay = 0 }: SignalPanelProps) {
   return (
     <motion.div
-      className="intel-panel-glow h-full min-h-[220px] p-4 transition-colors md:min-h-[236px]"
+      className="intel-panel-glow aspect-square w-full p-6 transition-colors flex flex-col"
       initial={{ opacity: 0, y: 24 }}
       whileInView={{ opacity: 1, y: 0 }}
       whileHover={{
@@ -23,9 +23,9 @@ function SignalPanel({ title, eyebrow, subline, points, delay = 0 }: SignalPanel
       transition={{ duration: 0.45, delay }}
     >
       <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-primary">{eyebrow}</div>
-      <div className="mt-2 text-[1.2rem] font-semibold leading-[1.08] tracking-tight text-foreground md:text-[1.32rem]">{title}</div>
-      <div className="mt-2 max-w-[13rem] text-[12px] leading-5 text-muted-foreground">{subline}</div>
-      <div className="mt-4 flex flex-wrap gap-2.5 border-t border-border/70 pt-3">
+      <div className="mt-3 text-[1.25rem] font-semibold leading-[1.1] tracking-tight text-foreground md:text-[1.4rem]">{title}</div>
+      <div className="mt-3 text-[12px] leading-5 text-muted-foreground flex-1">{subline}</div>
+      <div className="mt-auto flex flex-wrap gap-2.5 border-t border-border/70 pt-4">
         {points.map((item, index) => (
           <motion.div
             key={item}
