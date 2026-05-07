@@ -12,50 +12,48 @@ interface SignalPanelProps {
 function SignalPanel({ title, eyebrow, subline, points, index, delay = 0 }: SignalPanelProps) {
   return (
     <motion.div
-      className="intel-panel-glow group relative aspect-square w-full overflow-hidden border border-border/60 bg-background/40 p-5 transition-colors flex flex-col"
+      className="intel-panel-glow group relative w-full min-h-[260px] overflow-hidden border border-border/60 bg-background/40 p-4 transition-colors flex flex-col"
       initial={{ opacity: 0, y: 24 }}
       whileInView={{ opacity: 1, y: 0 }}
       whileHover={{
         y: -4,
         borderColor: "rgba(6,214,247,0.35)",
-        boxShadow: "0 22px 60px rgba(0,0,0,0.32), 0 0 0 1px rgba(6,214,247,0.12), inset 0 0 0 1px rgba(6,214,247,0.04)",
+        boxShadow:
+          "0 22px 60px rgba(0,0,0,0.32), 0 0 0 1px rgba(6,214,247,0.12), inset 0 0 0 1px rgba(6,214,247,0.04)",
       }}
       viewport={{ once: true }}
       transition={{ duration: 0.45, delay }}
     >
-      {/* corner ticks */}
       <div className="pointer-events-none absolute left-0 top-0 h-2.5 w-2.5 border-l border-t border-primary/40" />
       <div className="pointer-events-none absolute right-0 top-0 h-2.5 w-2.5 border-r border-t border-primary/40" />
       <div className="pointer-events-none absolute bottom-0 left-0 h-2.5 w-2.5 border-b border-l border-primary/40" />
       <div className="pointer-events-none absolute bottom-0 right-0 h-2.5 w-2.5 border-b border-r border-primary/40" />
 
-      {/* header row */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(6,214,247,0.6)]" />
-          <div className="font-mono text-[9px] uppercase tracking-[0.22em] text-primary">{eyebrow}</div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.22em] text-primary">
+            {eyebrow}
+          </div>
         </div>
-        <div className="font-mono text-[9px] tracking-[0.15em] text-muted-foreground/60">{index}</div>
+        <div className="font-mono text-[9px] tracking-[0.15em] text-muted-foreground/60">
+          {index}
+        </div>
       </div>
 
-      {/* divider */}
-      <div className="mt-3 h-px w-full bg-gradient-to-r from-primary/30 via-border/50 to-transparent" />
+      <div className="mt-2.5 h-px w-full bg-gradient-to-r from-primary/30 via-border/50 to-transparent" />
 
-      {/* title */}
-      <div className="mt-4 text-[1.15rem] font-semibold leading-[1.15] tracking-tight text-foreground md:text-[1.3rem]">
+      <div className="mt-3 text-[1.05rem] font-semibold leading-[1.15] tracking-tight text-foreground md:text-[1.18rem]">
         {title}
       </div>
 
-      {/* subline */}
-      <div className="mt-2.5 text-[12px] leading-[1.55] text-muted-foreground">
+      <div className="mt-2 text-[12px] leading-[1.45] text-muted-foreground">
         {subline}
       </div>
 
-      {/* spacer */}
       <div className="flex-1" />
 
-      {/* points footer — full-width rows, not cramped boxes */}
-      <div className="mt-4 flex flex-col gap-1 border-t border-border/50 pt-3">
+      <div className="mt-3 flex flex-col gap-1 border-t border-border/50 pt-2.5">
         {points.map((item, idx) => (
           <motion.div
             key={item}
@@ -63,7 +61,7 @@ function SignalPanel({ title, eyebrow, subline, points, index, delay = 0 }: Sign
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.3, delay: delay + 0.15 + idx * 0.05 }}
-            className="flex items-center gap-2.5 border-l border-border/40 bg-background/30 py-1.5 pl-2.5 pr-2 transition-colors group-hover:border-l-primary/50 group-hover:bg-primary/[0.03]"
+            className="flex items-center gap-2 border-l border-border/40 bg-background/30 py-1 pl-2.5 pr-2 transition-colors group-hover:border-l-primary/50 group-hover:bg-primary/[0.03]"
           >
             <span className="font-mono text-[8.5px] tracking-[0.1em] text-primary/70">
               {String(idx + 1).padStart(2, "0")}
