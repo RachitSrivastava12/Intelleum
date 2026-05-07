@@ -32,6 +32,26 @@ function instructionAccounts(ix: any): Array<string | number> {
   return [];
 }
 
+function transactionAccountKeys(tx: any): any[] {
+  const message: any = tx.transaction.message;
+  if (!("compiledInstructions" in message)) return message.accountKeys ?? [];
+
+  return [
+    ...(message.staticAccountKeys ?? []),
+    ...(tx.meta?.loadedAddresses?.writable ?? []),
+    ...(tx.meta?.loadedAddresses?.readonly ?? []),
+  ];
+}
+
+function transactionInstructions(tx: any): any[] {
+  const message: any = tx.transaction.message;
+  const topLevel = "compiledInstructions" in message
+    ? message.compiledInstructions ?? []
+    : message.instructions ?? [];
+  const inner = (tx.meta?.innerInstructions ?? []).flatMap((entry: any) => entry.instructions ?? []);
+  return [...topLevel, ...inner];
+}
+
 function preferredPoolPositions(programLabel: string | null): number[] {
   switch (programLabel) {
     case "raydium_amm":
@@ -134,13 +154,10 @@ export async function extractTokenFlows(
     if (!meta || meta.err !== null) continue;
 
     const sig = tx.transaction.signatures[0];
-    const message: any = tx.transaction.message;
-    const isV0 = "compiledInstructions" in message;
-
-    const accountKeys = isV0 ? message.staticAccountKeys : message.accountKeys;
+    const accountKeys = transactionAccountKeys(tx);
     if (!accountKeys?.length) continue;
 
-    const instructions = isV0 ? message.compiledInstructions : message.instructions;
+    const instructions = transactionInstructions(tx);
     const programIds = new Set<string>();
     for (const ix of instructions ?? []) {
       const pid = instructionProgramId(ix, accountKeys);

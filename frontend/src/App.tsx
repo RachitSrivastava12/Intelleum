@@ -12,6 +12,7 @@ const EntityExplorer = lazy(() => import("./pages/EntityExplorer"));
 const EntityDetail = lazy(() => import("./pages/EntityDetail"));
 const History = lazy(() => import("./pages/History"));
 const IntelApi = lazy(() => import("./pages/IntelApi"));
+const Protection = lazy(() => import("./pages/Protection"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -33,6 +34,7 @@ const App = () => (
           <Routes>
             <Route path="/"               element={<Index />} />
             <Route path="/dashboard"      element={<Dashboard />} />
+            <Route path="/protection"     element={<Protection />} />
             <Route path="/intel-api"      element={<IntelApi />} />
             <Route path="/history"        element={<History />} />
             <Route path="/entities"       element={<EntityExplorer />} />

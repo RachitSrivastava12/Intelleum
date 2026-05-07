@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { api } from "@/lib/api";
 
 const AccessForm = () => {
   const [formData, setFormData] = useState({
@@ -30,16 +31,7 @@ const AccessForm = () => {
     setStatus("submitting");
 
     try {
-      const res = await fetch(
-        `${import.meta.env.VITE_API_URL ?? "http://localhost:8081"}/api/access/request`,
-        {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
-        },
-      );
-
-      if (!res.ok) throw new Error("Request failed");
+      await api.submitAccess(formData);
 
       setStatus("success");
       setFormData({

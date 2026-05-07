@@ -103,6 +103,8 @@ interface ApiRouteRisk {
   jit_count: number;
   liquidation_count: number;
   backrun_count: number;
+  liquidity_snipe_count: number;
+  liquidity_drain_count: number;
   total_attacks: number;
   total_extracted_usd: number;
   unique_attackers: number;
@@ -145,6 +147,8 @@ type ApiRouteRiskAccumulator = Pick<
   | "jit_count"
   | "liquidation_count"
   | "backrun_count"
+  | "liquidity_snipe_count"
+  | "liquidity_drain_count"
   | "total_attacks"
   | "total_extracted_usd"
 > & {
@@ -292,11 +296,29 @@ interface HeliusEnhancedTx {
   source?: string;
   description?: string;
   timestamp?: number;
+  nativeTransfers?: Array<{
+    fromUserAccount?: string | null;
+    toUserAccount?: string | null;
+    amount?: number | null;
+  }>;
   tokenTransfers?: Array<{
     fromUserAccount?: string | null;
     toUserAccount?: string | null;
     mint?: string | null;
     tokenAmount?: number | null;
+  }>;
+  accountData?: Array<{
+    account?: string | null;
+    nativeBalanceChange?: number | null;
+    tokenBalanceChanges?: Array<{
+      userAccount?: string | null;
+      tokenAccount?: string | null;
+      mint?: string | null;
+      rawTokenAmount?: {
+        tokenAmount?: string;
+        decimals?: number;
+      };
+    }>;
   }>;
   events?: {
     swap?: {
@@ -333,6 +355,26 @@ interface ParsedSwapCandidate {
   price_impact_hint: number | null;
   priority_fee: number | null;
   signer_stable_delta_usd: number;
+}
+
+interface CandidateRow {
+  signature: string;
+  tx_index: number;
+  signer: string;
+  priority_fee: number | null;
+  hasDexProgram: boolean;
+  hasLendingProgram: boolean;
+  tokenBalanceChanges: number;
+  isHighPriority: boolean;
+  hasSwapLikeFlow: boolean;
+  stableFlowCount: number;
+  routedPoolCount: number;
+  candidateScore: number;
+  touchedPrograms: string[];
+  programLabels: string[];
+  logText: string;
+  liquidationSignal: boolean;
+  liquiditySignal: boolean;
 }
 
 interface LiquidityLegCandidate {
@@ -445,7 +487,7 @@ const MAX_SWAP_HISTORY = 2000;
 const MAX_LIQUIDITY_HISTORY = 2000;
 const COMPUTE_BUDGET_PROGRAM = "ComputeBudget111111111111111111111111111111";
 const PARSE_BATCH_SIZE = 100;
-const MAX_PARSE_CANDIDATES_PER_SLOT = 160;
+const MAX_PARSE_CANDIDATES_PER_SLOT = 240;
 const STABLE_AND_MAJOR_MINTS = new Set([
   "So11111111111111111111111111111111111111112",
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -807,6 +849,71 @@ class LiveChainService {
     return value.toBase58?.() ?? null;
   }
 
+  private transactionAccountKeys(tx: any): any[] {
+    const message: any = tx.transaction.message;
+    if (!("compiledInstructions" in message)) return message.accountKeys ?? [];
+
+    return [
+      ...(message.staticAccountKeys ?? []),
+      ...(tx.meta?.loadedAddresses?.writable ?? []),
+      ...(tx.meta?.loadedAddresses?.readonly ?? []),
+    ];
+  }
+
+  private transactionInstructions(tx: any): any[] {
+    const message: any = tx.transaction.message;
+    const topLevel = "compiledInstructions" in message
+      ? message.compiledInstructions ?? []
+      : message.instructions ?? [];
+    const inner = (tx.meta?.innerInstructions ?? []).flatMap((entry: any) => entry.instructions ?? []);
+    return [...topLevel, ...inner];
+  }
+
+  private transactionTopLevelInstructions(tx: any): any[] {
+    const message: any = tx.transaction.message;
+    return "compiledInstructions" in message
+      ? message.compiledInstructions ?? []
+      : message.instructions ?? [];
+  }
+
+  private textHasLiquidationSignal(text: string) {
+    return (
+      text.includes("liquidat") ||
+      text.includes("lendingaccountliquidate") ||
+      text.includes("liquidateobligation") ||
+      text.includes("repay_obligation_liquidity") ||
+      text.includes("liquidate_perp") ||
+      text.includes("liquidate_borrow") ||
+      text.includes("liquidateperp") ||
+      text.includes("liquidateborrow") ||
+      text.includes("bankruptcy") ||
+      text.includes("bankrupt") ||
+      text.includes("deleverage") ||
+      text.includes("margin_call") ||
+      text.includes("margin call")
+    );
+  }
+
+  private textHasLiquiditySignal(text: string) {
+    return (
+      text.includes("add_liquidity") ||
+      text.includes("add liquidity") ||
+      text.includes("increase_liquidity") ||
+      text.includes("increase liquidity") ||
+      text.includes("deposit liquidity") ||
+      text.includes("remove_liquidity") ||
+      text.includes("remove liquidity") ||
+      text.includes("decrease_liquidity") ||
+      text.includes("decrease liquidity") ||
+      text.includes("withdraw_liquidity") ||
+      text.includes("withdraw liquidity") ||
+      text.includes("close_position") ||
+      text.includes("close position") ||
+      text.includes("collect_fees") ||
+      text.includes("collect fees")
+    );
+  }
+
   private instructionProgramId(ix: any, accountKeys: any[]): string | null {
     if (typeof ix?.programId === "string") return ix.programId;
     if (typeof ix?.programIdIndex === "number") {
@@ -837,13 +944,11 @@ class LiveChainService {
       .map((tx: any, index: number) => {
         if (!tx.meta || tx.meta.err !== null) return null;
         const signature = tx.transaction.signatures[0];
-        const message: any = tx.transaction.message;
-        const isV0 = "compiledInstructions" in message;
-        const accountKeys = isV0 ? message.staticAccountKeys : message.accountKeys;
+        const accountKeys = this.transactionAccountKeys(tx);
         const signer = this.keyToAddress(accountKeys?.[0]);
         if (!signature || !signer) return null;
 
-        const instructions = isV0 ? message.compiledInstructions : message.instructions;
+        const instructions = this.transactionInstructions(tx);
         const touchedPrograms = new Set<string>();
         for (const ix of instructions ?? []) {
           const programId = this.instructionProgramId(ix, accountKeys);
@@ -852,6 +957,13 @@ class LiveChainService {
 
         const hasDexProgram = [...touchedPrograms].some((programId) => isDex(programId));
         const hasLendingProgram = [...touchedPrograms].some((programId) => isLending(programId));
+        const programLabels = [...touchedPrograms]
+          .map((programId) => getProgramLabel(programId))
+          .filter((value): value is string => Boolean(value));
+        const logText = (tx.meta?.logMessages ?? []).join("\n").toLowerCase();
+        const searchText = `${programLabels.join(" ")} ${logText}`.toLowerCase();
+        const liquidationSignal = this.textHasLiquidationSignal(searchText);
+        const liquiditySignal = this.textHasLiquiditySignal(searchText);
         const tokenBalanceChanges =
           (tx.meta.preTokenBalances?.length ?? 0) + (tx.meta.postTokenBalances?.length ?? 0);
         const priorityFee = this.extractPriorityFee(tx);
@@ -881,32 +993,26 @@ class LiveChainService {
           routedPoolCount,
           candidateScore:
             ((hasDexProgram || hasDexFlow) ? 5 : 0) +
-            ((hasLendingProgram || hasLendingFlow) ? 3 : 0) +
+            ((hasLendingProgram || hasLendingFlow) ? 8 : 0) +
+            (liquidationSignal ? 12 : 0) +
+            (liquiditySignal ? 6 : 0) +
             (hasSwapLikeFlow ? 4 : 0) +
             Math.min(2, routedPoolCount) +
             Math.min(2, stableFlowCount) +
             (priorityFee && priorityFee > 20_000 ? 2 : priorityFee && priorityFee > 8_000 ? 1 : 0) +
             Math.min(3, Math.floor(tokenBalanceChanges / 2)),
+          touchedPrograms: [...touchedPrograms],
+          programLabels,
+          logText,
+          liquidationSignal,
+          liquiditySignal,
         };
       })
-      .filter(Boolean) as Array<{
-      signature: string;
-      tx_index: number;
-      signer: string;
-      priority_fee: number | null;
-      hasDexProgram: boolean;
-      hasLendingProgram: boolean;
-      tokenBalanceChanges: number;
-      isHighPriority: boolean;
-      hasSwapLikeFlow: boolean;
-      stableFlowCount: number;
-      routedPoolCount: number;
-      candidateScore: number;
-    }>;
+      .filter(Boolean) as CandidateRow[];
 
     const parseBudget =
-      txRows.length > 1400 ? 128 :
-      txRows.length > 1100 ? 144 :
+      txRows.length > 1400 ? 160 :
+      txRows.length > 1100 ? 192 :
       MAX_PARSE_CANDIDATES_PER_SLOT;
 
     const candidateRows = txRows
@@ -915,6 +1021,8 @@ class LiveChainService {
           row.hasDexProgram ||
           row.hasLendingProgram ||
           row.hasSwapLikeFlow ||
+          row.liquidationSignal ||
+          row.liquiditySignal ||
           row.stableFlowCount >= 2 ||
           row.routedPoolCount >= 2 ||
           (row.isHighPriority && row.tokenBalanceChanges >= 2) ||
@@ -936,6 +1044,8 @@ class LiveChainService {
       block_time: blockTime,
       validator: leaderIdentity,
       priority_fee: row.priority_fee,
+      program_labels: row.programLabels,
+      log_text: row.logText,
       flows: flowsByTx.get(row.signature) ?? [],
     }));
     this.recentSlotTxs.unshift(...slotTxs);
@@ -1046,10 +1156,8 @@ class LiveChainService {
   }
 
   private extractPriorityFee(tx: any): number | null {
-    const message: any = tx.transaction.message;
-    const isV0 = "compiledInstructions" in message;
-    const accountKeys = isV0 ? message.staticAccountKeys : message.accountKeys;
-    const instructions = isV0 ? message.compiledInstructions : message.instructions;
+    const accountKeys = this.transactionAccountKeys(tx);
+    const instructions = this.transactionTopLevelInstructions(tx);
 
     let cuLimit: number | null = null;
     let cuPriceMicroLamports: number | null = null;
@@ -1111,7 +1219,7 @@ class LiveChainService {
   }
 
   private extractParsedSwaps(
-    txRows: Array<{ signature: string; tx_index: number; signer: string; priority_fee: number | null }>,
+    txRows: CandidateRow[],
     parsedBySig: Map<string, HeliusEnhancedTx>,
     slot: number,
     blockTime: Date,
@@ -1258,23 +1366,45 @@ class LiveChainService {
     for (const tx of slotTxs) {
       const parsed = parsedBySig.get(tx.tx_sig);
       const parsedType = (parsed?.type ?? "").toUpperCase();
-      const parsedDescription = (parsed?.description ?? "").toLowerCase();
+      const parsedDescription = `${parsed?.description ?? ""}\n${tx.log_text ?? ""}`.toLowerCase();
       const inferredSource = this.inferSourceFromFlows(tx.flows, parsed);
       const parsedAddLiquidity =
         (parsedType.includes("ADD") && parsedType.includes("LIQUID")) ||
         parsedType.includes("ADD_LIQUIDITY") ||
+        parsedType.includes("INCREASE_LIQUIDITY") ||
         parsedType.includes("ADD_TO_POOL") ||
         parsedType.includes("BOOTSTRAP_LIQUIDITY") ||
         parsedType.includes("ADD_IMBALANCE_LIQUIDITY") ||
+        parsedType.includes("OPEN_POSITION_WITH_METADATA") ||
         parsedDescription.includes("add liquidity") ||
+        parsedDescription.includes("increase liquidity") ||
+        parsedDescription.includes("instruction: increaseliquidity") ||
+        parsedDescription.includes("instruction: increase liquidity") ||
         parsedDescription.includes("deposit liquidity");
       const parsedRemoveLiquidity =
         (parsedType.includes("REMOVE") && parsedType.includes("LIQUID")) ||
         parsedType.includes("REMOVE_FROM_POOL") ||
+        parsedType.includes("DECREASE_LIQUIDITY") ||
+        parsedType.includes("CLOSE_POSITION") ||
         (parsedType.includes("WITHDRAW") && parsedType.includes("LIQUID")) ||
         parsedType.includes("WITHDRAW_LIQUIDITY") ||
         parsedDescription.includes("remove liquidity") ||
-        parsedDescription.includes("withdraw liquidity");
+        parsedDescription.includes("decrease liquidity") ||
+        parsedDescription.includes("instruction: decreaseliquidity") ||
+        parsedDescription.includes("instruction: decrease liquidity") ||
+        parsedDescription.includes("withdraw liquidity") ||
+        parsedDescription.includes("close position");
+      const signerFlows = tx.flows.filter((flow) => flow.wallet === tx.signer);
+      const fallbackInputMint = signerFlows.find((flow) => flow.delta_raw < 0n)?.mint ?? null;
+      const fallbackOutputMint = signerFlows.find((flow) => flow.delta_raw > 0n)?.mint ?? null;
+      const fallbackProgram = tx.flows.find((flow) => flow.program_id)?.program_id ?? null;
+      const fallbackPoolAddress = this.normalizePoolAddress(
+        null,
+        inferredSource,
+        fallbackInputMint,
+        fallbackOutputMint,
+        fallbackProgram,
+      );
       const byPool = new Map<
         string,
         {
@@ -1284,18 +1414,23 @@ class LiveChainService {
         }
       >();
 
-      for (const flow of tx.flows) {
-        if (!flow.pool_address || flow.wallet !== tx.signer) continue;
+      for (const flow of signerFlows) {
+        const poolAddress =
+          flow.pool_address ||
+          (parsedAddLiquidity || parsedRemoveLiquidity || tx.program_labels?.some((label) => label.includes("whirlpool") || label.includes("meteora") || label.includes("raydium"))
+            ? fallbackPoolAddress
+            : null);
+        if (!poolAddress || poolAddress === "unknown") continue;
 
-        if (!byPool.has(flow.pool_address)) {
-          byPool.set(flow.pool_address, {
+        if (!byPool.has(poolAddress)) {
+          byPool.set(poolAddress, {
             negativeMints: new Set<string>(),
             positiveMints: new Set<string>(),
             stableValueDelta: 0,
           });
         }
 
-        const summary = byPool.get(flow.pool_address)!;
+        const summary = byPool.get(poolAddress)!;
         if (flow.delta_raw < 0n) summary.negativeMints.add(flow.mint);
         if (flow.delta_raw > 0n) summary.positiveMints.add(flow.mint);
         if (
@@ -1311,8 +1446,12 @@ class LiveChainService {
       }
 
       for (const [poolAddress, summary] of byPool) {
-        const added = summary.negativeMints.size >= 2 || parsedAddLiquidity;
-        const removed = summary.positiveMints.size >= 2 || parsedRemoveLiquidity;
+        const added =
+          summary.negativeMints.size >= 2 ||
+          (parsedAddLiquidity && summary.negativeMints.size >= 1);
+        const removed =
+          summary.positiveMints.size >= 2 ||
+          (parsedRemoveLiquidity && summary.positiveMints.size >= 1);
         if (!added && !removed) continue;
 
         legs.push({
@@ -1954,7 +2093,7 @@ class LiveChainService {
   }
 
   private detectParsedLiquidations(
-    txRows: Array<{ signature: string; tx_index: number; signer: string; priority_fee: number | null }>,
+    txRows: CandidateRow[],
     parsedBySig: Map<string, HeliusEnhancedTx>,
     flowsByTx: Map<string, TxFlow["flows"]>,
     blockTime: Date,
@@ -1967,6 +2106,17 @@ class LiveChainService {
       const parsed = parsedBySig.get(row.signature);
       const type = (parsed?.type ?? "").toUpperCase();
       const source = (parsed?.source ?? "").toUpperCase();
+      const sourceOrProgram = source || row.programLabels[0]?.toUpperCase() || "";
+      const searchText = [
+        type,
+        source,
+        parsed?.description ?? "",
+        row.programLabels.join(" "),
+        row.logText,
+      ].join("\n").toLowerCase();
+      const lendingLabel = row.programLabels.find((label) =>
+        ["kamino", "marginfi", "solend", "solend_v2", "drift"].includes(label),
+      );
       const looksLikeLiquidation =
         type.includes("LIQUID") ||
         type.includes("LIQUIDATE") ||
@@ -1975,50 +2125,64 @@ class LiveChainService {
         type.includes("MARGIN_CALL") ||
         type.includes("REPAY_OBLIGATION_LIQUIDITY") ||
         type.includes("BOT_LIQUIDATE") ||
-        (parsed?.description ?? "").toLowerCase().includes("liquidat");
+        this.textHasLiquidationSignal(searchText) ||
+        (row.hasLendingProgram && row.liquidationSignal);
 
       if (!looksLikeLiquidation) continue;
 
       const flows = flowsByTx.get(row.signature) ?? [];
-      const profit = flows
-        .filter(
-          (flow) =>
-            flow.wallet === row.signer &&
-            flow.delta_raw > 0n &&
-            flow.delta_usd !== null,
-        )
+      const signerFlows = flows.filter((flow) => flow.wallet === row.signer);
+      const positiveUsd = signerFlows
+        .filter((flow) => flow.delta_raw > 0n && flow.delta_usd !== null)
         .reduce((sum, flow) => sum + (flow.delta_usd ?? 0), 0);
+      const negativeUsd = Math.abs(
+        signerFlows
+          .filter((flow) => flow.delta_raw < 0n && flow.delta_usd !== null)
+          .reduce((sum, flow) => sum + (flow.delta_usd ?? 0), 0),
+      );
+      const netUsd = positiveUsd - negativeUsd;
+      const estimatedProfit =
+        netUsd >= 1
+          ? Number(netUsd.toFixed(2))
+          : positiveUsd >= 10
+            ? Number((positiveUsd * 0.025).toFixed(2))
+            : null;
 
       const poolAddress = this.normalizePoolAddress(
         flows.find((flow) => flow.pool_address)?.pool_address,
-        parsed?.source ?? null,
+        parsed?.source ?? lendingLabel ?? null,
         flows.find((flow) => flow.wallet === row.signer && flow.delta_raw < 0n)?.mint ?? null,
         flows.find((flow) => flow.wallet === row.signer && flow.delta_raw > 0n)?.mint ?? null,
         flows.find((flow) => flow.program_id)?.program_id ?? null,
       );
       const victimWallet =
-        parsed?.tokenTransfers?.find((transfer) => transfer.toUserAccount && transfer.toUserAccount !== row.signer)?.toUserAccount ??
         parsed?.tokenTransfers?.find((transfer) => transfer.fromUserAccount && transfer.fromUserAccount !== row.signer)?.fromUserAccount ??
+        parsed?.tokenTransfers?.find((transfer) => transfer.toUserAccount && transfer.toUserAccount !== row.signer)?.toUserAccount ??
+        parsed?.accountData
+          ?.flatMap((account) => account.tokenBalanceChanges ?? [])
+          ?.find((change) => change.userAccount && change.userAccount !== row.signer)?.userAccount ??
+        flows
+          .filter((flow) => flow.wallet !== row.signer && flow.delta_usd !== null && flow.delta_usd < 0)
+          .sort((a, b) => Math.abs(b.delta_usd ?? 0) - Math.abs(a.delta_usd ?? 0))[0]?.wallet ??
         null;
 
       const hasKnownVenue = poolAddress !== "unknown";
-      const hasObservedGain = profit >= 5;
-      const knownLendingSource = ["KAMINO", "MARGINFI", "SOLEND", "DRIFT", "SAVE"].includes(source);
-      if (!hasObservedGain && !victimWallet) continue;
-      if (!hasKnownVenue && !victimWallet && !knownLendingSource) continue;
+      const hasObservedGain = (estimatedProfit ?? 0) >= 1 || positiveUsd >= 10;
+      const knownLendingSource =
+        ["KAMINO", "MARGINFI", "SOLEND", "SOLEND_V2", "DRIFT", "SAVE"].includes(sourceOrProgram) ||
+        Boolean(lendingLabel);
+      const hasEconomicMotion = positiveUsd >= 1 || negativeUsd >= 1 || flows.length >= 2;
+      if (!hasObservedGain && !victimWallet && !knownLendingSource) continue;
+      if (!hasEconomicMotion && !victimWallet && !row.liquidationSignal) continue;
 
-      const confidence =
-        hasObservedGain && victimWallet && hasKnownVenue
-          ? 0.88
-          : hasObservedGain && knownLendingSource
-            ? 0.85
-          : hasObservedGain && (victimWallet || hasKnownVenue)
-            ? 0.84
-          : victimWallet && knownLendingSource
-              ? 0.81
-              : victimWallet || hasKnownVenue
-                ? 0.79
-                : 0.76;
+      let confidence = 0.74;
+      if (knownLendingSource) confidence += 0.05;
+      if (this.textHasLiquidationSignal(searchText)) confidence += 0.06;
+      if (victimWallet) confidence += 0.04;
+      if (hasObservedGain) confidence += 0.04;
+      if (hasKnownVenue) confidence += 0.02;
+      if ((row.priority_fee ?? 0) >= 10_000) confidence += 0.02;
+      confidence = Number(Math.min(0.93, confidence).toFixed(2));
 
       attacks.push({
         attack_type: "liquidation",
@@ -2029,16 +2193,21 @@ class LiveChainService {
         victim_wallet: victimWallet,
         pool_address: poolAddress,
         token_mint: flows.find((flow) => flow.wallet === row.signer && flow.delta_raw > 0n)?.mint ?? null,
-        profit_usd: profit > 0 ? Number(profit.toFixed(2)) : null,
+        profit_usd: estimatedProfit,
         victim_loss_usd: null,
         frontrun_tx: null,
         victim_tx: row.signature,
         backrun_tx: null,
         tip_lamports: row.priority_fee && row.priority_fee > 0 ? row.priority_fee : null,
         confidence,
-        detector: "parsed_liquidation",
+        detector: lendingLabel ? `parsed_liquidation_${lendingLabel}` : "parsed_liquidation",
         evidence: [
-          "Helius parsed transaction labeled liquidation-like activity",
+          knownLendingSource
+            ? `known lending / perps program observed: ${(lendingLabel ?? sourceOrProgram).toLowerCase()}`
+            : "parsed transaction labeled liquidation-like activity",
+          this.textHasLiquidationSignal(searchText)
+            ? "instruction logs or parser text contained liquidation / deleverage / bankruptcy signal"
+            : "liquidation inferred from lending-program transfer graph",
           hasObservedGain
             ? "positive wallet delta observed on liquidator wallet"
             : "liquidation label observed even though realized gain was not fully measurable",
@@ -2053,7 +2222,7 @@ class LiveChainService {
   }
 
   private detectLaunchSnipes(
-    txRows: Array<{ signature: string; tx_index: number; signer: string; priority_fee: number | null }>,
+    txRows: CandidateRow[],
     parsedBySig: Map<string, HeliusEnhancedTx>,
     swaps: ParsedSwapCandidate[],
     blockTime: Date,
@@ -2676,13 +2845,7 @@ class LiveChainService {
     this.attackKeys.add(key);
 
     this.attacks.unshift(persistedAttack);
-    this.attackIndexByKey = new Map(this.attacks.map((item, index) => {
-      const itemKey =
-        item.attack_type === "sandwich" || item.attack_type === "jit" || item.attack_type === "liquidity_snipe"
-          ? [item.attack_type, item.slot, item.attacker_wallet, item.pool_address, item.frontrun_tx, item.backrun_tx].join(":")
-          : [item.attack_type, item.slot, item.attacker_wallet, item.pool_address, item.victim_tx, item.backrun_tx].join(":");
-      return [itemKey, index] as const;
-    }));
+    this.attackIndexByKey = new Map(this.attacks.map((item, index) => [this.attackFamilyKey(item), index] as const));
     void this.persistAttack(
       key,
       persistedAttack,
@@ -3345,6 +3508,8 @@ class LiveChainService {
           jit_count: attack.attack_type === "jit" ? 1 : 0,
           liquidation_count: attack.attack_type === "liquidation" ? 1 : 0,
           backrun_count: attack.attack_type === "backrun" ? 1 : 0,
+          liquidity_snipe_count: attack.attack_type === "liquidity_snipe" ? 1 : 0,
+          liquidity_drain_count: attack.attack_type === "liquidity_drain" ? 1 : 0,
           total_attacks: 1,
           total_extracted_usd: attack.profit_usd ?? 0,
           confidence_sum: attack.confidence ?? 0,
@@ -3364,6 +3529,8 @@ class LiveChainService {
       existing.jit_count += attack.attack_type === "jit" ? 1 : 0;
       existing.liquidation_count += attack.attack_type === "liquidation" ? 1 : 0;
       existing.backrun_count += attack.attack_type === "backrun" ? 1 : 0;
+      existing.liquidity_snipe_count += attack.attack_type === "liquidity_snipe" ? 1 : 0;
+      existing.liquidity_drain_count += attack.attack_type === "liquidity_drain" ? 1 : 0;
     }
 
     return [...grouped.values()]
@@ -3375,6 +3542,8 @@ class LiveChainService {
         const backrunRate = item.total_attacks > 0 ? item.backrun_count / item.total_attacks : 0;
         const arbitrageRate = item.total_attacks > 0 ? item.arbitrage_count / item.total_attacks : 0;
         const jitRate = item.total_attacks > 0 ? item.jit_count / item.total_attacks : 0;
+        const liquidityRiskRate =
+          item.total_attacks > 0 ? (item.liquidity_snipe_count + item.liquidity_drain_count) / item.total_attacks : 0;
         const riskScore = Math.min(
           100,
           Number(
@@ -3382,6 +3551,8 @@ class LiveChainService {
               item.sandwich_count * 16 +
               item.backrun_count * 10 +
               item.jit_count * 8 +
+              item.liquidity_drain_count * 11 +
+              item.liquidity_snipe_count * 9 +
               item.liquidation_count * 7 +
               item.arbitrage_count * 5 +
               item.total_extracted_usd / 90 +
@@ -3392,7 +3563,16 @@ class LiveChainService {
           ),
         );
         const toxicFlowRate = round(
-          clamp(sandwichRate * 58 + backrunRate * 32 + jitRate * 18 + arbitrageRate * 14 + item.attackers.size * 2.5, 3, 99),
+          clamp(
+            sandwichRate * 58 +
+              backrunRate * 32 +
+              liquidityRiskRate * 30 +
+              jitRate * 18 +
+              arbitrageRate * 14 +
+              item.attackers.size * 2.5,
+            3,
+            99,
+          ),
         );
         const liveStaleRate =
           liveAnalytics && liveAnalytics.swaps > 0
@@ -3506,6 +3686,8 @@ class LiveChainService {
           jit_count: item.jit_count,
           liquidation_count: item.liquidation_count,
           backrun_count: item.backrun_count,
+          liquidity_snipe_count: item.liquidity_snipe_count,
+          liquidity_drain_count: item.liquidity_drain_count,
           total_attacks: item.total_attacks,
           total_extracted_usd: item.total_extracted_usd,
           unique_attackers: item.attackers.size,

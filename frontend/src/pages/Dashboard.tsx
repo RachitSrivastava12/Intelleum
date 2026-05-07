@@ -66,6 +66,12 @@ export default function Dashboard() {
             >
               HISTORY
             </Link>
+            <Link
+              to="/protection"
+              className="mr-4 border border-primary/20 px-3 py-1 text-primary hover:bg-primary/10 transition-colors"
+            >
+              PROTECTION
+            </Link>
             <motion.div
               className="w-1.5 h-1.5 rounded-full bg-green-500"
               animate={{ opacity: [1, 0.4, 1] }}

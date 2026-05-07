@@ -23,7 +23,7 @@ import {
   preventionGuard,
   rankRoutes,
 } from "../liveData";
-import { ensureAccessSchema, ensureApiKeySchema, hashApiKey, pool } from "../../db/pool";
+import { ensureAccessSchema, ensureApiKeySchema, hashApiKey, hasDatabase, pool } from "../../db/pool";
 import { liveChainService } from "../../services/liveChain";
 import { quickNodeStreamService } from "../../services/quickNodeStream";
 
@@ -310,6 +310,11 @@ router.post("/access/request", async (req: Request, res: Response) => {
     if (!name || !email || !organization || !useCase) {
       return res.status(400).json({ error: "Missing required fields" });
     }
+    if (!hasDatabase()) {
+      return res.status(503).json({
+        error: "DATABASE_URL is not configured, so access requests cannot be stored",
+      });
+    }
 
     await ensureAccessSchema();
     await pool!.query(
@@ -329,6 +334,11 @@ router.post("/access/api-key", async (req: Request, res: Response) => {
     const { walletAddress, name, email, organization, useCase, message } = req.body ?? {};
     if (!walletAddress || typeof walletAddress !== "string") {
       return res.status(400).json({ error: "walletAddress is required" });
+    }
+    if (!hasDatabase()) {
+      return res.status(503).json({
+        error: "DATABASE_URL is not configured, so wallet-bound trial keys cannot be issued",
+      });
     }
 
     await ensureApiKeySchema();
@@ -395,6 +405,7 @@ router.post("/access/api-key", async (req: Request, res: Response) => {
       request_count: 0,
       remaining_requests: 5,
       required_header: "x-api-key",
+      accepted_headers: ["x-api-key", "x-intelleum-key"],
     });
   } catch (err) {
     console.error(err);
@@ -407,6 +418,11 @@ router.get("/access/api-key/status/:walletAddress", async (req: Request, res: Re
     const walletAddress = req.params.walletAddress;
     if (!walletAddress || typeof walletAddress !== "string") {
       return res.status(400).json({ error: "walletAddress is required" });
+    }
+    if (!hasDatabase()) {
+      return res.status(503).json({
+        error: "DATABASE_URL is not configured, so wallet-bound trial key status is unavailable",
+      });
     }
 
     await ensureApiKeySchema();
@@ -436,6 +452,7 @@ router.get("/access/api-key/status/:walletAddress", async (req: Request, res: Re
       created_at: client.created_at,
       last_request_at: client.last_request_at,
       required_header: "x-api-key",
+      accepted_headers: ["x-api-key", "x-intelleum-key"],
     });
   } catch (err) {
     console.error(err);

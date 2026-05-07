@@ -22,6 +22,9 @@ export const DEX_PROGRAMS: Record<string, string> = {
   "JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB":   "jupiter_v4",
   "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4":   "jupiter_v6",
 
+  // Drift execution / keeper infrastructure
+  "J1TnP8zvVxbtF5KFp5xRmWuvG9McnhzmBd9XGfCyuxFP":   "drift_jit_proxy",
+
   // Phoenix (CLOB)
   "PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY":   "phoenix",
 
@@ -31,8 +34,8 @@ export const DEX_PROGRAMS: Record<string, string> = {
 
 export const LENDING_PROGRAMS: Record<string, string> = {
   "So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo": "solend",
-  "MFv2hWf31Z9kbCa1snEPdcgp168vLLAkezvaP73jE57":  "marginfi",
-  "4UpD2fh7xH3VP9QQaXtsS1YY3bxzWhtfpks7FatyKvdY": "kamino",
+  "MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA":  "marginfi",
+  "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD": "kamino",
   "JD3bq9hGdy38PuWQ4h2YJpELmHVGPPfFSuFkpzAd9zfu": "solend_v2",
   "dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH": "drift",
 };

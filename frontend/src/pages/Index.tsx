@@ -83,14 +83,24 @@ function LiveDashboardCTA() {
           </div>
         )}
 
-        <motion.button
-          onClick={() => navigate("/dashboard")}
-          className="px-10 py-4 bg-primary text-background font-mono font-bold text-sm tracking-wider hover:bg-primary/90 transition-colors"
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-        >
-          OPEN LIVE DASHBOARD →
-        </motion.button>
+        <div className="flex flex-wrap justify-center gap-4">
+          <motion.button
+            onClick={() => navigate("/dashboard")}
+            className="px-10 py-4 bg-primary text-background font-mono font-bold text-sm tracking-wider hover:bg-primary/90 transition-colors"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            OPEN LIVE DASHBOARD →
+          </motion.button>
+          <motion.button
+            onClick={() => navigate("/protection")}
+            className="border border-primary/50 px-10 py-4 text-primary font-mono font-bold text-sm tracking-wider hover:bg-primary/10 transition-colors"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            TRY PROTECTION →
+          </motion.button>
+        </div>
       </div>
     </section>
   );

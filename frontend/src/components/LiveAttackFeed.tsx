@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { api, Attack, AttackDetail } from "@/lib/api";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -107,8 +107,7 @@ export default function LiveAttackFeed({ filterType, maxItems = 50, compact = fa
     attacksRef.current = attacks;
   }, [attacks]);
 
-  async function fetchAttacks() {
-
+  const fetchAttacks = useCallback(async () => {
     try {
       const response = await api.attacks({
         type: activeFilter || undefined,
@@ -148,13 +147,13 @@ export default function LiveAttackFeed({ filterType, maxItems = 50, compact = fa
         setError(message);
       }
     }
-  }
+  }, [activeFilter, maxItems]);
 
   useEffect(() => {
     fetchAttacks();
     const t = setInterval(fetchAttacks, 5_000);
     return () => clearInterval(t);
-  }, [activeFilter]);
+  }, [fetchAttacks]);
 
   useEffect(() => {
     if (!selectedAttackId || detailById[selectedAttackId]) return;

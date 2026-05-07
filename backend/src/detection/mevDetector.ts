@@ -11,6 +11,8 @@ export interface TxFlow {
   block_time: Date;
   validator: string;
   priority_fee: number | null;
+  program_labels?: string[];
+  log_text?: string;
   flows: Array<{
     wallet: string;
     mint: string;
@@ -90,6 +92,33 @@ function estimateRoundTripProfit(front: TxFlow, back: TxFlow, signer: string) {
 
   const pnl = backStableReceive - frontStableSpend;
   return pnl > 0 ? Number(pnl.toFixed(2)) : estimateProfit(back.flows, signer);
+}
+
+function hasAddLiquidityText(tx: TxFlow) {
+  const text = `${tx.program_labels?.join(" ") ?? ""}\n${tx.log_text ?? ""}`.toLowerCase();
+  return (
+    text.includes("add_liquidity") ||
+    text.includes("add liquidity") ||
+    text.includes("increase_liquidity") ||
+    text.includes("increase liquidity") ||
+    text.includes("deposit liquidity") ||
+    text.includes("instruction: increaseliquidity")
+  );
+}
+
+function hasRemoveLiquidityText(tx: TxFlow) {
+  const text = `${tx.program_labels?.join(" ") ?? ""}\n${tx.log_text ?? ""}`.toLowerCase();
+  return (
+    text.includes("remove_liquidity") ||
+    text.includes("remove liquidity") ||
+    text.includes("decrease_liquidity") ||
+    text.includes("decrease liquidity") ||
+    text.includes("withdraw_liquidity") ||
+    text.includes("withdraw liquidity") ||
+    text.includes("close_position") ||
+    text.includes("close position") ||
+    text.includes("instruction: decreaseliquidity")
+  );
 }
 
 export async function detectSandwiches(
@@ -265,10 +294,10 @@ export async function detectJIT(
     }
 
     for (const [pool, summary] of poolFlows) {
-      if (summary.neg >= 2 && summary.mints.size >= 2) {
+      if ((summary.neg >= 2 && summary.mints.size >= 2) || (hasAddLiquidityText(tx) && summary.neg >= 1)) {
         lpAdds.set(`${tx.signer}:${pool}`, { tx, pool });
       }
-      if (summary.pos >= 2 && summary.mints.size >= 2) {
+      if ((summary.pos >= 2 && summary.mints.size >= 2) || (hasRemoveLiquidityText(tx) && summary.pos >= 1)) {
         lpRemoves.set(`${tx.signer}:${pool}`, { tx, pool });
       }
     }

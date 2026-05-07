@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import ValidatorPanel from "./ValidatorPanel"
+import ValidatorPanel from "./ValidatorPanel";
 /* ----------------------------- CSV Loader ----------------------------- */
 async function loadCsv<T = any>(path: string): Promise<T[]> {
   const res = await fetch(`/data/${path}`);
@@ -13,13 +13,6 @@ async function loadCsv<T = any>(path: string): Promise<T[]> {
     keys.forEach((k, i) => (obj[k] = vals[i]));
     return obj as T;
   });
-}
-
-/* ----------------------------- Helpers ----------------------------- */
-function safePercent(x: any) {
-  const n = Number(x);
-  if (!isFinite(n)) return null;
-  return Math.round(n * 100);
 }
 
 function riskLabel(r: number) {
@@ -35,9 +28,6 @@ export default function ForensicWindow() {
   const [allEntities, setAllEntities] = useState<any[]>([]);
   const [showAllEntities, setShowAllEntities] = useState(false);
 
-  const [validators, setValidators] = useState<any[]>([]);
-  const [openValidator, setOpenValidator] = useState<string | null>(null);
-
   const [atomic, setAtomic] = useState<any[]>([]);
   const [pga, setPga] = useState<any[]>([]);
 
@@ -45,7 +35,6 @@ export default function ForensicWindow() {
     async function load() {
       const entityFeatures = await loadCsv<any>("entity_features.csv");
       const risks = await loadCsv<any>("ml_entity_risk_scores.csv");
-      const validatorTx = await loadCsv<any>("step6/validator_tx_mev_rate.csv");
       const atomicCsv = await loadCsv<any>("step4/atomic_arbitrage.csv");
       const pgaCsv = await loadCsv<any>("step4/pga_entities.csv");
 
@@ -117,13 +106,6 @@ export default function ForensicWindow() {
       setAllEntities(meaningful);
       setEntities(meaningful.slice(0, 12));
 
-      /* ---------- Validators ---------- */
-      setValidators(
-        validatorTx.map((v: any) => ({
-          validator: v.validator,
-          mevRate: safePercent(v.mev_tx_ratio),
-        }))
-      );
     }
 
     load();

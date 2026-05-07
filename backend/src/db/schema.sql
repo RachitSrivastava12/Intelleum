@@ -61,7 +61,7 @@ CREATE INDEX IF NOT EXISTS idx_flows_mint ON token_flows (mint);
 
 CREATE TABLE IF NOT EXISTS mev_attacks (
   id                BIGSERIAL PRIMARY KEY,
-  attack_type       TEXT NOT NULL CHECK (attack_type IN ('sandwich','arbitrage','jit','liquidation','backrun')),
+  attack_type       TEXT NOT NULL CHECK (attack_type IN ('sandwich','arbitrage','jit','liquidation','backrun','liquidity_snipe','liquidity_drain')),
   slot              BIGINT NOT NULL,
   block_time        TIMESTAMPTZ NOT NULL,
   validator         TEXT NOT NULL,

@@ -1,4 +1,11 @@
-type AttackType = "sandwich" | "arbitrage" | "jit" | "liquidation" | "backrun";
+type AttackType =
+  | "sandwich"
+  | "arbitrage"
+  | "jit"
+  | "liquidation"
+  | "backrun"
+  | "liquidity_snipe"
+  | "liquidity_drain";
 
 interface AttackRecord {
   id: number;
@@ -79,6 +86,8 @@ interface RouteRiskRecord {
   jit_count: number;
   liquidation_count: number;
   backrun_count: number;
+  liquidity_snipe_count: number;
+  liquidity_drain_count: number;
   total_attacks: number;
   total_extracted_usd: number;
   unique_attackers: number;
@@ -121,6 +130,8 @@ type RouteRiskAccumulator = Pick<
   | "jit_count"
   | "liquidation_count"
   | "backrun_count"
+  | "liquidity_snipe_count"
+  | "liquidity_drain_count"
   | "total_attacks"
   | "total_extracted_usd"
   | "unique_attackers"
@@ -522,6 +533,48 @@ const attacks: AttackRecord[] = [
     victim_tx: "1q2wLiquidationVictim111111111111111111111111",
     backrun_tx: "4e5rLiquidationBot111111111111111111111111111",
   },
+  {
+    id: 6,
+    attack_type: "liquidity_snipe",
+    slot: BASE_SLOT + 6,
+    block_time: new Date(NOW - 11 * 60 * 1000).toISOString(),
+    validator: "Jito-Validator-Delta",
+    attacker_wallet: entities[2].sample_wallets[1],
+    entity_id: entities[2].id,
+    entity_label: entities[2].label,
+    entity_risk: entities[2].risk_score,
+    victim_wallet: null,
+    victim_loss_usd: null,
+    pool_address: "venue:raydium_launchlab:So11111111111111111111111111111111111111112->LaunchMint11111111111111111111111111111111111",
+    token_mint: "LaunchMint11111111111111111111111111111111111",
+    profit_usd: 286.64,
+    tip_lamports: 176000,
+    confidence: 0.84,
+    frontrun_tx: "6s7nLaunchSnipeBuy1111111111111111111111111",
+    victim_tx: "2m4kLaunchPoolInit11111111111111111111111111",
+    backrun_tx: null,
+  },
+  {
+    id: 7,
+    attack_type: "liquidity_drain",
+    slot: BASE_SLOT + 5,
+    block_time: new Date(NOW - 14 * 60 * 1000).toISOString(),
+    validator: "Stakewiz-Pro-12",
+    attacker_wallet: entities[0].sample_wallets[2],
+    entity_id: entities[0].id,
+    entity_label: entities[0].label,
+    entity_risk: entities[0].risk_score,
+    victim_wallet: "8uLpHolderRisk11111111111111111111111111111111",
+    victim_loss_usd: 734.52,
+    pool_address: "venue:meteora_dlmm:LaunchMint11111111111111111111111111111111111->EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    token_mint: "LaunchMint11111111111111111111111111111111111",
+    profit_usd: 1194.18,
+    tip_lamports: 88000,
+    confidence: 0.87,
+    frontrun_tx: null,
+    victim_tx: "9w2qLpWithdraw111111111111111111111111111111",
+    backrun_tx: "3e8xDumpAfterDrain11111111111111111111111111",
+  },
 ];
 
 const pools: PoolRecord[] = [
@@ -680,6 +733,9 @@ function inferSourceLabel(attack: AttackRecord) {
   if (attack.attack_type === "liquidation") {
     return { key: "protocol-liquidation", label: "protocol liquidation flow", category: "liquidation" as const };
   }
+  if (attack.attack_type === "liquidity_snipe" || attack.attack_type === "liquidity_drain") {
+    return { key: "launch-liquidity-flow", label: "launch / LP risk flow", category: "searcher" as const };
+  }
   if (validator.includes("jito") || (attack.tip_lamports ?? 0) >= 120_000) {
     return { key: "bundle-lane", label: "bundle lane flow", category: "bundle-lane" as const };
   }
@@ -715,6 +771,18 @@ function classifyFlowSegment(attack: AttackRecord) {
     return {
       segment: "liquidation-opportunistic",
       description: "Liquidation-driven flow that can still carry adverse selection pressure.",
+    };
+  }
+  if (attack.attack_type === "liquidity_snipe") {
+    return {
+      segment: "launch-sniping",
+      description: "Early launch liquidity capture before normal participants can price the pool.",
+    };
+  }
+  if (attack.attack_type === "liquidity_drain") {
+    return {
+      segment: "lp-exit-risk",
+      description: "Liquidity removal or paired dump flow that can strand remaining holders and LPs.",
     };
   }
   return {
@@ -763,6 +831,8 @@ function buildStats() {
     sandwich_count: attacks.filter((attack) => attack.attack_type === "sandwich").length,
     arb_count: attacks.filter((attack) => attack.attack_type === "arbitrage").length,
     jit_count: attacks.filter((attack) => attack.attack_type === "jit").length,
+    liquidity_snipe_count: attacks.filter((attack) => attack.attack_type === "liquidity_snipe").length,
+    liquidity_drain_count: attacks.filter((attack) => attack.attack_type === "liquidity_drain").length,
   };
 }
 
@@ -1004,6 +1074,8 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
         jit_count: attack.attack_type === "jit" ? 1 : 0,
         liquidation_count: attack.attack_type === "liquidation" ? 1 : 0,
         backrun_count: attack.attack_type === "backrun" ? 1 : 0,
+        liquidity_snipe_count: attack.attack_type === "liquidity_snipe" ? 1 : 0,
+        liquidity_drain_count: attack.attack_type === "liquidity_drain" ? 1 : 0,
         total_attacks: 1,
         total_extracted_usd: attack.profit_usd ?? 0,
         unique_attackers: 0,
@@ -1026,6 +1098,8 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
     existing.jit_count += attack.attack_type === "jit" ? 1 : 0;
     existing.liquidation_count += attack.attack_type === "liquidation" ? 1 : 0;
     existing.backrun_count += attack.attack_type === "backrun" ? 1 : 0;
+    existing.liquidity_snipe_count += attack.attack_type === "liquidity_snipe" ? 1 : 0;
+    existing.liquidity_drain_count += attack.attack_type === "liquidity_drain" ? 1 : 0;
   }
 
   return [...grouped.values()]
@@ -1036,6 +1110,8 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
       const backrunRate = item.total_attacks > 0 ? item.backrun_count / item.total_attacks : 0;
       const arbitrageRate = item.total_attacks > 0 ? item.arbitrage_count / item.total_attacks : 0;
       const jitRate = item.total_attacks > 0 ? item.jit_count / item.total_attacks : 0;
+      const liquidityRiskRate =
+        item.total_attacks > 0 ? (item.liquidity_snipe_count + item.liquidity_drain_count) / item.total_attacks : 0;
       const riskScore = Math.min(
         100,
         Number(
@@ -1043,6 +1119,8 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
             item.sandwich_count * 16 +
             item.backrun_count * 10 +
             item.jit_count * 8 +
+            item.liquidity_drain_count * 11 +
+            item.liquidity_snipe_count * 9 +
             item.liquidation_count * 7 +
             item.arbitrage_count * 5 +
             item.total_extracted_usd / 90 +
@@ -1053,7 +1131,16 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
         ),
       );
       const toxicFlowRate = round(
-        clamp(sandwichRate * 58 + backrunRate * 32 + jitRate * 18 + arbitrageRate * 14 + item.attackers.size * 2.5, 3, 99),
+        clamp(
+          sandwichRate * 58 +
+            backrunRate * 32 +
+            liquidityRiskRate * 30 +
+            jitRate * 18 +
+            arbitrageRate * 14 +
+            item.attackers.size * 2.5,
+          3,
+          99,
+        ),
       );
       const staleQuotePickupRate = round(clamp(arbitrageRate * 48 + sandwichRate * 36 + bundleShare * 18, 1, 98));
       const quoteFreshnessMs = round(clamp(920 - riskScore * 5.2 - item.total_attacks * 13, 65, 980), 0);
@@ -1109,6 +1196,8 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
         jit_count: item.jit_count,
         liquidation_count: item.liquidation_count,
         backrun_count: item.backrun_count,
+        liquidity_snipe_count: item.liquidity_snipe_count,
+        liquidity_drain_count: item.liquidity_drain_count,
         total_attacks: item.total_attacks,
         total_extracted_usd: item.total_extracted_usd,
         unique_attackers: item.attackers.size,

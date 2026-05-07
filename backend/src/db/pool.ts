@@ -43,6 +43,10 @@ function requirePool(): Pool {
   return createdPool;
 }
 
+export function hasDatabase(): boolean {
+  return Boolean(createdPool);
+}
+
 export async function ensureAccessSchema(): Promise<void> {
   if (accessSchemaReady) return;
 

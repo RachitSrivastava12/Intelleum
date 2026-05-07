@@ -33,9 +33,7 @@ export default function StatsBar() {
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown API error";
         console.error("[stats] failed to load", err);
-        if (!stats) {
-          setError(message);
-        }
+        setError(message);
       }
     };
     load();

@@ -10,15 +10,15 @@ describe("Hero", () => {
       </MemoryRouter>,
     );
 
-    expect(
-      screen.getByRole("heading", {
-        name: /see where solana orderflow is getting extracted, repriced, and routed\./i,
-      }),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/mev intelligence for solana/i)).toBeInTheDocument();
+    expect(screen.getByText(/see where solana orderflow is getting/i)).toBeInTheDocument();
+    expect(screen.getByText(/extracted/i)).toBeInTheDocument();
+    expect(screen.getByText(/repriced/i)).toBeInTheDocument();
+    expect(screen.getByText(/routed/i)).toBeInTheDocument();
 
-    expect(screen.getByRole("link", { name: /request early access/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /view intelligence demo/i })).toBeInTheDocument();
-    expect(screen.getByText(/live surface/i)).toBeInTheDocument();
-    expect(screen.getByText(/raydium amm/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /open live demo/i })).toHaveAttribute("href", "/dashboard");
+    expect(screen.getByRole("link", { name: /explore apis/i })).toHaveAttribute("href", "/intel-api");
+    expect(screen.getByText(/sandwich/i)).toBeInTheDocument();
+    expect(screen.getByText(/backrun/i)).toBeInTheDocument();
   });
 });

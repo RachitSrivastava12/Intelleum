@@ -90,7 +90,7 @@ const endpoints: EndpointDoc[] = [
     teams: buyerTeams.filter((t) => ["Jupiter", "Kamino"].includes(t.name)),
     curl: `curl -X POST ${BASE_URL}/api/routes/evaluate \\
   -H "Content-Type: application/json" \\
-  -H "X-Intelleum-Key: YOUR_API_KEY" \\
+  -H "x-api-key: YOUR_API_KEY" \\
   -d '{
     "input_mint":   "So11111111111111111111111111111111111111112",
     "output_mint":  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -103,7 +103,7 @@ const endpoints: EndpointDoc[] = [
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    "X-Intelleum-Key": process.env.INTELLEUM_API_KEY!,
+    "x-api-key": process.env.INTELLEUM_API_KEY!,
   },
   body: JSON.stringify({
     input_mint:   "So11111111111111111111111111111111111111112",
@@ -166,7 +166,7 @@ if (data.decision === "avoid" || data.decision === "reroute") {
     teams: buyerTeams.filter((t) => ["Jupiter", "Keyrock"].includes(t.name)),
     curl: `curl -X POST ${BASE_URL}/api/routes/rank \\
   -H "Content-Type: application/json" \\
-  -H "X-Intelleum-Key: YOUR_API_KEY" \\
+  -H "x-api-key: YOUR_API_KEY" \\
   -d '{
     "input_mint":   "So11111111111111111111111111111111111111112",
     "output_mint":  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -182,7 +182,7 @@ if (data.decision === "avoid" || data.decision === "reroute") {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    "X-Intelleum-Key": process.env.INTELLEUM_API_KEY!,
+    "x-api-key": process.env.INTELLEUM_API_KEY!,
   },
   body: JSON.stringify({
     input_mint:   "So11111111111111111111111111111111111111112",
@@ -252,7 +252,7 @@ analytics.track("loss_avoided_usd", estimated_loss_avoided_usd);`,
     teams: buyerTeams.filter((t) => ["Jupiter", "Kamino"].includes(t.name)),
     curl: `curl -X POST ${BASE_URL}/api/prevention/guard \\
   -H "Content-Type: application/json" \\
-  -H "X-Intelleum-Key: YOUR_API_KEY" \\
+  -H "x-api-key: YOUR_API_KEY" \\
   -d '{
     "input_mint":   "So11111111111111111111111111111111111111112",
     "output_mint":  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -264,7 +264,7 @@ analytics.track("loss_avoided_usd", estimated_loss_avoided_usd);`,
   method: "POST",
   headers: {
     "Content-Type": "application/json",
-    "X-Intelleum-Key": process.env.INTELLEUM_API_KEY!,
+    "x-api-key": process.env.INTELLEUM_API_KEY!,
   },
   body: JSON.stringify({
     input_mint:   "So11111111111111111111111111111111111111112",
@@ -319,12 +319,12 @@ if (guard.action === "block") {
     ],
     teams: buyerTeams.filter((t) => ["Helius", "Sanctum"].includes(t.name)),
     curl: `curl "${BASE_URL}/api/integrations/live-alerts?limit=5" \\
-  -H "X-Intelleum-Key: YOUR_API_KEY"`,
+  -H "x-api-key: YOUR_API_KEY"`,
     typescript: `// Poll every 15 seconds and forward critical alerts to Slack
 setInterval(async () => {
   const res = await fetch(
     "${BASE_URL}/api/integrations/live-alerts?limit=10",
-    { headers: { "X-Intelleum-Key": process.env.INTELLEUM_API_KEY! } }
+    { headers: { "x-api-key": process.env.INTELLEUM_API_KEY! } }
   );
   const alerts = await res.json();
 
@@ -389,9 +389,9 @@ setInterval(async () => {
     ],
     teams: buyerTeams.filter((t) => ["Jupiter", "Orca", "Kamino"].includes(t.name)),
     curl: `curl "${BASE_URL}/api/routes/risk?limit=20" \\
-  -H "X-Intelleum-Key: YOUR_API_KEY"`,
+  -H "x-api-key: YOUR_API_KEY"`,
     typescript: `const res = await fetch("${BASE_URL}/api/routes/risk?limit=50", {
-  headers: { "X-Intelleum-Key": process.env.INTELLEUM_API_KEY! },
+  headers: { "x-api-key": process.env.INTELLEUM_API_KEY! },
 });
 const routes = await res.json();
 
@@ -445,9 +445,9 @@ await db.routeRisk.upsertMany(routes);`,
     ],
     teams: buyerTeams.filter((t) => ["Orca", "Kamino", "Keyrock"].includes(t.name)),
     curl: `curl "${BASE_URL}/api/pools?limit=25" \\
-  -H "X-Intelleum-Key: YOUR_API_KEY"`,
+  -H "x-api-key: YOUR_API_KEY"`,
     typescript: `const res = await fetch("${BASE_URL}/api/pools?limit=50", {
-  headers: { "X-Intelleum-Key": process.env.INTELLEUM_API_KEY! },
+  headers: { "x-api-key": process.env.INTELLEUM_API_KEY! },
 });
 const pools = await res.json();
 
@@ -497,9 +497,9 @@ console.log(\`\${flagged.length} pools need attention\`);`,
     ],
     teams: buyerTeams.filter((t) => ["Sanctum", "Jito", "Helius"].includes(t.name)),
     curl: `curl "${BASE_URL}/api/validators" \\
-  -H "X-Intelleum-Key: YOUR_API_KEY"`,
+  -H "x-api-key: YOUR_API_KEY"`,
     typescript: `const res = await fetch("${BASE_URL}/api/validators", {
-  headers: { "X-Intelleum-Key": process.env.INTELLEUM_API_KEY! },
+  headers: { "x-api-key": process.env.INTELLEUM_API_KEY! },
 });
 const validators = await res.json();
 
@@ -552,9 +552,9 @@ const risky = validators
     ],
     teams: buyerTeams.filter((t) => ["Jupiter", "Keyrock"].includes(t.name)),
     curl: `curl "${BASE_URL}/api/analytics/execution-quality?limit=10" \\
-  -H "X-Intelleum-Key: YOUR_API_KEY"`,
+  -H "x-api-key: YOUR_API_KEY"`,
     typescript: `const res = await fetch("${BASE_URL}/api/analytics/execution-quality?limit=20", {
-  headers: { "X-Intelleum-Key": process.env.INTELLEUM_API_KEY! },
+  headers: { "x-api-key": process.env.INTELLEUM_API_KEY! },
 });
 const quality = await res.json();
 
@@ -606,9 +606,9 @@ const stale = quality.filter(
     ],
     teams: buyerTeams.filter((t) => ["Orca", "Kamino", "Keyrock"].includes(t.name)),
     curl: `curl "${BASE_URL}/api/pools/lp-protection?limit=10" \\
-  -H "X-Intelleum-Key: YOUR_API_KEY"`,
+  -H "x-api-key: YOUR_API_KEY"`,
     typescript: `const res = await fetch("${BASE_URL}/api/pools/lp-protection?limit=10", {
-  headers: { "X-Intelleum-Key": process.env.INTELLEUM_API_KEY! },
+  headers: { "x-api-key": process.env.INTELLEUM_API_KEY! },
 });
 const pools = await res.json();
 
@@ -648,9 +648,9 @@ const priority = pools
     ],
     teams: buyerTeams.filter((t) => ["Jupiter", "Orca"].includes(t.name)),
     curl: `curl "${BASE_URL}/api/routes/recommendations?limit=12" \\
-  -H "X-Intelleum-Key: YOUR_API_KEY"`,
+  -H "x-api-key: YOUR_API_KEY"`,
     typescript: `const res = await fetch("${BASE_URL}/api/routes/recommendations?limit=12", {
-  headers: { "X-Intelleum-Key": process.env.INTELLEUM_API_KEY! },
+  headers: { "x-api-key": process.env.INTELLEUM_API_KEY! },
 });
 const recommendations = await res.json();
 
@@ -705,9 +705,9 @@ for (const pair of recommendations) {
     ],
     teams: buyerTeams.filter((t) => ["Jupiter", "Jito", "Kamino"].includes(t.name)),
     curl: `curl "${BASE_URL}/api/flows/segments" \\
-  -H "X-Intelleum-Key: YOUR_API_KEY"`,
+  -H "x-api-key: YOUR_API_KEY"`,
     typescript: `const res = await fetch("${BASE_URL}/api/flows/segments", {
-  headers: { "X-Intelleum-Key": process.env.INTELLEUM_API_KEY! },
+  headers: { "x-api-key": process.env.INTELLEUM_API_KEY! },
 });
 const flow = await res.json();
 
@@ -764,9 +764,9 @@ if (toxicShare > 50) {
     ],
     teams: buyerTeams.filter((t) => ["Orca", "Kamino", "Helius"].includes(t.name)),
     curl: `curl "${BASE_URL}/api/savings/summary" \\
-  -H "X-Intelleum-Key: YOUR_API_KEY"`,
+  -H "x-api-key: YOUR_API_KEY"`,
     typescript: `const res = await fetch("${BASE_URL}/api/savings/summary", {
-  headers: { "X-Intelleum-Key": process.env.INTELLEUM_API_KEY! },
+  headers: { "x-api-key": process.env.INTELLEUM_API_KEY! },
 });
 const savings = await res.json();
 
@@ -804,9 +804,9 @@ metrics.gauge("intelleum.bps_saved_avg",         savings.estimated_bps_saved_avg
     ],
     teams: buyerTeams.filter((t) => ["Jupiter"].includes(t.name)),
     curl: `curl "${BASE_URL}/api/prediction-markets/execution?limit=6" \\
-  -H "X-Intelleum-Key: YOUR_API_KEY"`,
+  -H "x-api-key: YOUR_API_KEY"`,
     typescript: `const res = await fetch("${BASE_URL}/api/prediction-markets/execution?limit=6", {
-  headers: { "X-Intelleum-Key": process.env.INTELLEUM_API_KEY! },
+  headers: { "x-api-key": process.env.INTELLEUM_API_KEY! },
 });
 const markets = await res.json();
 
@@ -1236,8 +1236,8 @@ function StickyCodePanel({
   endpoint: EndpointDoc;
   onClose: () => void;
 }) {
-  const normalizedCurl = endpoint.curl.replaceAll("X-Intelleum-Key", AUTH_HEADER);
-  const normalizedTypeScript = endpoint.typescript.replaceAll("X-Intelleum-Key", AUTH_HEADER);
+  const normalizedCurl = endpoint.curl.replaceAll("x-api-key", AUTH_HEADER);
+  const normalizedTypeScript = endpoint.typescript.replaceAll("x-api-key", AUTH_HEADER);
   const methodColor =
     endpoint.method === "POST"
       ? "border-yellow-500/40 bg-yellow-500/10 text-yellow-400"

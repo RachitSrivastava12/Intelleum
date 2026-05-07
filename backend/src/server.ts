@@ -3,7 +3,7 @@ import express from "express";
 import cors from "cors";
 import routes from "./api/routes/index";
 import { liveChainService } from "./services/liveChain";
-import { ensureApiKeySchema, hashApiKey, pool } from "./db/pool";
+import { ensureApiKeySchema, hashApiKey, hasDatabase, pool } from "./db/pool";
 
 const app = express();
 const PORT = process.env.PORT || 8081;
@@ -72,8 +72,11 @@ app.use("/api", async (req, res, next) => {
     return;
   }
 
-  const providedKey = (req.headers["x-api-key"] as string | undefined)?.trim();
-  const hasDb = Boolean(pool);
+  const providedKey = (
+    (req.headers["x-api-key"] as string | undefined) ??
+    (req.headers["x-intelleum-key"] as string | undefined)
+  )?.trim();
+  const hasDb = hasDatabase();
 
   if (!apiKey && !requireIssuedApiKeys) {
     next();
@@ -126,6 +129,7 @@ app.use("/api", async (req, res, next) => {
   res.status(401).json({
     error: "Missing or invalid API key",
     required_header: "x-api-key",
+    accepted_headers: ["x-api-key", "x-intelleum-key"],
   });
 });
 
