@@ -68,18 +68,21 @@ function LiveDashboardCTA() {
 
         <div className="flex justify-center gap-10 mb-8 font-mono">
           <div>
-            <div className="text-3xl font-bold text-primary">{stats ? (stats.attacks_24h?.toLocaleString() ?? "0") : "—"}</div>
-            <div className="text-xs text-muted-foreground mt-1">Attacks today</div>
+            <div className="text-3xl font-bold text-primary">
+              {stats ? ((stats.total_attacks || stats.attacks_24h) ?? 0).toLocaleString() : "—"}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">Attacks detected</div>
           </div>
           <div>
             <div className="text-3xl font-bold text-primary">
               {stats
-                ? stats.extracted_24h >= 1000
-                  ? `$${(stats.extracted_24h / 1000).toFixed(0)}K`
-                  : `$${stats.extracted_24h?.toFixed(0) ?? "0"}`
+                ? (() => {
+                    const val = stats.total_extracted_usd || stats.extracted_24h || 0;
+                    return val >= 1000 ? `$${(val / 1000).toFixed(0)}K` : `$${val.toFixed(0)}`;
+                  })()
                 : "—"}
             </div>
-            <div className="text-xs text-muted-foreground mt-1">Extracted (24h)</div>
+            <div className="text-xs text-muted-foreground mt-1">Extracted (total)</div>
           </div>
           <div>
             <div className="text-3xl font-bold text-primary">{stats ? (stats.total_entities?.toLocaleString() ?? "0") : "—"}</div>
