@@ -1,10 +1,11 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import IntelleumPageLoader from "@/components/IntelleumPageLoader";
 
 const Index = lazy(() => import("./pages/Index"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -16,6 +17,38 @@ const Protection = lazy(() => import("./pages/Protection"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
+const PAGE_LOADER_MS = 1500;
+
+function AppRoutes() {
+  const location = useLocation();
+  const routeKey = `${location.pathname}${location.search}`;
+  const [showPageLoader, setShowPageLoader] = useState(true);
+
+  useEffect(() => {
+    setShowPageLoader(true);
+    const timer = window.setTimeout(() => setShowPageLoader(false), PAGE_LOADER_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [routeKey]);
+
+  return (
+    <>
+      <Suspense fallback={<IntelleumPageLoader key={`route-fallback-${routeKey}`} />}>
+        <Routes>
+          <Route path="/"               element={<Index />} />
+          <Route path="/dashboard"      element={<Dashboard />} />
+          <Route path="/protection"     element={<Protection />} />
+          <Route path="/intel-api"      element={<IntelApi />} />
+          <Route path="/history"        element={<History />} />
+          <Route path="/entities"       element={<EntityExplorer />} />
+          <Route path="/entities/:id"   element={<EntityDetail />} />
+          <Route path="*"               element={<NotFound />} />
+        </Routes>
+      </Suspense>
+      {showPageLoader && <IntelleumPageLoader key={`route-loader-${routeKey}`} />}
+    </>
+  );
+}
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -24,24 +57,7 @@ const App = () => (
       <Sonner />
       <Analytics />
       <BrowserRouter>
-        <Suspense
-          fallback={
-            <div className="min-h-screen bg-background px-6 py-16 font-mono text-xs uppercase tracking-[0.22em] text-primary">
-              loading intelleum…
-            </div>
-          }
-        >
-          <Routes>
-            <Route path="/"               element={<Index />} />
-            <Route path="/dashboard"      element={<Dashboard />} />
-            <Route path="/protection"     element={<Protection />} />
-            <Route path="/intel-api"      element={<IntelApi />} />
-            <Route path="/history"        element={<History />} />
-            <Route path="/entities"       element={<EntityExplorer />} />
-            <Route path="/entities/:id"   element={<EntityDetail />} />
-            <Route path="*"               element={<NotFound />} />
-          </Routes>
-        </Suspense>
+        <AppRoutes />
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

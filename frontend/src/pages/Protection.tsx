@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { api, PreventionGuard, RouteEvaluation, RouteRanking } from "@/lib/api";
 import InfoHint from "@/components/InfoHint";
 
@@ -68,6 +68,36 @@ const objectiveLabels: Record<Objective, string> = {
   monitor_only: "Monitor only",
 };
 
+const firewallSteps = [
+  {
+    step: "01",
+    title: "Input route",
+    body: "A wallet, router, LP desk, or trading system sends the planned route before execution.",
+  },
+  {
+    step: "02",
+    title: "Score toxicity",
+    body: "Intelleum checks sandwich pressure, JIT liquidity, liquidations, markout decay, and route history.",
+  },
+  {
+    step: "03",
+    title: "Return policy",
+    body: "The API responds with Allow, Monitor, Penalize, Reroute, or Block plus dollars and bps at risk.",
+  },
+  {
+    step: "04",
+    title: "Save money",
+    body: "Integrators cap size, drop the toxic path, or choose the safer ranked route before the trade lands.",
+  },
+];
+
+const pageSections = [
+  ["Decision", "The action your system should take right now."],
+  ["Loss at risk", "Estimated value leakage if this route is sent as-is."],
+  ["Safe size", "Max trade size before the route becomes too toxic."],
+  ["Reason codes", "Why Intelleum flagged the route."],
+];
+
 function formatUsd(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "$0";
   return value >= 1_000_000
@@ -83,6 +113,11 @@ function formatAction(value: string | undefined) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatSentence(value: string | undefined) {
+  if (!value) return "";
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function actionTone(action: PreventionGuard["action"] | RouteEvaluation["decision"] | undefined) {
@@ -109,6 +144,7 @@ function buildCandidates(current: Scenario) {
 }
 
 export default function Protection() {
+  const reduceMotion = useReducedMotion();
   const [scenarioId, setScenarioId] = useState(scenarios[0].id);
   const scenario = scenarios.find((item) => item.id === scenarioId) ?? scenarios[0];
   const [notional, setNotional] = useState(String(scenario.defaultNotional));
@@ -177,15 +213,15 @@ export default function Protection() {
         <div className="relative mx-auto max-w-7xl">
           <div className="mb-6 flex flex-col gap-3 border-b border-border/70 pb-4 font-mono text-xs tracking-[0.18em] text-muted-foreground md:flex-row md:items-center md:justify-between">
             <div className="flex flex-wrap gap-3">
-            <Link to="/" className="min-h-10 border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              Home
-            </Link>
-            <Link to="/dashboard" className="min-h-10 border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              Dashboard
-            </Link>
-            <Link to="/intel-api" className="min-h-10 border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              API
-            </Link>
+              <Link to="/" className="min-h-10 border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                Home
+              </Link>
+              <Link to="/dashboard" className="min-h-10 border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                Dashboard
+              </Link>
+              <Link to="/intel-api" className="min-h-10 border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                API
+              </Link>
             </div>
             <div className="flex min-h-10 items-center gap-2 text-primary">
               <span className="h-1.5 w-1.5 rounded-full bg-primary pulse-glow" />
@@ -194,9 +230,9 @@ export default function Protection() {
           </div>
 
           <motion.div
-            initial={{ opacity: 0, y: 12 }}
+            initial={reduceMotion ? false : { opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35 }}
+            transition={{ duration: reduceMotion ? 0 : 0.35 }}
             className="mb-5 grid gap-4 lg:grid-cols-3"
           >
             <div className="intel-panel-glow p-5 md:p-6 lg:col-span-2">
@@ -210,13 +246,37 @@ export default function Protection() {
             </div>
 
             <div className="intel-panel p-5 md:p-6">
-              <p className="data-label mb-3">// What It Does</p>
+              <p className="data-label mb-3">// What This Page Is</p>
               <div className="space-y-3 text-sm leading-6 text-muted-foreground">
-                <p>It acts like a firewall for Solana order flow.</p>
-                <p>Routers, wallets, LP desks, and trading systems can call this before execution to block, reroute, or downrank a toxic route.</p>
+                <p>This is a pre-trade route firewall simulator.</p>
+                <p>It does not execute the swap. It tells an integrator whether sending the route would leak value, then gives the safer action.</p>
               </div>
             </div>
           </motion.div>
+
+          <div className="mb-5 grid gap-3 lg:grid-cols-4">
+            {firewallSteps.map((item) => (
+              <div key={item.step} className="intel-panel p-4">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.24em] text-primary">{item.step}</span>
+                  <span className="h-px flex-1 bg-border" />
+                </div>
+                <h2 className="text-sm font-semibold text-foreground">{item.title}</h2>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">{item.body}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mb-5 intel-panel p-4">
+            <div className="grid gap-3 md:grid-cols-4">
+              {pageSections.map(([title, body]) => (
+                <div key={title} className="border border-border/60 bg-background/25 p-3">
+                  <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary">{title}</div>
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">{body}</p>
+                </div>
+              ))}
+            </div>
+          </div>
 
           <div className="grid items-start gap-5 xl:grid-cols-2">
             <div className="space-y-4">
@@ -344,6 +404,8 @@ function DecisionPanel({
   loading: boolean;
   ranking: RouteRanking | null;
 }) {
+  const reduceMotion = useReducedMotion();
+
   if (loading && !guard) {
     return (
       <div className="intel-panel p-5">
@@ -369,16 +431,16 @@ function DecisionPanel({
   return (
     <motion.div
       key={`${guard.action}-${guard.expected_loss_at_risk_usd}`}
-      initial={{ opacity: 0, y: 10 }}
+      initial={reduceMotion ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25 }}
+      transition={{ duration: reduceMotion ? 0 : 0.25 }}
       className="intel-panel-glow p-5"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="data-label">// Guard Decision</p>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
-            {guard.warning}
+            {formatSentence(guard.warning)}
           </h2>
         </div>
         <div className={`border px-4 py-2 font-mono text-xs tracking-[0.18em] ${actionTone(guard.action)}`}>
