@@ -9,6 +9,7 @@ import {
   ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
+  Scatter,
   Tooltip,
   XAxis,
   YAxis,
@@ -20,17 +21,26 @@ type ChartPoint = ToxicFlowCandle & {
   body: [number, number];
   wick: [number, number];
 };
+type AttackMarkerPoint = {
+  label: string;
+  toxic_flow_score: number;
+  timestamp: string;
+  event_type: ToxicFlowSurface["overlays"][number]["event_type"];
+  severity: ToxicFlowSurface["overlays"][number]["severity"];
+  loss_usd: number;
+  confidence: number;
+};
 
 const intervals: Interval[] = ["5m", "15m", "1h"];
 const TERMINAL_ROUTE_LIMIT = 50;
 const NAV_RAIL_WIDTH = 52;
-const MIN_LEFT_WIDTH = 180;
+const MIN_LEFT_WIDTH = 72;
 const MAX_LEFT_WIDTH = 420;
 const DEFAULT_LEFT_WIDTH = 260;
-const MIN_RIGHT_WIDTH = 250;
+const MIN_RIGHT_WIDTH = 92;
 const MAX_RIGHT_WIDTH = 500;
 const DEFAULT_RIGHT_WIDTH = 316;
-const MIN_GRAPH_WIDTH = 560;
+const MIN_GRAPH_WIDTH = 360;
 
 function formatUsd(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "$0";
@@ -80,6 +90,15 @@ function candleColor(payload?: ToxicFlowCandle) {
   return payload.close >= payload.open ? "hsl(var(--primary))" : "hsl(var(--destructive))";
 }
 
+function attackMarkerColor(eventType: string, severity?: string) {
+  if (eventType === "sandwich") return "hsl(var(--destructive))";
+  if (eventType === "jit") return "hsl(42 95% 58%)";
+  if (eventType === "liquidation") return "hsl(204 94% 64%)";
+  if (eventType === "arbitrage") return "hsl(156 72% 48%)";
+  if (eventType === "backrun") return "hsl(282 75% 68%)";
+  return severity === "critical" ? "hsl(var(--destructive))" : "hsl(var(--primary))";
+}
+
 function CandleWick(props: any) {
   const { x = 0, y = 0, width = 0, height = 0, payload } = props;
   const safeHeight = Math.max(1, Math.abs(height));
@@ -125,10 +144,77 @@ function VolumeBar(props: any) {
   );
 }
 
+function AttackMarkerShape(props: any) {
+  const { cx = 0, cy = 0, payload } = props;
+  const marker = payload as AttackMarkerPoint | undefined;
+  const eventType = marker?.event_type ?? "attack";
+  const color = attackMarkerColor(eventType, marker?.severity);
+  const size = marker?.severity === "critical" ? 7 : 5;
+
+  if (eventType === "sandwich") {
+    return (
+      <path
+        d={`M ${cx} ${cy - size} L ${cx + size} ${cy + size} L ${cx - size} ${cy + size} Z`}
+        fill={color}
+        stroke="hsl(var(--background))"
+        strokeWidth={1.5}
+      />
+    );
+  }
+
+  if (eventType === "jit") {
+    return (
+      <rect
+        x={cx - size}
+        y={cy - size}
+        width={size * 2}
+        height={size * 2}
+        fill={color}
+        stroke="hsl(var(--background))"
+        strokeWidth={1.5}
+      />
+    );
+  }
+
+  if (eventType === "liquidation") {
+    return (
+      <path
+        d={`M ${cx} ${cy - size} L ${cx + size} ${cy} L ${cx} ${cy + size} L ${cx - size} ${cy} Z`}
+        fill={color}
+        stroke="hsl(var(--background))"
+        strokeWidth={1.5}
+      />
+    );
+  }
+
+  if (eventType === "backrun") {
+    return (
+      <path
+        d={`M ${cx - size} ${cy - size} L ${cx + size} ${cy - size} L ${cx + size} ${cy + size} L ${cx - size} ${cy + size} Z M ${cx - size} ${cy} L ${cx + size} ${cy}`}
+        fill="none"
+        stroke={color}
+        strokeWidth={2}
+      />
+    );
+  }
+
+  return (
+    <circle
+      cx={cx}
+      cy={cy}
+      r={size}
+      fill={color}
+      stroke="hsl(var(--background))"
+      strokeWidth={1.5}
+    />
+  );
+}
+
 function ChartTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
-  const row = payload.find((item: any) => item?.payload)?.payload as ToxicFlowCandle | undefined;
+  const row = payload.find((item: any) => item?.payload?.open != null)?.payload as ToxicFlowCandle | undefined;
   if (!row) return null;
+  const attack = payload.find((item: any) => item?.payload?.loss_usd)?.payload as AttackMarkerPoint | undefined;
 
   return (
     <div className="border border-border bg-background/95 px-3 py-2 shadow-2xl backdrop-blur">
@@ -146,6 +232,14 @@ function ChartTooltip({ active, payload }: any) {
         <span className="text-right text-primary">{row.toxic_flow_score.toFixed(1)}</span>
         <span className="text-muted-foreground">Saved</span>
         <span className="text-right text-primary">{formatUsd(row.prevented_loss_usd)}</span>
+        {attack && (
+          <>
+            <span className="text-muted-foreground">Attack</span>
+            <span className="text-right text-red-300">{attack.event_type.replace(/_/g, " ")}</span>
+            <span className="text-muted-foreground">Attack loss</span>
+            <span className="text-right text-red-300">{formatUsd(attack.loss_usd)}</span>
+          </>
+        )}
       </div>
     </div>
   );
@@ -219,6 +313,7 @@ export default function FlowTerminal() {
   const [data, setData] = useState<ToxicFlowTerminal | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedCandleTs, setSelectedCandleTs] = useState<string | null>(null);
+  const [copiedRoute, setCopiedRoute] = useState(false);
   const [interval, setSelectedInterval] = useState<Interval>("5m");
   const [leftWidth, setLeftWidth] = useState(DEFAULT_LEFT_WIDTH);
   const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH);
@@ -282,6 +377,23 @@ export default function FlowTerminal() {
     () => Math.max(1, ...chartData.map((candle) => candle.volume_usd)),
     [chartData],
   );
+  const attackMarkers = useMemo<AttackMarkerPoint[]>(() => {
+    return selected?.overlays
+      .map((event) => {
+        const candle = chartData.find((entry) => entry.timestamp === event.timestamp);
+        if (!candle) return null;
+        return {
+          label: candle.label,
+          toxic_flow_score: candle.toxic_flow_score,
+          timestamp: event.timestamp,
+          event_type: event.event_type,
+          severity: event.severity,
+          loss_usd: event.loss_usd,
+          confidence: event.confidence,
+        };
+      })
+      .filter((marker): marker is AttackMarkerPoint => Boolean(marker)) ?? [];
+  }, [chartData, selected?.overlays]);
   const gridStyle = {
     "--left-panel-width": `${leftWidth}px`,
     "--right-panel-width": `${rightWidth}px`,
@@ -289,6 +401,7 @@ export default function FlowTerminal() {
 
   useEffect(() => {
     setSelectedCandleTs(null);
+    setCopiedRoute(false);
   }, [selected?.route_key, interval]);
 
   const selectCandleByIndex = (index: number) => {
@@ -299,6 +412,16 @@ export default function FlowTerminal() {
   const handleChartPointer = (state: any) => {
     const candle = state?.activePayload?.find((item: any) => item?.payload)?.payload as ChartPoint | undefined;
     if (candle?.timestamp) setSelectedCandleTs(candle.timestamp);
+  };
+
+  const copyRouteKey = async () => {
+    try {
+      await navigator.clipboard.writeText(selected.route_key);
+      setCopiedRoute(true);
+      window.setTimeout(() => setCopiedRoute(false), 1200);
+    } catch {
+      setCopiedRoute(false);
+    }
   };
 
   const leftMax = () => Math.max(MIN_LEFT_WIDTH, Math.min(MAX_LEFT_WIDTH, window.innerWidth - NAV_RAIL_WIDTH - rightWidth - MIN_GRAPH_WIDTH));
@@ -377,11 +500,19 @@ export default function FlowTerminal() {
         <section className="min-w-0 bg-background">
           <div className="flex min-h-12 flex-col gap-2 border-b border-border/70 px-3 py-2 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h1 className="truncate text-lg font-semibold tracking-tight text-foreground md:text-xl">
+              <button
+                type="button"
+                onClick={copyRouteKey}
+                title={`Copy route key: ${selected.route_key}`}
+                className="truncate text-left text-lg font-semibold tracking-tight text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:text-xl"
+              >
                 {selected.pair}
-              </h1>
+              </button>
               <span className="font-mono text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
                 {selected.protocol ?? "mixed"} · flow risk
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-primary">
+                {copiedRoute ? "Copied route key" : "Click pair to copy"}
               </span>
               <span className={`border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] ${actionTone(selected.action)}`}>
                 {actionLabel(selected.action)}
@@ -423,6 +554,7 @@ export default function FlowTerminal() {
               activeIndex={activeCandleIndex}
               onSelectIndex={selectCandleByIndex}
             />
+            <AttackLegend />
             <span className="ml-auto hidden font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground md:block">
               Source: {data.source}
             </span>
@@ -512,22 +644,13 @@ export default function FlowTerminal() {
                   dot={false}
                   activeDot={false}
                 />
-                {selected.overlays.map((event) => {
-                  const candle = chartData.find((entry) => entry.timestamp === event.timestamp);
-                  if (!candle) return null;
-                  return (
-                    <ReferenceDot
-                      key={`${event.timestamp}-${event.event_type}`}
-                      yAxisId="risk"
-                      x={candle.label}
-                      y={candle.toxic_flow_score}
-                      r={3}
-                      fill={event.severity === "critical" ? "hsl(var(--destructive))" : "hsl(var(--primary))"}
-                      stroke="hsl(var(--background))"
-                      strokeWidth={1.5}
-                    />
-                  );
-                })}
+                <Scatter
+                  yAxisId="risk"
+                  data={attackMarkers}
+                  dataKey="toxic_flow_score"
+                  shape={(props: any) => <AttackMarkerShape {...props} />}
+                  isAnimationActive={false}
+                />
                 <Brush
                   dataKey="label"
                   height={22}
@@ -704,6 +827,18 @@ function ResizeHandle({
     >
       <span className="h-12 w-px bg-border transition-colors group-hover:bg-primary group-focus-visible:bg-primary" />
     </button>
+  );
+}
+
+function AttackLegend() {
+  return (
+    <div className="hidden min-h-10 items-center gap-3 border-l border-border/70 pl-3 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground xl:flex">
+      <span className="text-red-300">△ Sandwich</span>
+      <span className="text-yellow-300">■ JIT</span>
+      <span className="text-sky-300">◆ Liq</span>
+      <span className="text-green-300">● Arb</span>
+      <span className="text-purple-300">⊟ Backrun</span>
+    </div>
   );
 }
 
