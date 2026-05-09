@@ -730,13 +730,6 @@ function buildToxicFlowCandles(
 ): ToxicFlowCandleRecord[] {
   const candleCount = interval === "1h" ? 24 : interval === "15m" ? 96 : 288;
   const intervalMs = terminalIntervalMs(interval);
-  const seed = seedFromString(route.route_key) % 31;
-  const baseVolume = clamp(
-    route.recommended_max_notional_usd * (5.5 + route.total_attacks * 1.15) +
-      route.total_extracted_usd * 38,
-    42_000,
-    9_500_000,
-  );
   let close = basePriceForRoute(route, routeIndex);
 
   return Array.from({ length: candleCount }, (_, index) => {
@@ -751,32 +744,35 @@ function buildToxicFlowCandles(
       const time = new Date(attack.block_time).getTime();
       return time >= bucketStart && time < bucketEnd;
     });
-    const wave = Math.sin((index + seed) * 0.42);
-    const pulse = Math.max(0, Math.sin((index + seed) * 0.17));
-    const incidentBoost = bucketAttacks.length > 0
-      ? bucketAttacks.reduce((sum, attack) => sum + attack.confidence * 10, 0)
-      : relatedAttacks.length > 0 && index % Math.max(9, 16 - Math.min(7, relatedAttacks.length)) === 0
-        ? route.avg_confidence * 0.08
-        : 0;
-    const toxicScore = round(clamp(route.toxicity_probability + wave * 7 + pulse * 13 + incidentBoost, 2, 99));
-    const markoutBps = round(clamp(route.markout_30s_bps * (0.72 + pulse * 0.54 + wave * 0.08), 0.2, 48), 2);
-    const lvrBps = round(clamp(route.lvr_proxy_score * 0.08 + markoutBps * 0.42, 0.1, 36), 2);
+    const bucketLossUsd = bucketAttacks.reduce(
+      (sum, attack) => sum + (attack.victim_loss_usd ?? attack.profit_usd ?? 0),
+      0,
+    );
+    const detectedPressure = bucketAttacks.reduce(
+      (sum, attack) => sum + attack.confidence * 52 + Math.min(34, (attack.victim_loss_usd ?? attack.profit_usd ?? 0) / 25),
+      0,
+    );
+    const baselinePressure = bucketSwaps.length > 0
+      ? route.toxicity_probability * 0.28 + route.bundle_share * 0.18 + route.lvr_proxy_score * 0.12
+      : 0;
+    const toxicScore = round(clamp(baselinePressure + detectedPressure, 0, 100), 2);
+    const markoutBps = toxicScore > 0
+      ? round(clamp(route.markout_30s_bps * (0.45 + toxicScore / 100), 0, 48), 2)
+      : 0;
+    const lvrBps = toxicScore > 0
+      ? round(clamp(route.lvr_proxy_score * 0.05 + markoutBps * 0.42, 0, 36), 2)
+      : 0;
     const liveVolumeUsd = bucketSwaps.reduce(
       (sum, swap) => sum + (swap.notional_usd ?? swap.input_usd ?? swap.output_usd ?? 0),
       0,
     );
-    const volumeUsd = liveVolumeUsd > 0
-      ? round(liveVolumeUsd, 0)
-      : round(baseVolume * clamp(0.72 + pulse * 0.58 + route.bundle_share * 0.003, 0.5, 2.4), 0);
-    const lossAtRiskUsd = round((volumeUsd * Math.max(markoutBps, lvrBps)) / 10_000, 2);
+    const volumeUsd = liveVolumeUsd > 0 ? round(liveVolumeUsd, 0) : 0;
+    const lossAtRiskUsd = round(Math.max(bucketLossUsd, (volumeUsd * Math.max(markoutBps, lvrBps)) / 10_000), 2);
     const preventedLossUsd = round(lossAtRiskUsd * terminalActionPreventRate(route.policy_action), 2);
-    const driftBps = wave * 1.7 - markoutBps * 0.045 + (route.execution_quality_score - 50) * 0.002;
     const open = close;
-    close = round(open * (1 + driftBps / 10_000), 6);
-    const spread = Math.abs(open - close) + open * clamp((toxicScore + markoutBps) / 100_000, 0.0006, 0.012);
-    const attackIndex = relatedAttacks.length ? (index + seed) % relatedAttacks.length : -1;
-    const hasEvent = relatedAttacks.length > 0 && index % Math.max(10, 18 - Math.min(8, relatedAttacks.length)) === 0;
-    const eventAttack = bucketAttacks[0] ?? (hasEvent && attackIndex >= 0 ? relatedAttacks[attackIndex] : null);
+    close = open;
+    const spread = Math.max(open * 0.000001, Math.abs(open) * clamp((toxicScore + markoutBps) / 1_000_000, 0, 0.002));
+    const eventAttack = bucketAttacks[0] ?? null;
 
     return {
       timestamp,
@@ -791,11 +787,7 @@ function buildToxicFlowCandles(
       lvr_bps: lvrBps,
       loss_at_risk_usd: lossAtRiskUsd,
       prevented_loss_usd: preventedLossUsd,
-      attack_count: bucketAttacks.length > 0
-        ? bucketAttacks.length
-        : hasEvent
-          ? Math.max(1, Math.ceil(route.total_attacks / Math.max(1, relatedAttacks.length)))
-          : 0,
+      attack_count: bucketAttacks.length,
       event_type: eventAttack?.attack_type ?? null,
     };
   });
@@ -808,8 +800,13 @@ function buildToxicFlowOverlays(
 ): ToxicFlowOverlayRecord[] {
   if (candles.length === 0) return [];
 
-  return relatedAttacks.slice(0, 5).map((attack, index) => {
-    const candle = candles[Math.min(candles.length - 1, Math.max(0, candles.length - 1 - index * 9))];
+  return relatedAttacks.slice(0, 5).map((attack) => {
+    const attackTime = new Date(attack.block_time).getTime();
+    const candle = candles.reduce((nearest, candidate) => {
+      const nearestDistance = Math.abs(new Date(nearest.timestamp).getTime() - attackTime);
+      const candidateDistance = Math.abs(new Date(candidate.timestamp).getTime() - attackTime);
+      return candidateDistance < nearestDistance ? candidate : nearest;
+    }, candles[0]);
     const lossUsd = round(attack.victim_loss_usd ?? attack.profit_usd ?? route.estimated_savings_usd, 2);
     const severity =
       attack.attack_type === "sandwich" && lossUsd >= 100
