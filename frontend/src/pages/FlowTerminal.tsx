@@ -695,7 +695,7 @@ export default function FlowTerminal() {
             ))}
             <div className="mx-2 h-5 w-px bg-border" />
             <span className="flex min-h-10 items-center px-2 font-mono text-[12px] text-foreground">
-              Price candles
+              Price line
             </span>
             <button
               type="button"
@@ -813,6 +813,18 @@ export default function FlowTerminal() {
                 <Bar yAxisId="volume" dataKey="volume_usd" barSize={volumeBarSize} shape={(props: any) => <VolumeBar {...props} />} />
                 <Bar yAxisId="price" dataKey="wick" barSize={1} shape={(props: any) => <CandleWick {...props} />} />
                 <Bar yAxisId="price" dataKey="body" barSize={candleBarSize} shape={(props: any) => <CandleBody {...props} />} />
+                <Line
+                  yAxisId="price"
+                  type="monotone"
+                  dataKey="close"
+                  stroke="hsl(var(--foreground))"
+                  strokeOpacity={0.88}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 3, fill: "hsl(var(--primary))", stroke: "hsl(var(--background))", strokeWidth: 1 }}
+                  isAnimationActive={false}
+                  connectNulls
+                />
                 {showRiskOverlay && (
                   <Line
                     yAxisId="risk"
