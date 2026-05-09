@@ -96,6 +96,39 @@ export interface PreventionGuardRequest extends RouteEvaluationRequest {
   candidates?: RouteCandidate[];
 }
 
+export interface SavingsProof {
+  route_key: string | null;
+  selected_label: string | null;
+  protected_notional_usd: number;
+  estimated_loss_prevented_usd: number;
+  monthly_savings_projection_usd: number;
+  estimated_bps_saved: number;
+  counterfactual_route_key: string | null;
+  counterfactual_label: string | null;
+  confidence: RouteEvaluation["confidence_band"];
+  trades_per_day_assumption: number;
+  proof_points: string[];
+}
+
+export interface ProtectedSendPolicy {
+  mode: "standard_submit" | "private_submit" | "cap_and_monitor" | "reroute" | "block";
+  submit_via: "public_rpc" | "private_rpc" | "jito_dontfront" | "do_not_submit";
+  use_jito_dontfront: boolean;
+  fail_closed: boolean;
+  ttl_ms: number;
+  max_slippage_bps: number | null;
+  max_notional_usd: number;
+  route_action: "allow" | "monitor" | "penalize" | "reroute" | "block";
+  implementation_steps: string[];
+  rationale: string[];
+}
+
+export interface CustomerImpact {
+  buyer: "wallet" | "router" | "lp" | "lending" | "trading-desk";
+  saves: string;
+  primary_metric: string;
+}
+
 export interface PreventionGuard {
   action: GuardAction;
   reason_codes: string[];
@@ -105,6 +138,9 @@ export interface PreventionGuard {
   selected_route_key: string | null;
   selected_label: string | null;
   safer_alternatives: RouteEvaluation["safer_alternatives"];
+  savings_proof: SavingsProof;
+  protected_send_policy: ProtectedSendPolicy;
+  customer_impact: CustomerImpact[];
   warning: string;
 }
 
@@ -145,6 +181,90 @@ export interface SavingsSummary {
   users_protected_proxy: number;
 }
 
+export interface LiquidationFirewallRecord {
+  protocol: "drift" | "kamino" | "save" | "marginfi";
+  market: string;
+  regime: "normal" | "watch" | "toxic" | "stress";
+  liquidation_pressure: number;
+  toxic_liquidator_share: number;
+  bad_debt_risk_bps: number;
+  estimated_loss_preventable_usd_24h: number;
+  recommended_action: "allow" | "monitor" | "route_private" | "throttle" | "pause";
+  reason_codes: string[];
+  playbook: string[];
+}
+
+export type ToxicFlowEventType =
+  | "sandwich"
+  | "arbitrage"
+  | "jit"
+  | "liquidation"
+  | "backrun"
+  | "liquidity_snipe"
+  | "liquidity_drain";
+
+export interface ToxicFlowCandle {
+  timestamp: string;
+  label: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume_usd: number;
+  toxic_flow_score: number;
+  markout_bps: number;
+  lvr_bps: number;
+  loss_at_risk_usd: number;
+  prevented_loss_usd: number;
+  attack_count: number;
+  event_type: ToxicFlowEventType | null;
+}
+
+export interface ToxicFlowOverlay {
+  timestamp: string;
+  event_type: ToxicFlowEventType;
+  severity: "critical" | "high" | "medium";
+  label: string;
+  loss_usd: number;
+  confidence: number;
+}
+
+export interface ToxicFlowSurface {
+  route_key: string;
+  label: string;
+  protocol: string | null;
+  pair: string;
+  action: RouteDecision;
+  risk_score: number;
+  execution_quality_score: number;
+  toxic_flow_score: number;
+  price_change_pct: number;
+  markout_30s_bps: number;
+  volume_24h_usd: number;
+  loss_at_risk_24h_usd: number;
+  prevented_loss_24h_usd: number;
+  liquidity_stress: number;
+  quote_freshness_ms: number;
+  reason_codes: string[];
+  candles: ToxicFlowCandle[];
+  overlays: ToxicFlowOverlay[];
+}
+
+export interface ToxicFlowTerminal {
+  generated_at: string;
+  source: "fallback" | "chain";
+  interval: "5m" | "15m" | "1h";
+  summary: {
+    surfaces_tracked: number;
+    routes_in_block: number;
+    estimated_loss_at_risk_24h_usd: number;
+    estimated_prevented_loss_24h_usd: number;
+    highest_toxicity_route: string | null;
+    safest_route: string | null;
+  };
+  surfaces: ToxicFlowSurface[];
+}
+
 export interface IntelleumClientConfig {
   baseUrl: string;
   apiKey?: string;
@@ -167,6 +287,8 @@ export interface ProtectedSwap<TSwap> {
   expectedLossAtRiskUsd: number;
   expectedLossAtRiskBps: number;
   recommendedMaxNotionalUsd: number;
+  savingsProof: SavingsProof;
+  protectedSendPolicy: ProtectedSendPolicy;
 }
 
 export interface JupiterSwapInfoLike {
@@ -246,6 +368,10 @@ export class IntelleumProtectClient {
     return this.request("POST", "/prevention/guard", request);
   }
 
+  planProtectedSend(request: PreventionGuardRequest): Promise<PreventionGuard> {
+    return this.request("POST", "/prevention/protected-send", request);
+  }
+
   getPolicies(params: { limit?: number; objective?: ProtectionObjective } = {}): Promise<RoutePolicy[]> {
     return this.request("GET", "/routes/policies", undefined, params);
   }
@@ -258,11 +384,21 @@ export class IntelleumProtectClient {
     return this.request("GET", "/savings/summary");
   }
 
+  getLiquidationFirewall(params: { limit?: number } = {}): Promise<LiquidationFirewallRecord[]> {
+    return this.request("GET", "/liquidations/firewall", undefined, params);
+  }
+
+  getToxicFlowTerminal(
+    params: { limit?: number; interval?: ToxicFlowTerminal["interval"] } = {},
+  ): Promise<ToxicFlowTerminal> {
+    return this.request("GET", "/terminal/toxic-flow", undefined, params);
+  }
+
   async protectSwap<TSwap extends PreventionGuardRequest>(
     swap: TSwap,
     options: ProtectionOptions = {},
   ): Promise<ProtectedSwap<TSwap>> {
-    const guard = await this.guard({
+    const guard = await this.planProtectedSend({
       ...swap,
       objective: options.objective ?? swap.objective ?? "protect_users",
     });
@@ -340,6 +476,8 @@ export function buildProtectedSwap<TSwap>(
     expectedLossAtRiskUsd: guard.expected_loss_at_risk_usd,
     expectedLossAtRiskBps: guard.expected_loss_at_risk_bps,
     recommendedMaxNotionalUsd: guard.recommended_max_notional_usd,
+    savingsProof: guard.savings_proof,
+    protectedSendPolicy: guard.protected_send_policy,
   };
 }
 

@@ -122,6 +122,12 @@ export default function Hero() {
                 Try Protection
               </Link>
               <Link
+                to="/flow-terminal"
+                className="border border-border/70 px-7 py-4 font-mono text-xs uppercase tracking-[0.22em] text-foreground transition-colors hover:border-primary/50 hover:text-primary"
+              >
+                Flow Terminal
+              </Link>
+              <Link
                 to="/intel-api"
                 className="px-4 py-4 text-base text-foreground transition-colors hover:text-primary"
               >

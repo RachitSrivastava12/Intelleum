@@ -12,7 +12,7 @@ interface SignalPanelProps {
 function SignalPanel({ title, eyebrow, subline, points, index, delay = 0 }: SignalPanelProps) {
   return (
     <motion.div
-      className="intel-panel-glow group relative w-full min-h-[260px] overflow-hidden border border-border/60 bg-background/40 p-4 transition-colors flex flex-col"
+      className="intel-panel-glow group relative flex min-h-[280px] w-full flex-col overflow-hidden border border-border/60 bg-background/40 p-5 transition-colors sm:aspect-square sm:min-h-0"
       initial={{ opacity: 0, y: 24 }}
       whileInView={{ opacity: 1, y: 0 }}
       whileHover={{
@@ -43,17 +43,17 @@ function SignalPanel({ title, eyebrow, subline, points, index, delay = 0 }: Sign
 
       <div className="mt-2.5 h-px w-full bg-gradient-to-r from-primary/30 via-border/50 to-transparent" />
 
-      <div className="mt-3 text-[1.05rem] font-semibold leading-[1.15] tracking-tight text-foreground md:text-[1.18rem]">
+      <div className="mt-5 text-[1.08rem] font-semibold leading-[1.15] tracking-tight text-foreground md:text-[1.25rem]">
         {title}
       </div>
 
-      <div className="mt-2 text-[12px] leading-[1.45] text-muted-foreground">
+      <div className="mt-3 text-[12px] leading-[1.55] text-muted-foreground md:text-[13px]">
         {subline}
       </div>
 
       <div className="flex-1" />
 
-      <div className="mt-3 flex flex-col gap-1 border-t border-border/50 pt-2.5">
+      <div className="mt-4 flex flex-col gap-2 border-t border-border/50 pt-3">
         {points.map((item, idx) => (
           <motion.div
             key={item}
@@ -61,7 +61,7 @@ function SignalPanel({ title, eyebrow, subline, points, index, delay = 0 }: Sign
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.3, delay: delay + 0.15 + idx * 0.05 }}
-            className="flex items-center gap-2 border-l border-border/40 bg-background/30 py-1 pl-2.5 pr-2 transition-colors group-hover:border-l-primary/50 group-hover:bg-primary/[0.03]"
+            className="flex min-h-10 items-center gap-2 border-l border-border/40 bg-background/30 py-2 pl-2.5 pr-2 transition-colors group-hover:border-l-primary/50 group-hover:bg-primary/[0.03]"
           >
             <span className="font-mono text-[8.5px] tracking-[0.1em] text-primary/70">
               {String(idx + 1).padStart(2, "0")}

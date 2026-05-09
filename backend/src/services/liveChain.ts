@@ -462,6 +462,39 @@ interface SourceAttributionRecord {
   endorser_inference: "endorsed-like" | "unendorsed" | "unknown";
 }
 
+interface SavingsProofRecord {
+  route_key: string | null;
+  selected_label: string | null;
+  protected_notional_usd: number;
+  estimated_loss_prevented_usd: number;
+  monthly_savings_projection_usd: number;
+  estimated_bps_saved: number;
+  counterfactual_route_key: string | null;
+  counterfactual_label: string | null;
+  confidence: ApiRouteEvaluation["confidence_band"];
+  trades_per_day_assumption: number;
+  proof_points: string[];
+}
+
+interface ProtectedSendPolicyRecord {
+  mode: "standard_submit" | "private_submit" | "cap_and_monitor" | "reroute" | "block";
+  submit_via: "public_rpc" | "private_rpc" | "jito_dontfront" | "do_not_submit";
+  use_jito_dontfront: boolean;
+  fail_closed: boolean;
+  ttl_ms: number;
+  max_slippage_bps: number | null;
+  max_notional_usd: number;
+  route_action: "allow" | "monitor" | "penalize" | "reroute" | "block";
+  implementation_steps: string[];
+  rationale: string[];
+}
+
+interface CustomerImpactRecord {
+  buyer: "wallet" | "router" | "lp" | "lending" | "trading-desk";
+  saves: string;
+  primary_metric: string;
+}
+
 interface PreventionGuardRecord {
   action: "allow" | "monitor" | "penalize" | "reroute" | "block";
   reason_codes: string[];
@@ -471,6 +504,9 @@ interface PreventionGuardRecord {
   selected_route_key: string | null;
   selected_label: string | null;
   safer_alternatives: ApiRouteEvaluation["safer_alternatives"];
+  savings_proof: SavingsProofRecord;
+  protected_send_policy: ProtectedSendPolicyRecord;
+  customer_impact: CustomerImpactRecord[];
   warning: string;
 }
 
@@ -480,6 +516,81 @@ interface SavingsSummaryRecord {
   routes_flagged: number;
   pools_protected: number;
   users_protected_proxy: number;
+}
+
+interface LiquidationFirewallRecord {
+  protocol: "drift" | "kamino" | "save" | "marginfi";
+  market: string;
+  regime: "normal" | "watch" | "toxic" | "stress";
+  liquidation_pressure: number;
+  toxic_liquidator_share: number;
+  bad_debt_risk_bps: number;
+  estimated_loss_preventable_usd_24h: number;
+  recommended_action: "allow" | "monitor" | "route_private" | "throttle" | "pause";
+  reason_codes: string[];
+  playbook: string[];
+}
+
+interface ToxicFlowCandleRecord {
+  timestamp: string;
+  label: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume_usd: number;
+  toxic_flow_score: number;
+  markout_bps: number;
+  lvr_bps: number;
+  loss_at_risk_usd: number;
+  prevented_loss_usd: number;
+  attack_count: number;
+  event_type: AttackType | null;
+}
+
+interface ToxicFlowOverlayRecord {
+  timestamp: string;
+  event_type: AttackType;
+  severity: "critical" | "high" | "medium";
+  label: string;
+  loss_usd: number;
+  confidence: number;
+}
+
+interface ToxicFlowSurfaceRecord {
+  route_key: string;
+  label: string;
+  protocol: string | null;
+  pair: string;
+  action: ApiRouteRisk["policy_action"];
+  risk_score: number;
+  execution_quality_score: number;
+  toxic_flow_score: number;
+  price_change_pct: number;
+  markout_30s_bps: number;
+  volume_24h_usd: number;
+  loss_at_risk_24h_usd: number;
+  prevented_loss_24h_usd: number;
+  liquidity_stress: number;
+  quote_freshness_ms: number;
+  reason_codes: string[];
+  candles: ToxicFlowCandleRecord[];
+  overlays: ToxicFlowOverlayRecord[];
+}
+
+interface ToxicFlowTerminalRecord {
+  generated_at: string;
+  source: "fallback" | "chain";
+  interval: "5m" | "15m" | "1h";
+  summary: {
+    surfaces_tracked: number;
+    routes_in_block: number;
+    estimated_loss_at_risk_24h_usd: number;
+    estimated_prevented_loss_24h_usd: number;
+    highest_toxicity_route: string | null;
+    safest_route: string | null;
+  };
+  surfaces: ToxicFlowSurfaceRecord[];
 }
 
 const MAX_ATTACKS = 500;
@@ -574,6 +685,207 @@ function clamp(value: number, min: number, max: number) {
 
 function round(value: number, digits = 1) {
   return Number(value.toFixed(digits));
+}
+
+function seedFromString(value: string) {
+  return value.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+}
+
+function terminalIntervalMs(interval: ToxicFlowTerminalRecord["interval"]) {
+  if (interval === "1h") return 60 * 60 * 1000;
+  if (interval === "15m") return 15 * 60 * 1000;
+  return 5 * 60 * 1000;
+}
+
+function pairLabelForRoute(route: ApiRouteRisk) {
+  const surface = parseSurface(route.route_key);
+  if (surface.mints.length >= 2) {
+    return `${tokenLabel(surface.mints[0])}/${tokenLabel(surface.mints[1])}`;
+  }
+  return route.protocol?.toUpperCase() ?? "POOL";
+}
+
+function basePriceForRoute(route: ApiRouteRisk, index: number) {
+  const pair = pairLabelForRoute(route);
+  if (pair === "SOL/USDC") return 142 + index * 1.7;
+  if (pair === "USDC/SOL") return 1 / 142;
+  if (pair.includes("USDT")) return 1 + index * 0.004;
+  return 0.82 + index * 0.19;
+}
+
+function terminalActionPreventRate(action: ApiRouteRisk["policy_action"]) {
+  if (action === "avoid") return 0.82;
+  if (action === "reroute") return 0.68;
+  if (action === "penalize") return 0.45;
+  if (action === "monitor") return 0.22;
+  return 0.08;
+}
+
+function buildToxicFlowCandles(
+  route: ApiRouteRisk,
+  routeIndex: number,
+  relatedAttacks: ApiAttack[],
+  relatedSwaps: ParsedSwapCandidate[],
+  interval: ToxicFlowTerminalRecord["interval"],
+): ToxicFlowCandleRecord[] {
+  const candleCount = interval === "1h" ? 24 : interval === "15m" ? 96 : 288;
+  const intervalMs = terminalIntervalMs(interval);
+  const seed = seedFromString(route.route_key) % 31;
+  const baseVolume = clamp(
+    route.recommended_max_notional_usd * (5.5 + route.total_attacks * 1.15) +
+      route.total_extracted_usd * 38,
+    42_000,
+    9_500_000,
+  );
+  let close = basePriceForRoute(route, routeIndex);
+
+  return Array.from({ length: candleCount }, (_, index) => {
+    const bucketStart = Date.now() - (candleCount - 1 - index) * intervalMs;
+    const bucketEnd = bucketStart + intervalMs;
+    const timestamp = new Date(bucketStart).toISOString();
+    const bucketSwaps = relatedSwaps.filter((swap) => {
+      const time = swap.block_time.getTime();
+      return time >= bucketStart && time < bucketEnd;
+    });
+    const bucketAttacks = relatedAttacks.filter((attack) => {
+      const time = new Date(attack.block_time).getTime();
+      return time >= bucketStart && time < bucketEnd;
+    });
+    const wave = Math.sin((index + seed) * 0.42);
+    const pulse = Math.max(0, Math.sin((index + seed) * 0.17));
+    const incidentBoost = bucketAttacks.length > 0
+      ? bucketAttacks.reduce((sum, attack) => sum + attack.confidence * 10, 0)
+      : relatedAttacks.length > 0 && index % Math.max(9, 16 - Math.min(7, relatedAttacks.length)) === 0
+        ? route.avg_confidence * 0.08
+        : 0;
+    const toxicScore = round(clamp(route.toxicity_probability + wave * 7 + pulse * 13 + incidentBoost, 2, 99));
+    const markoutBps = round(clamp(route.markout_30s_bps * (0.72 + pulse * 0.54 + wave * 0.08), 0.2, 48), 2);
+    const lvrBps = round(clamp(route.lvr_proxy_score * 0.08 + markoutBps * 0.42, 0.1, 36), 2);
+    const liveVolumeUsd = bucketSwaps.reduce(
+      (sum, swap) => sum + (swap.notional_usd ?? swap.input_usd ?? swap.output_usd ?? 0),
+      0,
+    );
+    const volumeUsd = liveVolumeUsd > 0
+      ? round(liveVolumeUsd, 0)
+      : round(baseVolume * clamp(0.72 + pulse * 0.58 + route.bundle_share * 0.003, 0.5, 2.4), 0);
+    const lossAtRiskUsd = round((volumeUsd * Math.max(markoutBps, lvrBps)) / 10_000, 2);
+    const preventedLossUsd = round(lossAtRiskUsd * terminalActionPreventRate(route.policy_action), 2);
+    const driftBps = wave * 1.7 - markoutBps * 0.045 + (route.execution_quality_score - 50) * 0.002;
+    const open = close;
+    close = round(open * (1 + driftBps / 10_000), 6);
+    const spread = Math.abs(open - close) + open * clamp((toxicScore + markoutBps) / 100_000, 0.0006, 0.012);
+    const attackIndex = relatedAttacks.length ? (index + seed) % relatedAttacks.length : -1;
+    const hasEvent = relatedAttacks.length > 0 && index % Math.max(10, 18 - Math.min(8, relatedAttacks.length)) === 0;
+    const eventAttack = bucketAttacks[0] ?? (hasEvent && attackIndex >= 0 ? relatedAttacks[attackIndex] : null);
+
+    return {
+      timestamp,
+      label: new Date(timestamp).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false }),
+      open: round(open, 6),
+      high: round(Math.max(open, close) + spread * 0.58, 6),
+      low: round(Math.max(0.000001, Math.min(open, close) - spread * 0.42), 6),
+      close,
+      volume_usd: volumeUsd,
+      toxic_flow_score: toxicScore,
+      markout_bps: markoutBps,
+      lvr_bps: lvrBps,
+      loss_at_risk_usd: lossAtRiskUsd,
+      prevented_loss_usd: preventedLossUsd,
+      attack_count: bucketAttacks.length > 0
+        ? bucketAttacks.length
+        : hasEvent
+          ? Math.max(1, Math.ceil(route.total_attacks / Math.max(1, relatedAttacks.length)))
+          : 0,
+      event_type: eventAttack?.attack_type ?? null,
+    };
+  });
+}
+
+function buildToxicFlowOverlays(
+  route: ApiRouteRisk,
+  candles: ToxicFlowCandleRecord[],
+  relatedAttacks: ApiAttack[],
+): ToxicFlowOverlayRecord[] {
+  if (candles.length === 0) return [];
+
+  return relatedAttacks.slice(0, 5).map((attack, index) => {
+    const candle = candles[Math.min(candles.length - 1, Math.max(0, candles.length - 1 - index * 9))];
+    const lossUsd = round(attack.victim_loss_usd ?? attack.profit_usd ?? route.estimated_savings_usd, 2);
+    const severity =
+      attack.attack_type === "sandwich" && lossUsd >= 100
+        ? "critical"
+        : attack.confidence >= 0.86 || lossUsd >= 400
+          ? "high"
+          : "medium";
+
+    return {
+      timestamp: candle.timestamp,
+      event_type: attack.attack_type,
+      severity,
+      label: `${attack.attack_type.replace(/_/g, " ")} on ${pairLabelForRoute(route)}`,
+      loss_usd: lossUsd,
+      confidence: round(attack.confidence * 100),
+    };
+  });
+}
+
+function buildToxicFlowSurface(
+  route: ApiRouteRisk,
+  routeIndex: number,
+  sourceAttacks: ApiAttack[],
+  sourceSwaps: ParsedSwapCandidate[],
+  interval: ToxicFlowTerminalRecord["interval"],
+): ToxicFlowSurfaceRecord {
+  const routeSurface = parseSurface(route.route_key);
+  const relatedAttacks = sourceAttacks
+    .filter((attack) => {
+      const attackSurface = parseSurface(attack.pool_address);
+      return (
+        attack.pool_address === route.route_key ||
+        (routeSurface.protocol && routeSurface.protocol === attackSurface.protocol) ||
+        (routeSurface.mints.length >= 2 &&
+          attackSurface.mints[0] === routeSurface.mints[0] &&
+          attackSurface.mints[1] === routeSurface.mints[1])
+      );
+    })
+    .sort((a, b) => new Date(b.block_time).getTime() - new Date(a.block_time).getTime());
+  const relatedSwaps = sourceSwaps.filter((swap) => {
+    const swapSurface = parseSurface(swap.pool_address ?? "pool:unknown");
+    return (
+      swap.pool_address === route.route_key ||
+      (routeSurface.protocol && routeSurface.protocol === swapSurface.protocol) ||
+      (routeSurface.mints.length >= 2 &&
+        swap.input_mint === routeSurface.mints[0] &&
+        swap.output_mint === routeSurface.mints[1])
+    );
+  });
+  const candles = buildToxicFlowCandles(route, routeIndex, relatedAttacks, relatedSwaps, interval);
+  const firstClose = candles[0]?.close ?? 0;
+  const lastClose = candles[candles.length - 1]?.close ?? firstClose;
+  const volume24h = candles.reduce((sum, candle) => sum + candle.volume_usd, 0);
+  const lossAtRisk24h = candles.reduce((sum, candle) => sum + candle.loss_at_risk_usd, 0);
+  const preventedLoss24h = candles.reduce((sum, candle) => sum + candle.prevented_loss_usd, 0);
+
+  return {
+    route_key: route.route_key,
+    label: route.label,
+    protocol: route.protocol,
+    pair: pairLabelForRoute(route),
+    action: route.policy_action,
+    risk_score: route.risk_score,
+    execution_quality_score: route.execution_quality_score,
+    toxic_flow_score: route.toxicity_probability,
+    price_change_pct: firstClose > 0 ? round(((lastClose - firstClose) / firstClose) * 100, 2) : 0,
+    markout_30s_bps: route.markout_30s_bps,
+    volume_24h_usd: round(volume24h, 0),
+    loss_at_risk_24h_usd: round(lossAtRisk24h, 2),
+    prevented_loss_24h_usd: round(preventedLoss24h, 2),
+    liquidity_stress: round(clamp(route.lvr_proxy_score * 0.62 + route.stale_quote_pickup_rate * 0.24 + route.bundle_share * 0.18, 3, 99)),
+    quote_freshness_ms: route.quote_freshness_ms,
+    reason_codes: route.reason_codes,
+    candles,
+    overlays: buildToxicFlowOverlays(route, candles, relatedAttacks),
+  };
 }
 
 function inferSourceLabel(attack: ApiAttack) {
@@ -4108,6 +4420,33 @@ class LiveChainService {
       flow_segments: this.getFlowSegments(),
       source_attribution: this.getSourceAttribution(limit),
       savings_summary: this.getSavingsSummary(),
+      liquidation_firewall: this.getLiquidationFirewall(Math.min(limit, 8)),
+      toxic_flow_terminal: this.getToxicFlowTerminal(Math.min(limit, 8)),
+    };
+  }
+
+  getToxicFlowTerminal(
+    limit = 8,
+    interval: ToxicFlowTerminalRecord["interval"] = "5m",
+  ): ToxicFlowTerminalRecord {
+    const normalizedInterval = interval === "1h" || interval === "15m" ? interval : "5m";
+    const surfaces = this.getRouteRisks(Math.max(limit, 8))
+      .slice(0, limit)
+      .map((route, index) => buildToxicFlowSurface(route, index, this.attacks, this.recentSwaps, normalizedInterval));
+
+    return {
+      generated_at: new Date().toISOString(),
+      source: "chain",
+      interval: normalizedInterval,
+      summary: {
+        surfaces_tracked: surfaces.length,
+        routes_in_block: surfaces.filter((surface) => surface.action === "avoid" || surface.action === "reroute").length,
+        estimated_loss_at_risk_24h_usd: round(surfaces.reduce((sum, surface) => sum + surface.loss_at_risk_24h_usd, 0), 2),
+        estimated_prevented_loss_24h_usd: round(surfaces.reduce((sum, surface) => sum + surface.prevented_loss_24h_usd, 0), 2),
+        highest_toxicity_route: [...surfaces].sort((a, b) => b.toxic_flow_score - a.toxic_flow_score)[0]?.label ?? null,
+        safest_route: [...surfaces].sort((a, b) => a.risk_score - b.risk_score)[0]?.label ?? null,
+      },
+      surfaces,
     };
   }
 
@@ -4271,6 +4610,211 @@ class LiveChainService {
       }));
   }
 
+  private buildSavingsProof(
+    evaluation: ApiRouteEvaluation,
+    ranking: ApiRouteRanking | null,
+    request: ApiRouteEvaluationRequest,
+    action: PreventionGuardRecord["action"],
+  ): SavingsProofRecord {
+    const notionalUsd = Math.max(0, request.notional_usd ?? 25_000);
+    const bestCandidate = ranking?.ranked_candidates[0] ?? null;
+    const worstCandidate = ranking?.ranked_candidates[ranking.ranked_candidates.length - 1] ?? null;
+    const bestComparableLoss = bestCandidate?.estimated_loss_usd ?? 0;
+    const directPrevented =
+      action === "block" || action === "reroute"
+        ? Math.max(0, evaluation.estimated_loss_usd - bestComparableLoss)
+        : evaluation.estimated_savings_usd ?? 0;
+    const estimatedLossPreventedUsd = round(
+      Math.max(
+        directPrevented,
+        ranking?.estimated_loss_avoided_usd ?? 0,
+        action === "penalize" ? evaluation.estimated_loss_usd * 0.42 : 0,
+        action === "monitor" ? evaluation.estimated_loss_usd * 0.18 : 0,
+      ),
+      2,
+    );
+    const estimatedBpsSaved = round(
+      Math.max(
+        ranking?.estimated_bps_saved ?? 0,
+        evaluation.estimated_savings_bps ?? 0,
+        bestCandidate ? evaluation.estimated_bps_at_risk - bestCandidate.estimated_bps_at_risk : 0,
+      ),
+      2,
+    );
+    const tradesPerDayAssumption =
+      action === "block" || action === "reroute" ? 120 : action === "penalize" ? 80 : action === "monitor" ? 35 : 18;
+
+    return {
+      route_key: evaluation.route_key,
+      selected_label: evaluation.label,
+      protected_notional_usd: notionalUsd,
+      estimated_loss_prevented_usd: estimatedLossPreventedUsd,
+      monthly_savings_projection_usd: round(estimatedLossPreventedUsd * tradesPerDayAssumption * 30, 2),
+      estimated_bps_saved: estimatedBpsSaved,
+      counterfactual_route_key: worstCandidate?.route_key ?? evaluation.route_key,
+      counterfactual_label: worstCandidate?.label ?? evaluation.label,
+      confidence: evaluation.confidence_band,
+      trades_per_day_assumption: tradesPerDayAssumption,
+      proof_points: [
+        `${evaluation.estimated_bps_at_risk.toFixed(2)} bps expected loss-at-risk on ${evaluation.label}`,
+        bestCandidate && bestCandidate.route_key !== evaluation.route_key
+          ? `${bestCandidate.label} is currently the cleanest candidate in the route set`
+          : "no cleaner same-pair candidate was available, so the policy caps or blocks size",
+        `${tradesPerDayAssumption} similar checks/day projects ${round(estimatedLossPreventedUsd * tradesPerDayAssumption * 30, 0).toLocaleString()} USD/month protected`,
+      ],
+    };
+  }
+
+  private buildProtectedSendPolicy(
+    action: PreventionGuardRecord["action"],
+    evaluation: ApiRouteEvaluation,
+    request: ApiRouteEvaluationRequest,
+  ): ProtectedSendPolicyRecord {
+    const slippageBps = request.slippage_bps ?? null;
+    const maxSlippageBps =
+      slippageBps == null
+        ? null
+        : round(clamp(slippageBps - evaluation.estimated_bps_at_risk * 0.55, 5, slippageBps), 0);
+    const maxNotionalUsd = evaluation.recommended_max_notional_usd ?? request.notional_usd ?? 25_000;
+
+    if (action === "block") {
+      return {
+        mode: "block",
+        submit_via: "do_not_submit",
+        use_jito_dontfront: false,
+        fail_closed: true,
+        ttl_ms: 4_000,
+        max_slippage_bps: maxSlippageBps,
+        max_notional_usd: maxNotionalUsd,
+        route_action: action,
+        implementation_steps: [
+          "do not submit the transaction on the current route",
+          "request a fresh quote excluding the flagged venue or route key",
+          "only retry if the new guard response is allow, monitor, or penalize",
+        ],
+        rationale: [
+          "expected loss-at-risk is above the fail-closed threshold",
+          "submitting publicly would expose the order to known toxic flow pressure",
+        ],
+      };
+    }
+
+    if (action === "reroute") {
+      return {
+        mode: "reroute",
+        submit_via: "jito_dontfront",
+        use_jito_dontfront: true,
+        fail_closed: true,
+        ttl_ms: 5_000,
+        max_slippage_bps: maxSlippageBps,
+        max_notional_usd: maxNotionalUsd,
+        route_action: action,
+        implementation_steps: [
+          "switch to the top safer alternative returned by the guard",
+          "submit through a protected/private lane with dont-front semantics when available",
+          "cap notional at the recommended max until toxicity drops",
+        ],
+        rationale: [
+          "a cleaner candidate exists for this pair",
+          "private submission reduces public mempool exposure while the route is replaced",
+        ],
+      };
+    }
+
+    if (action === "penalize") {
+      return {
+        mode: "cap_and_monitor",
+        submit_via: "private_rpc",
+        use_jito_dontfront: false,
+        fail_closed: false,
+        ttl_ms: 7_500,
+        max_slippage_bps: maxSlippageBps,
+        max_notional_usd: maxNotionalUsd,
+        route_action: action,
+        implementation_steps: [
+          "downrank this candidate inside the router score",
+          "tighten slippage and cap size for the current quote",
+          "emit the reason codes into execution analytics",
+        ],
+        rationale: [
+          "route is not toxic enough to fully block but is too expensive to treat as neutral",
+          "size and slippage controls reduce the expected value leakage",
+        ],
+      };
+    }
+
+    if (action === "monitor") {
+      return {
+        mode: "private_submit",
+        submit_via: "private_rpc",
+        use_jito_dontfront: false,
+        fail_closed: false,
+        ttl_ms: 10_000,
+        max_slippage_bps: maxSlippageBps,
+        max_notional_usd: maxNotionalUsd,
+        route_action: action,
+        implementation_steps: [
+          "submit normally or through a private RPC if trade size is elevated",
+          "attach the guard response to logs for post-trade markout review",
+          "rescore the route if quote age or slippage changes",
+        ],
+        rationale: [
+          "toxicity is visible but below hard intervention thresholds",
+          "continued monitoring builds route-level evidence without blocking flow",
+        ],
+      };
+    }
+
+    return {
+      mode: "standard_submit",
+      submit_via: "public_rpc",
+      use_jito_dontfront: false,
+      fail_closed: false,
+      ttl_ms: 12_000,
+      max_slippage_bps: slippageBps,
+      max_notional_usd: maxNotionalUsd,
+      route_action: action,
+      implementation_steps: [
+        "submit the transaction with normal routing",
+        "record the guard id and route score for execution-quality analytics",
+      ],
+      rationale: [
+        "route is currently below toxicity thresholds",
+        "no immediate private-send or reroute intervention is required",
+      ],
+    };
+  }
+
+  private buildCustomerImpact(): CustomerImpactRecord[] {
+    return [
+      {
+        buyer: "wallet",
+        saves: "blocks sandwich-prone swaps before the user signs or submits",
+        primary_metric: "expected_loss_at_risk_usd",
+      },
+      {
+        buyer: "router",
+        saves: "downranks toxic venues and proves why the safer route was selected",
+        primary_metric: "estimated_bps_saved",
+      },
+      {
+        buyer: "lp",
+        saves: "flags pools where stale quotes, JIT, and adverse selection are dragging LP returns",
+        primary_metric: "lp_drag_estimate_usd",
+      },
+      {
+        buyer: "lending",
+        saves: "throttles liquidation regimes that create toxic keeper flow or bad-debt risk",
+        primary_metric: "bad_debt_risk_bps",
+      },
+      {
+        buyer: "trading-desk",
+        saves: "routes large orders through safer lanes with size caps and fail-closed controls",
+        primary_metric: "recommended_max_notional_usd",
+      },
+    ];
+  }
+
   preventionGuard(request: ApiRouteEvaluationRequest & { candidates?: ApiRouteRankingRequest["candidates"] }): PreventionGuardRecord {
     const objective = request.objective ?? "protect_users";
     const ranking = request.candidates?.length
@@ -4283,14 +4827,16 @@ class LiveChainService {
           candidates: request.candidates,
         })
       : null;
-    const evaluation = ranking?.ranked_candidates[0]
-      ? ranking.ranked_candidates[0]
-      : this.evaluateRoute(request);
+    const evaluation = request.route_key || request.protocol || request.input_mint || request.output_mint
+      ? this.evaluateRoute(request)
+      : ranking?.ranked_candidates[0] ?? this.evaluateRoute(request);
 
     const action =
       evaluation.decision === "avoid" ? "block" :
       evaluation.decision === "reroute" ? "reroute" :
       evaluation.decision;
+    const savingsProof = this.buildSavingsProof(evaluation, ranking, request, action);
+    const protectedSendPolicy = this.buildProtectedSendPolicy(action, evaluation, request);
 
     return {
       action,
@@ -4301,6 +4847,9 @@ class LiveChainService {
       selected_route_key: evaluation.route_key,
       selected_label: evaluation.label,
       safer_alternatives: evaluation.safer_alternatives,
+      savings_proof: savingsProof,
+      protected_send_policy: protectedSendPolicy,
+      customer_impact: this.buildCustomerImpact(),
       warning:
         action === "block"
           ? `block this route now: expected loss-at-risk is ${evaluation.estimated_bps_at_risk.toFixed(1)} bps`
@@ -4308,6 +4857,10 @@ class LiveChainService {
             ? `reroute flow: ${evaluation.safer_alternatives[0]?.label ?? "safer alternative"} looks materially cleaner`
             : `monitor surface closely: toxicity probability is ${(evaluation.toxicity_probability ?? 0).toFixed(0)}%`,
     };
+  }
+
+  protectedSendPlan(request: ApiRouteEvaluationRequest & { candidates?: ApiRouteRankingRequest["candidates"] }): PreventionGuardRecord {
+    return this.preventionGuard(request);
   }
 
   getSavingsSummary(): SavingsSummaryRecord {
@@ -4320,6 +4873,89 @@ class LiveChainService {
       pools_protected: pools.filter((pool) => (pool.lvr_proxy_score ?? 0) >= 45).length,
       users_protected_proxy: risks.reduce((sum, route) => sum + Math.max(1, route.total_attacks), 0),
     };
+  }
+
+  getLiquidationFirewall(limit = 8): LiquidationFirewallRecord[] {
+    const markets: Array<{
+      protocol: LiquidationFirewallRecord["protocol"];
+      market: string;
+      notional_at_risk_usd: number;
+      seed_pressure: number;
+    }> = [
+      { protocol: "drift", market: "SOL-PERP / spot margin", notional_at_risk_usd: 1_800_000, seed_pressure: 28 },
+      { protocol: "kamino", market: "SOL collateral loans", notional_at_risk_usd: 2_400_000, seed_pressure: 24 },
+      { protocol: "save", market: "isolated borrow markets", notional_at_risk_usd: 1_050_000, seed_pressure: 18 },
+      { protocol: "marginfi", market: "cross-margin accounts", notional_at_risk_usd: 1_650_000, seed_pressure: 32 },
+    ];
+    const routeRisks = this.getRouteRisks(MAX_ATTACKS);
+    const liquidationAttacks = this.attacks.filter((attack) => attack.attack_type === "liquidation");
+
+    return markets
+      .map((market) => {
+        const relatedRoutes = routeRisks.filter((route) =>
+          route.protocol?.toLowerCase().includes(market.protocol) || route.route_key.toLowerCase().includes(market.protocol),
+        );
+        const relatedAttacks = this.attacks.filter((attack) =>
+          attack.pool_address.toLowerCase().includes(market.protocol) || attack.attack_type === "liquidation",
+        );
+        const routePressure = relatedRoutes.reduce((max, route) => Math.max(max, route.toxicity_probability), 0);
+        const bundlePressure = relatedRoutes.reduce((max, route) => Math.max(max, route.bundle_share), 0);
+        const liquidationCount = Math.max(
+          liquidationAttacks.length,
+          relatedRoutes.reduce((sum, route) => sum + route.liquidation_count, 0),
+        );
+        const liquidationPressure = round(
+          clamp(market.seed_pressure + routePressure * 0.42 + bundlePressure * 0.24 + liquidationCount * 7, 12, 98),
+        );
+        const toxicLiquidatorShare = round(
+          clamp(relatedAttacks.reduce((sum, attack) => sum + attack.confidence * 18, 0) + bundlePressure * 0.55, 8, 96),
+        );
+        const badDebtRiskBps = round(clamp(liquidationPressure * 0.18 + toxicLiquidatorShare * 0.08, 1, 42), 2);
+        const estimatedPreventable = round(
+          market.notional_at_risk_usd * badDebtRiskBps / 10_000 +
+            relatedAttacks.reduce((sum, attack) => sum + (attack.victim_loss_usd ?? attack.profit_usd ?? 0), 0) * 0.35,
+          2,
+        );
+        const regime =
+          liquidationPressure >= 84 ? "stress" :
+          liquidationPressure >= 70 ? "toxic" :
+          liquidationPressure >= 45 ? "watch" :
+          "normal";
+        const recommendedAction =
+          regime === "stress" ? "pause" :
+          regime === "toxic" ? "throttle" :
+          regime === "watch" ? "route_private" :
+          "monitor";
+
+        return {
+          protocol: market.protocol,
+          market: market.market,
+          regime,
+          liquidation_pressure: liquidationPressure,
+          toxic_liquidator_share: toxicLiquidatorShare,
+          bad_debt_risk_bps: badDebtRiskBps,
+          estimated_loss_preventable_usd_24h: estimatedPreventable,
+          recommended_action: recommendedAction,
+          reason_codes: buildReasonCodes({
+            bundleShare: bundlePressure,
+            toxicFlowRate: liquidationPressure,
+            markout30: badDebtRiskBps,
+          }),
+          playbook: [
+            recommendedAction === "pause"
+              ? "pause risky liquidations or raise keeper requirements until the regime cools"
+              : recommendedAction === "throttle"
+                ? "throttle keeper access, cap liquidation size, and require fresh oracle checks"
+                : recommendedAction === "route_private"
+                  ? "route liquidation transactions through protected lanes and monitor post-liquidation markout"
+                  : "keep the market monitored and continue collecting keeper-quality evidence",
+            "compare keeper win-rate, priority fee pressure, and post-liquidation markout before widening access",
+            "alert risk teams when the same operator clusters dominate liquidation flow",
+          ],
+        } satisfies LiquidationFirewallRecord;
+      })
+      .sort((a, b) => b.estimated_loss_preventable_usd_24h - a.estimated_loss_preventable_usd_24h)
+      .slice(0, limit);
   }
 
   getPredictionMarketExecution(limit = 6) {

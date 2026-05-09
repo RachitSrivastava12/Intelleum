@@ -80,8 +80,11 @@ if (guard.action === "block" || guard.action === "avoid") {
 ## Core Calls
 
 - `client.guard(request)` calls `POST /api/prevention/guard`.
+- `client.planProtectedSend(request)` calls `POST /api/prevention/protected-send`.
 - `client.evaluateRoute(request)` calls `POST /api/routes/evaluate`.
 - `client.rankRoutes(request)` calls `POST /api/routes/rank`.
 - `client.getPolicies()` calls `GET /api/routes/policies`.
 - `client.getLiveAlerts()` calls `GET /api/integrations/live-alerts`.
 - `client.getSavingsSummary()` calls `GET /api/savings/summary`.
+- `client.getLiquidationFirewall()` calls `GET /api/liquidations/firewall`.
+- `client.getToxicFlowTerminal()` calls `GET /api/terminal/toxic-flow`.

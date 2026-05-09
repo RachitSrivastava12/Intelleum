@@ -227,70 +227,162 @@ analytics.track("loss_avoided_usd", estimated_loss_avoided_usd);`,
   },
   {
     id: "prevention-guard",
-    badge: "Prevention API",
-    title: "Pre-Trade Guard",
+    badge: "Protection API",
+    title: "Protected Send",
     method: "POST",
-    endpoint: "/api/prevention/guard",
+    endpoint: "/api/prevention/protected-send",
     description:
-      "A single-call pre-trade protection check. Returns an action (allow / block / reroute), expected loss-at-risk in both bps and USD, a recommended max safe trade size, and safer alternatives. Designed for wallets and protocol frontends that want one call to protect users.",
+      "The main production protection endpoint. It returns the action plus savings proof and a protected-send policy: submit lane, fail-closed mode, max safe size, and immediate execution action.",
     whenToUse:
-      "Place this call in your swap confirmation flow, after the user enters a trade size. If action is block, show the warning and cap at recommended_max_notional_usd.",
+      "Use this before a wallet, router, or trading backend submits a transaction.",
     inputs: [
-      { name: "input_mint",   type: "string", required: true,  description: "Base token mint address"                          },
-      { name: "output_mint",  type: "string", required: true,  description: "Quote token mint address"                         },
-      { name: "notional_usd", type: "number", required: true,  description: "Trade size in USD"                                },
-      { name: "slippage_bps", type: "number", required: false, description: "Slippage tolerance in basis points"               },
-      { name: "objective",    type: "enum",   required: false, description: "protect_users | best_execution"                   },
+      { name: "route_key",    type: "string", required: false, description: "Exact route or venue key if known" },
+      { name: "protocol",     type: "string", required: false, description: "Protocol slug, e.g. raydium_amm" },
+      { name: "input_mint",   type: "string", required: true,  description: "Input token mint" },
+      { name: "output_mint",  type: "string", required: true,  description: "Output token mint" },
+      { name: "notional_usd", type: "number", required: true,  description: "Trade size in USD" },
+      { name: "slippage_bps", type: "number", required: false, description: "Slippage tolerance in bps" },
+      { name: "candidates",   type: "array",  required: false, description: "Candidate routes for reroute proof" },
     ],
     responseFields: [
-      { name: "action",                       type: "string", description: "allow | block | reroute"                 },
-      { name: "expected_loss_at_risk_bps",    type: "number", description: "Expected slippage loss in bps"           },
-      { name: "expected_loss_at_risk_usd",    type: "number", description: "Expected loss in USD at given notional"  },
-      { name: "recommended_max_notional_usd", type: "number", description: "Largest safe trade size for this route"  },
-      { name: "safer_alternatives",           type: "array",  description: "Lower-risk routes if action is reroute"  },
+      { name: "action",                 type: "string", description: "allow | monitor | penalize | reroute | block" },
+      { name: "savings_proof",          type: "object", description: "Loss prevented, bps saved, monthly projection" },
+      { name: "protected_send_policy",  type: "object", description: "Submit lane, fail-closed, TTL, max safe notional" },
+      { name: "customer_impact",        type: "array",  description: "Who benefits: wallet, router, LP, lending, desk" },
+      { name: "safer_alternatives",     type: "array",  description: "Cleaner paths when action is reroute/block" },
     ],
-    teams: buyerTeams.filter((t) => ["Jupiter", "Kamino"].includes(t.name)),
-    curl: `curl -X POST ${BASE_URL}/api/prevention/guard \\
+    teams: buyerTeams.filter((t) => ["Jupiter", "Kamino", "Keyrock"].includes(t.name)),
+    curl: `curl -X POST ${BASE_URL}/api/prevention/protected-send \\
   -H "Content-Type: application/json" \\
   -H "x-api-key: YOUR_API_KEY" \\
   -d '{
+    "route_key":    "route:raydium_amm:SOL->USDC",
     "input_mint":   "So11111111111111111111111111111111111111112",
     "output_mint":  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-    "notional_usd": 50000,
-    "slippage_bps": 30,
+    "notional_usd": 85000,
+    "slippage_bps": 50,
     "objective":    "protect_users"
   }'`,
-    typescript: `const res = await fetch("${BASE_URL}/api/prevention/guard", {
+    typescript: `const guard = await fetch("${BASE_URL}/api/prevention/protected-send", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
     "x-api-key": process.env.INTELLEUM_API_KEY!,
   },
-  body: JSON.stringify({
-    input_mint:   "So11111111111111111111111111111111111111112",
-    output_mint:  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-    notional_usd: 50000,
-    slippage_bps: 30,
-    objective:    "protect_users",
-  }),
-});
+  body: JSON.stringify(route),
+}).then((r) => r.json());
 
-const guard = await res.json();
+if (guard.action === "block") stopExecution();
+if (guard.action === "reroute") useRoute(guard.safer_alternatives[0]);`,
+    response: `{
+  "action": "block",
+  "expected_loss_at_risk_usd": 174.2,
+  "savings_proof": {
+    "estimated_loss_prevented_usd": 174.2,
+    "monthly_savings_projection_usd": 627120,
+    "estimated_bps_saved": 11.4
+  },
+  "protected_send_policy": {
+    "mode": "block",
+    "submit_via": "do_not_submit",
+    "fail_closed": true,
+    "max_notional_usd": 126200
+  }
+}`,
+  },
+  {
+    id: "liquidation-firewall",
+    badge: "Risk API",
+    title: "Liquidation Firewall",
+    method: "GET",
+    endpoint: "/api/liquidations/firewall",
+    description:
+      "Protocol-level liquidation regime watch for lending and perps teams. Returns pressure, toxic liquidator share, bad-debt risk, preventable loss, and a recommended action.",
+    whenToUse:
+      "Pull this for risk dashboards or keeper controls. Use throttle/pause actions to protect markets during toxic liquidation regimes.",
+    inputs: [
+      { name: "limit", type: "number", required: false, description: "Max protocol markets to return" },
+    ],
+    responseFields: [
+      { name: "protocol",                            type: "string", description: "drift | kamino | save | marginfi" },
+      { name: "regime",                              type: "string", description: "normal | watch | toxic | stress" },
+      { name: "liquidation_pressure",                type: "number", description: "0-100 pressure score" },
+      { name: "bad_debt_risk_bps",                   type: "number", description: "Estimated bad-debt risk in bps" },
+      { name: "estimated_loss_preventable_usd_24h",  type: "number", description: "Estimated preventable loss" },
+      { name: "recommended_action",                  type: "string", description: "monitor | route_private | throttle | pause" },
+    ],
+    teams: buyerTeams.filter((t) => ["Kamino", "Keyrock"].includes(t.name)),
+    curl: `curl "${BASE_URL}/api/liquidations/firewall?limit=4" \\
+  -H "x-api-key: YOUR_API_KEY"`,
+    typescript: `const regimes = await fetch("${BASE_URL}/api/liquidations/firewall?limit=4", {
+  headers: { "x-api-key": process.env.INTELLEUM_API_KEY! },
+}).then((r) => r.json());
 
-if (guard.action === "block") {
-  ui.showWarning(
-    \`High MEV risk on this route. Max safe size: $\${guard.recommended_max_notional_usd.toLocaleString()}\`
-  );
+for (const row of regimes) {
+  if (row.recommended_action === "pause") risk.pauseMarket(row.market);
+}`,
+    response: `[
+  {
+    "protocol": "kamino",
+    "market": "SOL collateral loans",
+    "regime": "watch",
+    "liquidation_pressure": 58,
+    "bad_debt_risk_bps": 14.2,
+    "estimated_loss_preventable_usd_24h": 3408,
+    "recommended_action": "route_private"
+  }
+]`,
+  },
+  {
+    id: "toxic-flow-terminal",
+    badge: "Terminal API",
+    title: "Toxic Flow Terminal",
+    method: "GET",
+    endpoint: "/api/terminal/toxic-flow",
+    description:
+      "Dexscreener-style route candles for toxic orderflow. Each surface returns price proxy candles, toxicity score, markout, LVR pressure, attack overlays, loss-at-risk, and estimated loss prevented.",
+    whenToUse:
+      "Use this for internal trading/risk screens. Watch toxic_flow_score and prevented_loss_24h_usd to decide when to block, reroute, or cap orderflow.",
+    inputs: [
+      { name: "limit", type: "number", required: false, description: "Max route surfaces to return" },
+      { name: "interval", type: "enum", required: false, description: "5m | 15m | 1h candle interval" },
+    ],
+    responseFields: [
+      { name: "summary",                    type: "object", description: "Portfolio-level loss-at-risk and prevented loss" },
+      { name: "surfaces",                   type: "array",  description: "Route/venue surfaces with chart candles" },
+      { name: "candles.toxic_flow_score",   type: "number", description: "0-100 toxicity score per candle" },
+      { name: "candles.markout_bps",        type: "number", description: "Post-trade adverse markout in bps" },
+      { name: "prevented_loss_24h_usd",     type: "number", description: "Estimated loss prevented by current action" },
+      { name: "overlays",                   type: "array",  description: "Attack events overlaid on the chart" },
+    ],
+    teams: buyerTeams.filter((t) => ["Jupiter", "Orca", "Kamino", "Keyrock"].includes(t.name)),
+    curl: `curl "${BASE_URL}/api/terminal/toxic-flow?limit=8&interval=5m" \\
+  -H "x-api-key: YOUR_API_KEY"`,
+    typescript: `const terminal = await fetch("${BASE_URL}/api/terminal/toxic-flow?limit=8&interval=5m", {
+  headers: { "x-api-key": process.env.INTELLEUM_API_KEY! },
+}).then((r) => r.json());
+
+for (const surface of terminal.surfaces) {
+  if (surface.action === "avoid" || surface.toxic_flow_score > 80) {
+    router.block(surface.route_key);
+  }
 }`,
     response: `{
-  "action":                       "block",
-  "expected_loss_at_risk_bps":    13.7,
-  "expected_loss_at_risk_usd":    68.5,
-  "recommended_max_notional_usd": 14000,
-  "safer_alternatives": [
+  "summary": {
+    "surfaces_tracked": 8,
+    "routes_in_block": 2,
+    "estimated_prevented_loss_24h_usd": 48210
+  },
+  "surfaces": [
     {
-      "route_key":  "venue:orca_whirlpool:SOL->USDC",
-      "risk_score": 29.1
+      "pair": "SOL/USDC",
+      "action": "reroute",
+      "toxic_flow_score": 84,
+      "markout_30s_bps": 18.4,
+      "prevented_loss_24h_usd": 12840,
+      "candles": [
+        { "label": "14:05", "close": 142.12, "toxic_flow_score": 82, "markout_bps": 17.6 }
+      ]
     }
   ]
 }`,
@@ -1469,7 +1561,7 @@ export default function IntelApi() {
                   MEV Intelligence API
                 </h1>
                 <p className="mt-4 max-w-2xl text-[15px] leading-7 text-muted-foreground">
-                  REST endpoints for pre-trade route scoring, route ranking, live alerts, execution quality, LP protection, and validator-side execution intelligence.
+                  REST endpoints for protected send, route scoring, live alerts, liquidation risk, LP protection, and validator-side execution intelligence.
                 </p>
 
                 {/* Auth + Base URL */}
@@ -1617,14 +1709,14 @@ export default function IntelApi() {
                     <div className="border border-border/70 bg-background/40 p-5">
                       <div className="flex items-center gap-3">
                         <span className="flex h-6 w-6 shrink-0 items-center justify-center border border-primary/50 font-mono text-[11px] text-primary">3</span>
-                        <div className="font-mono text-[12px] uppercase tracking-[0.18em] text-foreground">Evaluate A Route</div>
+                          <div className="font-mono text-[12px] uppercase tracking-[0.18em] text-foreground">Protect A Route</div>
                       </div>
                       <div className="mt-4 flex items-center justify-between border border-border/70 bg-surface/40 px-4 py-2">
                         <span className="font-mono text-[12px] uppercase tracking-[0.16em] text-muted-foreground">cURL</span>
-                        <CopyButton text={`curl -X POST ${BASE_URL}/api/routes/evaluate \\\n  -H "Content-Type: application/json" \\\n  -H "${AUTH_HEADER}: YOUR_API_KEY" \\\n  -d '{\n    "input_mint":   "So11111111111111111111111111111111111111112",\n    "output_mint":  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",\n    "protocol":     "raydium_amm",\n    "notional_usd": 25000,\n    "slippage_bps": 30,\n    "objective":    "protect_users"\n  }'`} />
+                        <CopyButton text={`curl -X POST ${BASE_URL}/api/prevention/protected-send \\\n  -H "Content-Type: application/json" \\\n  -H "${AUTH_HEADER}: YOUR_API_KEY" \\\n  -d '{\n    "input_mint":   "So11111111111111111111111111111111111111112",\n    "output_mint":  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",\n    "protocol":     "raydium_amm",\n    "notional_usd": 25000,\n    "slippage_bps": 30,\n    "objective":    "protect_users"\n  }'`} />
                       </div>
                       <pre className="overflow-x-auto border border-t-0 border-border/70 bg-background p-4 font-mono text-[11px] leading-6 text-primary whitespace-pre">
-{`curl -X POST ${BASE_URL}/api/routes/evaluate \\
+{`curl -X POST ${BASE_URL}/api/prevention/protected-send \\
   -H "Content-Type: application/json" \\
   -H "${AUTH_HEADER}: YOUR_API_KEY" \\
   -d '{
@@ -1646,10 +1738,10 @@ export default function IntelApi() {
                         </div>
                         <pre className="mt-4 overflow-x-auto border border-border/60 bg-background p-3 font-mono text-[11px] leading-6 text-primary whitespace-pre">
 {`{
-  "decision":              "reroute",
-  "risk_score":            86.4,
-  "estimated_bps_at_risk": 13.72,
-  "estimated_loss_usd":    34.3,
+  "action": "reroute",
+  "expected_loss_at_risk_usd": 174.2,
+  "savings_proof": { "estimated_bps_saved": 11.4 },
+  "protected_send_policy": { "submit_via": "jito_dontfront" },
   "safer_alternatives": [
     { "route_key": "venue:orca_whirlpool:SOL->USDC" }
   ]
@@ -1663,7 +1755,8 @@ export default function IntelApi() {
                           <div className="font-mono text-[12px] uppercase tracking-[0.18em] text-foreground">Act On It</div>
                         </div>
                         <pre className="mt-4 overflow-x-auto border border-border/60 bg-background p-3 font-mono text-[11px] leading-6 text-primary whitespace-pre">
-{`if (data.decision === "avoid" || data.decision === "reroute") {
+{`if (data.action === "block") stopExecution();
+if (data.action === "reroute") {
   router.useFallback(data.safer_alternatives[0].route_key);
 }`}
                         </pre>
@@ -1696,14 +1789,14 @@ VITE_INTELLEUM_API_KEY=${EXAMPLE_API_KEY}`}
                 <div className="font-mono text-[11px] uppercase tracking-[0.3em] text-primary">Integration Flow</div>
                 <h2 className="mt-3 text-3xl font-semibold tracking-tight">How Teams Integrate</h2>
                 <p className="mt-3 max-w-xl text-[14px] leading-7 text-muted-foreground">
-                  A production integration typically runs evaluate or rank per trade, monitors alerts in parallel, and pulls savings summary for ROI reporting.
+                  A production integration calls protected-send before execution, monitors alerts, and pulls savings summary for ROI reporting.
                 </p>
 
                 {/* 4 steps */}
                 <div className="mt-8 grid gap-3 md:grid-cols-4">
                   {([
-                    { n: "1", label: "Pre-Trade",  code: "POST /api/routes/evaluate\nor /api/routes/rank"       },
-                    { n: "2", label: "Decide",     code: "allow → proceed\nreroute / avoid →\nuse alternatives"  },
+                    { n: "1", label: "Pre-Trade",  code: "POST /api/prevention/\nprotected-send"               },
+                    { n: "2", label: "Decide",     code: "allow → proceed\nreroute / block →\nprotect flow"       },
                     { n: "3", label: "Monitor",    code: "GET /api/integrations/\nlive-alerts every 15s"        },
                     { n: "4", label: "Measure",    code: "GET /api/savings/summary\n24h ROI readout"             },
                   ] as { n: string; label: string; code: string }[]).map((item) => (
@@ -1721,11 +1814,11 @@ VITE_INTELLEUM_API_KEY=${EXAMPLE_API_KEY}`}
                 <div className="mt-8">
                   <div className="flex items-center justify-between">
                     <div className="font-mono text-[12px] uppercase tracking-[0.22em] text-primary">Full TypeScript Integration</div>
-                    <CopyButton text={`// 1. Evaluate route pre-trade\nconst res = await fetch("${BASE_URL}/api/routes/evaluate", {\n  method: "POST",\n  headers: { "Content-Type": "application/json", "${AUTH_HEADER}": process.env.INTELLEUM_API_KEY! },\n  body: JSON.stringify({ input_mint, output_mint, protocol, notional_usd, slippage_bps, objective: "protect_users" }),\n});\nconst evaluation = await res.json();\n\n// 2. Act on decision\nif (evaluation.decision === "avoid" || evaluation.decision === "reroute") {\n  return router.useFallback(evaluation.safer_alternatives[0].route_key);\n}\n\n// 3. Monitor alerts in background\nsetInterval(async () => {\n  const alerts = await fetch("${BASE_URL}/api/integrations/live-alerts?limit=10", {\n    headers: { "${AUTH_HEADER}": process.env.INTELLEUM_API_KEY! },\n  }).then((r) => r.json());\n  alerts.filter((a) => a.severity === "critical").forEach((a) => slack.post("#mev-alerts", a.rationale[0]));\n}, 15_000);`} />
+                    <CopyButton text={`// 1. Protect route pre-trade\nconst res = await fetch("${BASE_URL}/api/prevention/protected-send", {\n  method: "POST",\n  headers: { "Content-Type": "application/json", "${AUTH_HEADER}": process.env.INTELLEUM_API_KEY! },\n  body: JSON.stringify({ input_mint, output_mint, protocol, notional_usd, slippage_bps, objective: "protect_users" }),\n});\nconst guard = await res.json();\n\n// 2. Act on policy\nif (guard.action === "block") return stopExecution();\nif (guard.action === "reroute") return router.useFallback(guard.safer_alternatives[0].route_key);\n\n// 3. Monitor alerts in background\nsetInterval(async () => {\n  const alerts = await fetch("${BASE_URL}/api/integrations/live-alerts?limit=10", {\n    headers: { "${AUTH_HEADER}": process.env.INTELLEUM_API_KEY! },\n  }).then((r) => r.json());\n  alerts.filter((a) => a.severity === "critical").forEach((a) => slack.post("#mev-alerts", a.rationale[0]));\n}, 15_000);`} />
                   </div>
                   <pre className="mt-2 overflow-x-auto border border-border/70 bg-background p-5 font-mono text-[12px] leading-7 text-primary whitespace-pre">
-{`// 1. Evaluate route pre-trade
-const res = await fetch("${BASE_URL}/api/routes/evaluate", {
+{`// 1. Protect route pre-trade
+const res = await fetch("${BASE_URL}/api/prevention/protected-send", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
@@ -1737,12 +1830,11 @@ const res = await fetch("${BASE_URL}/api/routes/evaluate", {
     objective: "protect_users",
   }),
 });
-const evaluation = await res.json();
+const guard = await res.json();
 
-// 2. Act on decision
-if (evaluation.decision === "avoid" || evaluation.decision === "reroute") {
-  return router.useFallback(evaluation.safer_alternatives[0].route_key);
-}
+// 2. Act on policy
+if (guard.action === "block") return stopExecution();
+if (guard.action === "reroute") return router.useFallback(guard.safer_alternatives[0].route_key);
 
 // 3. Monitor alerts in background (every 15s)
 setInterval(async () => {

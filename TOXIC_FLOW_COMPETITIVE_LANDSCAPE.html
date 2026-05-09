@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Intelleum Solana Toxic Order-Flow Landscape</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #05080b;
+        --panel: #0b0f14;
+        --border: #1e2a33;
+        --text: #d7e0e7;
+        --muted: #7f8da3;
+        --cyan: #13d8ff;
+        --red: #f87171;
+        --yellow: #facc15;
+      }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 10% 10%, rgba(19, 216, 255, 0.12), transparent 28rem),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+          linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+          var(--bg);
+        background-size: auto, 56px 56px, 56px 56px, auto;
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.55;
+      }
+
+      main {
+        margin: 0 auto;
+        max-width: 1180px;
+        padding: 56px 24px 72px;
+      }
+
+      h1, h2, h3 {
+        line-height: 1.1;
+      }
+
+      h1 {
+        margin: 0;
+        max-width: 900px;
+        font-size: clamp(42px, 7vw, 84px);
+        letter-spacing: -0.06em;
+      }
+
+      h2 {
+        margin: 42px 0 14px;
+        font-size: 28px;
+      }
+
+      h3 {
+        margin: 0 0 8px;
+        font-size: 16px;
+      }
+
+      a {
+        color: var(--cyan);
+      }
+
+      .eyebrow,
+      .meta,
+      th,
+      .tag {
+        color: var(--cyan);
+        font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .lede {
+        max-width: 840px;
+        color: var(--muted);
+        font-size: 18px;
+      }
+
+      .panel {
+        border: 1px solid var(--border);
+        background: rgba(11, 15, 20, 0.86);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+        padding: 24px;
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .grid-3 {
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      }
+
+      .card {
+        border: 1px solid var(--border);
+        background: rgba(5, 8, 11, 0.64);
+        min-height: 190px;
+        padding: 18px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        overflow: hidden;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--border);
+        padding: 14px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      td {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      td strong {
+        color: var(--text);
+      }
+
+      .priority {
+        color: var(--yellow);
+      }
+
+      .danger {
+        color: var(--red);
+      }
+
+      @media (max-width: 760px) {
+        main {
+          padding: 32px 16px 56px;
+        }
+
+        table {
+          display: block;
+          overflow-x: auto;
+          white-space: nowrap;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">// Intelleum Research Artifact</p>
+      <h1>Solana Toxic Order-Flow Buyer Map</h1>
+      <p class="lede">
+        Research snapshot prepared May 8, 2026. The market is crowded with swap routers,
+        wallets, DEXs, lending protocols, launchpads, and trading terminals, but sparse for
+        a neutral pre-trade toxic-flow firewall that turns detection into policy, enforcement,
+        and provable savings.
+      </p>
+
+      <section class="panel">
+        <p class="meta">Core thesis</p>
+        <p>
+          Intelleum should not pitch itself as another MEV dashboard. The winning angle is:
+          <strong>stop toxic execution before value leaks, then prove the dollars saved</strong>.
+          Existing products protect parts of the stack: Jupiter manages swap execution, Jito
+          provides protected submission primitives, wallets warn on token/security risks, and
+          venues expose analytics. Intelleum can sit across them as the risk and policy layer.
+        </p>
+      </section>
+
+      <h2>Priority Buyer Segments</h2>
+      <div class="grid grid-3">
+        <div class="card">
+          <p class="tag">01 / Routers + wallets</p>
+          <h3>Jupiter, Phantom, Solflare, Backpack</h3>
+          <p>Need route-level warnings, protected execution defaults, and clear user-facing savings.</p>
+        </div>
+        <div class="card">
+          <p class="tag">02 / AMMs + LP venues</p>
+          <h3>Raydium, Meteora, Orca, PumpSwap</h3>
+          <p>Need LP adverse-selection scoring, JIT add/remove detection, and fee/size guardrails.</p>
+        </div>
+        <div class="card">
+          <p class="tag">03 / Perps + lending</p>
+          <h3>Drift, Kamino, Save, marginfi</h3>
+          <p>Need liquidation regime detection, maker-quality scoring, and oracle/liquidity stress monitors.</p>
+        </div>
+        <div class="card">
+          <p class="tag">04 / Trading terminals</p>
+          <h3>Axiom, Photon, Trojan, BONKbot, BullX</h3>
+          <p>Need high-slippage memecoin protection, route vetoes, and copy-trade MEV exposure scoring.</p>
+        </div>
+        <div class="card">
+          <p class="tag">05 / MEV + infra</p>
+          <h3>Jito, Helius, QuickNode, Chainstack</h3>
+          <p>Need risk scores and execution-policy APIs they can bundle into RPC, streams, and protected send paths.</p>
+        </div>
+        <div class="card">
+          <p class="tag">06 / Public benchmark</p>
+          <h3>Solana ecosystem</h3>
+          <p>Needs a shared Toxic Flow Index for venues, validators, pools, and entity clusters.</p>
+        </div>
+      </div>
+
+      <h2>Relevant Companies And Money-Saving Hooks</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Company / Protocol</th>
+            <th>Why it matters</th>
+            <th>How Intelleum saves money</th>
+            <th>Priority</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Jupiter</strong></td>
+            <td>Solana's dominant routing/execution surface with Swap API V2, RFQ, DFlow, OKX, RTSE, and managed landing.</td>
+            <td>Provide external route toxicity scoring, bad-venue suppression, and post-trade savings proof.</td>
+            <td class="priority">P0</td>
+          </tr>
+          <tr>
+            <td><strong>Phantom</strong></td>
+            <td>Massive consumer wallet; Phantom reports 15M+ users on its company page and has expanded into swaps/perps.</td>
+            <td>Wallet-native warning: "this route is expected to leak $X; use protected mode."</td>
+            <td class="priority">P0</td>
+          </tr>
+          <tr>
+            <td><strong>Solflare</strong></td>
+            <td>Solflare reports 4M+ active users and $14B+ managed through its wallet.</td>
+            <td>Add pre-swap route risk and LP/pool toxicity warnings next to existing token/security UX.</td>
+            <td class="priority">P0</td>
+          </tr>
+          <tr>
+            <td><strong>Backpack</strong></td>
+            <td>Wallet + exchange stack with Solana-native users and exchange flow.</td>
+            <td>Protect wallet swaps and exchange-linked onchain execution from poor routes and high-slippage exposure.</td>
+            <td>P1</td>
+          </tr>
+          <tr>
+            <td><strong>Raydium</strong></td>
+            <td>Large AMM/CLMM venue; DefiLlama shows major Solana DEX volume and TVL.</td>
+            <td>Pool toxicity, LP drag, route pressure, and sandwich-risk reporting for LPs and routing partners.</td>
+            <td class="priority">P0</td>
+          </tr>
+          <tr>
+            <td><strong>Meteora</strong></td>
+            <td>DLMM/DAMM venue with high volume per TVL and active LP tooling.</td>
+            <td>JIT liquidity add/remove detection, bin-level adverse selection, and dynamic fee/size recommendations.</td>
+            <td class="priority">P0</td>
+          </tr>
+          <tr>
+            <td><strong>Orca</strong></td>
+            <td>Whirlpools/concentrated liquidity venue with consistent DEX volume.</td>
+            <td>LP protection reports and route toxicity scoring for concentrated liquidity pools.</td>
+            <td>P1</td>
+          </tr>
+          <tr>
+            <td><strong>Pump.fun / PumpSwap</strong></td>
+            <td>Memecoin launch and native DEX flow; high slippage makes users vulnerable.</td>
+            <td>Launch-snipe, creator-bundle, pool-drain, and sandwich-risk guardrails.</td>
+            <td class="priority">P0</td>
+          </tr>
+          <tr>
+            <td><strong>Drift</strong></td>
+            <td>Perps venue with JIT auctions, DLOB, AMM backstop, and liquidations.</td>
+            <td>JIT maker-quality score, liquidation pressure monitor, toxic taker cohorts, and markout reports.</td>
+            <td class="priority">P0</td>
+          </tr>
+          <tr>
+            <td><strong>Kamino</strong></td>
+            <td>Major Solana lending/liquidity venue with liquidation penalties and leverage markets.</td>
+            <td>Liquidation regime alerts, collateral-pool toxicity, oracle/liquidity-stress warnings.</td>
+            <td class="priority">P0</td>
+          </tr>
+          <tr>
+            <td><strong>Save / marginfi</strong></td>
+            <td>Lending markets still exposed to liquidity/price shocks and liquidation competition.</td>
+            <td>Borrower-cohort and liquidator-quality scoring; bad-debt early warning.</td>
+            <td>P1</td>
+          </tr>
+          <tr>
+            <td><strong>Jito</strong></td>
+            <td>Block-engine and MEV infrastructure; Solana docs now recommend DontFront for sandwich mitigation.</td>
+            <td>Turn "risk detected" into "submit with DontFront/bundle/private path" automatically.</td>
+            <td class="priority">P0</td>
+          </tr>
+          <tr>
+            <td><strong>Axiom, Photon, Trojan, BONKbot, BullX</strong></td>
+            <td>Trading terminals/bots handling fast memecoin flow with high user willingness to pay for speed.</td>
+            <td>Pre-click max-loss guard, copy-trade MEV exposure, toxic route veto, and protected-send defaults.</td>
+            <td>P1</td>
+          </tr>
+          <tr>
+            <td><strong>Helius, QuickNode, Chainstack</strong></td>
+            <td>RPC/indexing providers already sell infra to the teams above.</td>
+            <td>Package Intelleum scores as add-on streams, webhooks, or protected transaction policies.</td>
+            <td>P2</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Hackathon Feature Priority</h2>
+      <div class="grid grid-3">
+        <div class="card">
+          <p class="tag">Ship first</p>
+          <h3>Savings Proof Console</h3>
+          <p>Every detection/guard response must show estimated dollars saved. Judges need the "aha" immediately.</p>
+        </div>
+        <div class="card">
+          <p class="tag">Ship first</p>
+          <h3>Protected Route Middleware</h3>
+          <p>One SDK call that ranks routes, blocks toxic paths, caps size, and recommends Jito DontFront/private send.</p>
+        </div>
+        <div class="card">
+          <p class="tag">Ship first</p>
+          <h3>LP Toxicity Score</h3>
+          <p>Pool-level score for Raydium, Meteora, Orca, and PumpSwap that explains LP drag and JIT pressure.</p>
+        </div>
+        <div class="card">
+          <p class="tag">Next</p>
+          <h3>Liquidation Firewall</h3>
+          <p>Detect liquidation regimes and predatory/liquidity-thin liquidations for Drift, Kamino, Save, and marginfi.</p>
+        </div>
+        <div class="card">
+          <p class="tag">Next</p>
+          <h3>Entity Risk Graph</h3>
+          <p>Cluster toxic operators/searchers and show which venues, mints, and routes they repeatedly target.</p>
+        </div>
+        <div class="card">
+          <p class="tag">Moat</p>
+          <h3>Solana Toxic Flow Index</h3>
+          <p>Public benchmark ranking venues, pools, entities, and validator lanes. This can become the category reference.</p>
+        </div>
+      </div>
+
+      <h2>Sources</h2>
+      <ul>
+        <li><a href="https://defillama.com/chain/solana">DefiLlama Solana chain dashboard</a></li>
+        <li><a href="https://defillama.com/protocol/jupiter">DefiLlama Jupiter</a></li>
+        <li><a href="https://defillama.com/protocol/raydium">DefiLlama Raydium</a></li>
+        <li><a href="https://defillama.com/protocol/meteora">DefiLlama Meteora</a></li>
+        <li><a href="https://defillama.com/protocol/orca">DefiLlama Orca</a></li>
+        <li><a href="https://defillama.com/protocol/pump.fun">DefiLlama pump.fun</a></li>
+        <li><a href="https://defillama.com/protocol/pumpswap">DefiLlama PumpSwap</a></li>
+        <li><a href="https://defillama.com/protocol/drift">DefiLlama Drift</a></li>
+        <li><a href="https://defillama.com/protocol/kamino">DefiLlama Kamino</a></li>
+        <li><a href="https://solana.com/developers/guides/advanced/mev-protection">Solana guide: MEV Protection with Jito DontFront</a></li>
+        <li><a href="https://dev.jup.ag/docs">Jupiter developer docs</a></li>
+        <li><a href="https://docs.drift.trade/protocol/about-v3/jit-faq">Drift JIT FAQ</a></li>
+        <li><a href="https://docs.kamino.finance/products/borrow-lend/position-risk-and-liquidations">Kamino liquidations docs</a></li>
+        <li><a href="https://www.helius.dev/blog/solana-mev-report">Helius Solana MEV report</a></li>
+        <li><a href="https://blog.colosseum.com/how-to-win-a-colosseum-hackathon/">Colosseum: How to Win a Colosseum Hackathon</a></li>
+      </ul>
+    </main>
+  </body>
+</html>

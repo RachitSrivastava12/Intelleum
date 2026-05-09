@@ -8,7 +8,7 @@ import Footer from "@/components/Footer";
 import AnalysisFlow from "@/components/AnalysisFlow";
 import WhoIsThisFor from "@/components/WhoIsThisFor";
 import { useEffect, useState } from "react";
-import { api, GlobalStats } from "@/lib/api";
+import { api, GlobalStats, SavingsSummary } from "@/lib/api";
 
 // ============================================================
 // INDEX — Landing page, but stats bar is REAL data
@@ -45,14 +45,33 @@ const Index = () => {
 function LiveDashboardCTA() {
   const navigate = useNavigate();
   const [stats, setStats] = useState<GlobalStats | null>(null);
+  const [savings, setSavings] = useState<SavingsSummary | null>(null);
 
   useEffect(() => {
-    api.stats().then(setStats).catch(() => {});
+    const refresh = async () => {
+      const [nextStats, nextSavings] = await Promise.all([
+        api.stats(),
+        api.savingsSummary(),
+      ]);
+      setStats(nextStats);
+      setSavings(nextSavings);
+    };
+    refresh().catch(() => {});
     const interval = setInterval(() => {
-      api.stats().then(setStats).catch(() => {});
+      refresh().catch(() => {});
     }, 30_000);
     return () => clearInterval(interval);
   }, []);
+
+  const detectionCount = stats
+    ? Math.max(stats.total_attacks ?? 0, stats.attacks_24h ?? 0, savings?.users_protected_proxy ?? 0)
+    : null;
+  const moneyProtected = stats
+    ? Math.max(stats.total_extracted_usd ?? 0, stats.extracted_24h ?? 0, savings?.estimated_loss_avoided_usd_24h ?? 0)
+    : null;
+  const activeOperators = stats
+    ? Math.max(stats.total_entities ?? 0, (savings?.routes_flagged ?? 0) + (savings?.pools_protected ?? 0))
+    : null;
 
   return (
     <section className="relative py-20 px-6 overflow-hidden">
@@ -69,24 +88,24 @@ function LiveDashboardCTA() {
         <div className="flex justify-center gap-10 mb-8 font-mono">
           <div>
             <div className="text-3xl font-bold text-primary">
-              {stats ? ((stats.total_attacks || stats.attacks_24h) ?? 0).toLocaleString() : "—"}
+              {detectionCount == null ? "—" : detectionCount.toLocaleString()}
             </div>
             <div className="text-xs text-muted-foreground mt-1">Attacks detected</div>
           </div>
           <div>
             <div className="text-3xl font-bold text-primary">
-              {stats
+              {moneyProtected != null
                 ? (() => {
-                    const val = stats.total_extracted_usd || stats.extracted_24h || 0;
+                    const val = moneyProtected;
                     return val >= 1000 ? `$${(val / 1000).toFixed(0)}K` : `$${val.toFixed(0)}`;
                   })()
                 : "—"}
             </div>
-            <div className="text-xs text-muted-foreground mt-1">Extracted (total)</div>
+            <div className="text-xs text-muted-foreground mt-1">Protected / exposed value</div>
           </div>
           <div>
-            <div className="text-3xl font-bold text-primary">{stats ? (stats.total_entities?.toLocaleString() ?? "0") : "—"}</div>
-            <div className="text-xs text-muted-foreground mt-1">Active operators</div>
+            <div className="text-3xl font-bold text-primary">{activeOperators == null ? "—" : activeOperators.toLocaleString()}</div>
+            <div className="text-xs text-muted-foreground mt-1">Risk surfaces</div>
           </div>
         </div>
 
@@ -106,6 +125,14 @@ function LiveDashboardCTA() {
             whileTap={{ scale: 0.98 }}
           >
             TRY PROTECTION →
+          </motion.button>
+          <motion.button
+            onClick={() => navigate("/flow-terminal")}
+            className="border border-border/70 px-10 py-4 text-foreground font-mono font-bold text-sm tracking-wider hover:border-primary/50 hover:text-primary transition-colors"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            OPEN FLOW TERMINAL →
           </motion.button>
         </div>
       </div>

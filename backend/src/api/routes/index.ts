@@ -7,6 +7,7 @@ import {
   getEntity,
   getIntegrationFeeds,
   getExecutionQuality,
+  getLiquidationFirewall,
   getLiveAlerts,
   getLpProtection,
   getPoolDetails,
@@ -17,10 +18,12 @@ import {
   getSavingsSummary,
   getSourceAttribution,
   getStats,
+  getToxicFlowTerminal,
   getValidators,
   getWallet,
   getFlowSegments,
   preventionGuard,
+  protectedSendPlan,
   rankRoutes,
 } from "../liveData";
 import { ensureAccessSchema, ensureApiKeySchema, hashApiKey, hasDatabase, pool } from "../../db/pool";
@@ -180,6 +183,17 @@ router.get("/routes/policies", (req: Request, res: Response) => {
   );
 });
 
+router.get("/terminal/toxic-flow", (req: Request, res: Response) => {
+  const limit = Number.parseInt((req.query.limit as string) ?? "8", 10) || 8;
+  const interval = ((req.query.interval as string) ?? "5m") as "5m" | "15m" | "1h";
+  res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
+  res.json(
+    liveChainService.hasLiveData()
+      ? liveChainService.getToxicFlowTerminal(limit, interval)
+      : getToxicFlowTerminal(limit, interval),
+  );
+});
+
 router.post("/routes/evaluate", (req: Request, res: Response) => {
   const body = req.body ?? {};
   res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
@@ -219,6 +233,16 @@ router.post("/prevention/guard", (req: Request, res: Response) => {
     liveChainService.hasLiveData()
       ? liveChainService.preventionGuard(body)
       : preventionGuard(body),
+  );
+});
+
+router.post("/prevention/protected-send", (req: Request, res: Response) => {
+  const body = req.body ?? {};
+  res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
+  res.json(
+    liveChainService.hasLiveData()
+      ? liveChainService.protectedSendPlan(body)
+      : protectedSendPlan(body),
   );
 });
 
@@ -276,6 +300,16 @@ router.get("/validators/regimes", (req: Request, res: Response) => {
 router.get("/savings/summary", (_req: Request, res: Response) => {
   res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
   res.json(liveChainService.hasLiveData() ? liveChainService.getSavingsSummary() : getSavingsSummary());
+});
+
+router.get("/liquidations/firewall", (req: Request, res: Response) => {
+  const limit = Number.parseInt((req.query.limit as string) ?? "8", 10) || 8;
+  res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
+  res.json(
+    liveChainService.hasLiveData()
+      ? liveChainService.getLiquidationFirewall(limit)
+      : getLiquidationFirewall(limit),
+  );
 });
 
 router.get("/prediction-markets/execution", (req: Request, res: Response) => {

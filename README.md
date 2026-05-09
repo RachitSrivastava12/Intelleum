@@ -1,4 +1,4 @@
-# INTELLEUM V2
+# INTELLEUM V3
 ### MEV Intelligence Layer for Solana
 
 Real-time detection and attribution of MEV (Maximal Extractable Value) extraction on Solana. Exposes sandwich attacks, arbitrage, JIT liquidity, liquidation sniping — clustered into named entities with behavioral fingerprints.
@@ -39,6 +39,7 @@ TypeScript Protection SDK
 Frontend (Vercel free OR Render Static free)
   ├─ Landing page (your existing design, kept)
   ├─ Live dashboard (feed | entities | pools)
+  ├─ Toxic Flow Terminal (route candles | markout | prevented loss)
   └─ Entity detail pages
 ```
 
@@ -104,7 +105,7 @@ const intelleum = new IntelleumProtectClient({
   apiKey: process.env.INTELLEUM_API_KEY,
 });
 
-await intelleum.assertSafeToExecute({
+const protectedSwap = await intelleum.assertSafeToExecute({
   route_key: "venue:orca_whirlpool:So11111111111111111111111111111111111111112->EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
   protocol: "orca_whirlpool",
   input_mint: "So11111111111111111111111111111111111111112",
@@ -113,6 +114,9 @@ await intelleum.assertSafeToExecute({
   slippage_bps: 50,
   objective: "protect_users",
 });
+
+console.log(protectedSwap.savingsProof.estimated_loss_prevented_usd);
+console.log(protectedSwap.protectedSendPolicy.submit_via);
 ```
 
 SDK source and Jupiter adapter: [sdk/typescript](./sdk/typescript).
@@ -134,6 +138,10 @@ SDK source and Jupiter adapter: [sdk/typescript](./sdk/typescript).
 | `POST /api/routes/evaluate` | Pre-trade route decision |
 | `POST /api/routes/rank` | Rank candidate routes by toxic execution risk |
 | `POST /api/prevention/guard` | Wallet/protocol pre-trade guardrail |
+| `POST /api/prevention/protected-send` | Guard decision plus savings proof and execution policy |
+| `GET /api/terminal/toxic-flow` | Dexscreener-style toxic-flow candles with markout, loss-at-risk, and prevented loss |
+| `GET /api/liquidations/firewall` | Liquidation regime firewall for lending/perps protocols |
+| `GET /api/savings/summary` | Estimated loss avoided across routes and pools |
 | `GET /api/wallet/:address` | Check if wallet is MEV actor |
 | `POST /api/access/request` | Submit early access request |
 

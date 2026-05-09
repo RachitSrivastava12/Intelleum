@@ -13,6 +13,7 @@ const EntityExplorer = lazy(() => import("./pages/EntityExplorer"));
 const EntityDetail = lazy(() => import("./pages/EntityDetail"));
 const History = lazy(() => import("./pages/History"));
 const IntelApi = lazy(() => import("./pages/IntelApi"));
+const FlowTerminal = lazy(() => import("./pages/FlowTerminal"));
 const Protection = lazy(() => import("./pages/Protection"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -38,6 +39,7 @@ function AppRoutes() {
           <Route path="/"               element={<Index />} />
           <Route path="/dashboard"      element={<Dashboard />} />
           <Route path="/protection"     element={<Protection />} />
+          <Route path="/flow-terminal"  element={<FlowTerminal />} />
           <Route path="/intel-api"      element={<IntelApi />} />
           <Route path="/history"        element={<History />} />
           <Route path="/entities"       element={<EntityExplorer />} />
