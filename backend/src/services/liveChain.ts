@@ -707,9 +707,9 @@ function pairLabelForRoute(route: ApiRouteRisk) {
 
 function basePriceForRoute(route: ApiRouteRisk, index: number) {
   const pair = pairLabelForRoute(route);
-  if (pair === "SOL/USDC") return 142 + index * 1.7;
-  if (pair === "USDC/SOL") return 1 / 142;
-  if (pair.includes("USDT")) return 1 + index * 0.004;
+  if (pair === "SOL/USDC" || pair === "SOL/USDT") return 142 + index * 1.7;
+  if (pair === "USDC/SOL" || pair === "USDT/SOL") return 1 / 142;
+  if (pair === "USDC/USDT" || pair === "USDT/USDC") return 1 + index * 0.004;
   return 0.82 + index * 0.19;
 }
 

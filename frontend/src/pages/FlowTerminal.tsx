@@ -2,7 +2,6 @@ import { CSSProperties, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Bar,
-  Brush,
   CartesianGrid,
   ComposedChart,
   Line,
@@ -82,8 +81,12 @@ function actionTone(action: ToxicFlowSurface["action"]) {
 
 function priceFormatter(surface: ToxicFlowSurface | null, value: number) {
   if (!surface) return value.toFixed(2);
-  if (surface.pair === "USDC/SOL") return value.toFixed(5);
-  if (Math.abs(value) < 1) return value.toFixed(4);
+  const abs = Math.abs(value);
+  if (surface.pair === "USDC/SOL" || surface.pair === "USDT/SOL") return value.toFixed(5);
+  if (abs < 0.01) return value.toFixed(6);
+  if (abs < 1) return value.toFixed(5);
+  if (abs < 10) return value.toFixed(4);
+  if (abs < 100) return value.toFixed(3);
   return value.toFixed(2);
 }
 
@@ -129,7 +132,7 @@ function expandSparseCandles(candles: ToxicFlowCandle[], interval: Interval): Ch
     const trend = prev.close + (next.close - prev.close) * progress;
     const baseVolatility = Math.max(
       Math.abs(next.close - prev.close),
-      Math.abs(prev.close) * 0.0012,
+      Math.abs(prev.close) * 0.0045,
       Math.abs(prev.markout_bps) * Math.abs(prev.close) * 0.00008,
     );
     const close = trend + Math.sin(index * 1.37) * baseVolatility * 0.26 + Math.cos(index * 0.61) * baseVolatility * 0.12;
@@ -201,8 +204,8 @@ function CandleWick(props: any) {
 
 function CandleBody(props: any) {
   const { x = 0, y = 0, width = 0, height = 0, payload } = props;
-  const safeHeight = Math.max(2, Math.abs(height));
-  const safeWidth = Math.max(3, Math.min(8, width * 0.72));
+  const safeHeight = Math.max(4, Math.abs(height));
+  const safeWidth = Math.max(4, Math.min(10, width * 0.78));
   return (
     <rect
       x={x + width / 2 - safeWidth / 2}
@@ -448,7 +451,8 @@ export default function FlowTerminal() {
   const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH);
   const [resizeTarget, setResizeTarget] = useState<"left" | "right" | null>(null);
   const [showRiskOverlay, setShowRiskOverlay] = useState(false);
-  const [showAttacks, setShowAttacks] = useState(true);
+  const [showAttacks, setShowAttacks] = useState(false);
+  const [showPriceLine, setShowPriceLine] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -533,8 +537,8 @@ export default function FlowTerminal() {
       })
       .filter((marker): marker is AttackMarkerPoint => Boolean(marker)) ?? [];
   }, [chartData, priceDomain, selected?.overlays]);
-  const candleBarSize = chartData.length <= 24 ? 10 : 7;
-  const volumeBarSize = chartData.length <= 24 ? 9 : 5;
+  const candleBarSize = chartData.length <= 48 ? 12 : chartData.length <= 120 ? 8 : 5;
+  const volumeBarSize = chartData.length <= 48 ? 11 : chartData.length <= 120 ? 7 : 4;
   const rawCandleCount = selected?.candles.length ?? 0;
   const gridStyle = {
     "--left-panel-width": `${leftWidth}px`,
@@ -545,11 +549,6 @@ export default function FlowTerminal() {
     setSelectedCandleTs(null);
     setCopiedRoute(false);
   }, [selected?.route_key, interval]);
-
-  const selectCandleByIndex = (index: number) => {
-    const candle = chartData[clamp(index, 0, Math.max(0, chartData.length - 1))];
-    if (candle) setSelectedCandleTs(candle.timestamp);
-  };
 
   const selectCandleByTimestamp = (timestamp: string) => {
     const candle = findNearestCandle(chartData, timestamp);
@@ -695,8 +694,21 @@ export default function FlowTerminal() {
             ))}
             <div className="mx-2 h-5 w-px bg-border" />
             <span className="flex min-h-10 items-center px-2 font-mono text-[12px] text-foreground">
-              Price line
+              Candles
             </span>
+            <button
+              type="button"
+              aria-pressed={showPriceLine}
+              onClick={() => setShowPriceLine((current) => !current)}
+              className={[
+                "min-h-10 px-3 font-mono text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                showPriceLine
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:bg-card hover:text-foreground",
+              ].join(" ")}
+            >
+              Line
+            </button>
             <button
               type="button"
               aria-pressed={showRiskOverlay}
@@ -723,11 +735,6 @@ export default function FlowTerminal() {
             >
               Attacks
             </button>
-            <ChartScrubber
-              chartData={chartData}
-              activeIndex={activeCandleIndex}
-              onSelectIndex={selectCandleByIndex}
-            />
             {showAttacks && <AttackLegend />}
             <span className="ml-auto hidden font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground md:block">
               Source: {data.source}
@@ -813,18 +820,20 @@ export default function FlowTerminal() {
                 <Bar yAxisId="volume" dataKey="volume_usd" barSize={volumeBarSize} shape={(props: any) => <VolumeBar {...props} />} />
                 <Bar yAxisId="price" dataKey="wick" barSize={1} shape={(props: any) => <CandleWick {...props} />} />
                 <Bar yAxisId="price" dataKey="body" barSize={candleBarSize} shape={(props: any) => <CandleBody {...props} />} />
-                <Line
-                  yAxisId="price"
-                  type="monotone"
-                  dataKey="close"
-                  stroke="hsl(var(--foreground))"
-                  strokeOpacity={0.88}
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 3, fill: "hsl(var(--primary))", stroke: "hsl(var(--background))", strokeWidth: 1 }}
-                  isAnimationActive={false}
-                  connectNulls
-                />
+                {showPriceLine && (
+                  <Line
+                    yAxisId="price"
+                    type="monotone"
+                    dataKey="close"
+                    stroke="hsl(var(--foreground))"
+                    strokeOpacity={0.88}
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 3, fill: "hsl(var(--primary))", stroke: "hsl(var(--background))", strokeWidth: 1 }}
+                    isAnimationActive={false}
+                    connectNulls
+                  />
+                )}
                 {showRiskOverlay && (
                   <Line
                     yAxisId="risk"
@@ -846,17 +855,6 @@ export default function FlowTerminal() {
                     isAnimationActive={false}
                   />
                 )}
-                <Brush
-                  dataKey="label"
-                  height={22}
-                  travellerWidth={8}
-                  stroke="hsl(var(--primary))"
-                  fill="hsl(var(--card))"
-                  tickFormatter={() => ""}
-                  onChange={(range) => {
-                    if (typeof range?.endIndex === "number") selectCandleByIndex(range.endIndex);
-                  }}
-                />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -1013,33 +1011,6 @@ function AttackLegend() {
       <span className="text-green-300">● Arb</span>
       <span className="text-purple-300">⊟ Backrun</span>
     </div>
-  );
-}
-
-function ChartScrubber({
-  chartData,
-  activeIndex,
-  onSelectIndex,
-}: {
-  chartData: ChartPoint[];
-  activeIndex: number;
-  onSelectIndex: (index: number) => void;
-}) {
-  if (chartData.length < 2) return null;
-
-  return (
-    <label className="hidden min-h-10 items-center gap-2 border-l border-border/70 pl-3 font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground md:flex">
-      <span>Candle</span>
-      <input
-        type="range"
-        min={0}
-        max={chartData.length - 1}
-        value={Math.max(0, activeIndex)}
-        aria-label="Select candle"
-        onChange={(event) => onSelectIndex(Number(event.target.value))}
-        className="h-10 w-28 cursor-pointer accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-      />
-    </label>
   );
 }
 
