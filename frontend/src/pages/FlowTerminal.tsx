@@ -273,6 +273,15 @@ export default function FlowTerminal() {
     const max = Math.max(1, selected?.markout_30s_bps ?? 0, ...chartData.map((candle) => candle.markout_bps));
     return [0, Number((max * 1.25).toFixed(2))];
   }, [chartData, selected?.markout_30s_bps]);
+  const activeBucketCount = useMemo(
+    () => chartData.filter((candle) =>
+      candle.volume_usd > 0 ||
+      candle.loss_at_risk_usd > 0 ||
+      candle.attack_count > 0,
+    ).length,
+    [chartData],
+  );
+  const isBaselineOnly = data?.source === "chain" && chartData.length > 0 && activeBucketCount === 0;
   const rawCandleCount = selected?.candles.length ?? 0;
   const gridStyle = {
     "--left-panel-width": `${leftWidth}px`,
@@ -428,6 +437,10 @@ export default function FlowTerminal() {
               <span className="text-primary">Single line</span>
               <span>X axis: time</span>
               <span>Y axis: adverse markout bps</span>
+              <span className={isBaselineOnly ? "text-yellow-300" : "text-primary"}>
+                Buckets: {activeBucketCount}/{chartData.length}
+              </span>
+              {isBaselineOnly && <span>Showing route baseline until matched buckets arrive</span>}
             </div>
             <span className="ml-auto hidden font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground md:block">
               Source: {data.source === "chain" ? "QuickNode / chain" : "fallback demo"}
@@ -468,6 +481,7 @@ export default function FlowTerminal() {
                   stroke="hsl(var(--primary))"
                   strokeOpacity={0.95}
                   strokeWidth={2.4}
+                  strokeDasharray={isBaselineOnly ? "6 5" : undefined}
                   dot={false}
                   activeDot={{ r: 4, fill: "hsl(var(--primary))", stroke: "hsl(var(--background))", strokeWidth: 1.5 }}
                   isAnimationActive={false}

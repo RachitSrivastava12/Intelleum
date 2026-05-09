@@ -800,8 +800,16 @@ function buildToxicFlowOverlays(
   relatedAttacks: ApiAttack[],
 ): ToxicFlowOverlayRecord[] {
   if (candles.length === 0) return [];
+  const firstTime = new Date(candles[0].timestamp).getTime();
+  const secondTime = candles[1] ? new Date(candles[1].timestamp).getTime() : firstTime + 1;
+  const bucketMs = Math.max(1, secondTime - firstTime);
+  const lastTime = new Date(candles[candles.length - 1].timestamp).getTime() + bucketMs;
+  const visibleAttacks = relatedAttacks.filter((attack) => {
+    const attackTime = new Date(attack.block_time).getTime();
+    return Number.isFinite(attackTime) && attackTime >= firstTime && attackTime < lastTime;
+  });
 
-  return relatedAttacks.slice(0, 5).map((attack) => {
+  return visibleAttacks.slice(0, 5).map((attack) => {
     const attackTime = new Date(attack.block_time).getTime();
     const candle = candles.reduce((nearest, candidate) => {
       const nearestDistance = Math.abs(new Date(nearest.timestamp).getTime() - attackTime);
