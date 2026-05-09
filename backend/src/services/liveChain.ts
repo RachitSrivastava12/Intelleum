@@ -630,6 +630,9 @@ const TOKEN_SYMBOLS: Record<string, string> = {
   EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: "USDC",
   Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: "USDT",
 };
+const TOKEN_MINTS_BY_SYMBOL = Object.fromEntries(
+  Object.entries(TOKEN_SYMBOLS).map(([mint, symbol]) => [symbol, mint]),
+) as Record<string, string>;
 
 function tokenLabel(mint?: string | null) {
   if (!mint) return "UNKNOWN";
@@ -677,6 +680,79 @@ function parseSurface(poolAddress: string) {
     label: poolAddress,
     mints: [] as string[],
   };
+}
+
+function normalizeProtocol(value?: string | null) {
+  const normalized = value?.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return normalized || null;
+}
+
+function normalizeMint(value?: string | null) {
+  if (!value) return null;
+  return TOKEN_MINTS_BY_SYMBOL[value.toUpperCase()] ?? value;
+}
+
+function normalizedMints(values?: Array<string | null | undefined> | null) {
+  return (values ?? []).map(normalizeMint).filter((value): value is string => !!value);
+}
+
+function sameDirectedPair(left: string[], right: string[]) {
+  return left.length >= 2 && right.length >= 2 && left[0] === right[0] && left[1] === right[1];
+}
+
+function sameTokenPair(left: string[], right: string[]) {
+  return sameDirectedPair(left, right) || (left.length >= 2 && right.length >= 2 && left[0] === right[1] && left[1] === right[0]);
+}
+
+function routeProtocol(route: ApiRouteRisk, routeSurface: ReturnType<typeof parseSurface>) {
+  return normalizeProtocol(route.protocol ?? routeSurface.protocol);
+}
+
+function attackMatchesTerminalRoute(
+  route: ApiRouteRisk,
+  routeSurface: ReturnType<typeof parseSurface>,
+  attack: ApiAttack,
+) {
+  if (attack.pool_address === route.route_key) return true;
+
+  const attackSurface = parseSurface(attack.pool_address);
+  const routeMints = normalizedMints(routeSurface.mints);
+  const attackMints = normalizedMints(attack.surface_mints?.length ? attack.surface_mints : attackSurface.mints);
+  const matchingPair = sameTokenPair(routeMints, attackMints);
+  const matchingDirectedPair = sameDirectedPair(routeMints, attackMints);
+  const expectedProtocol = routeProtocol(route, routeSurface);
+  const actualProtocol = normalizeProtocol(attack.protocol ?? attackSurface.protocol);
+  const labelProtocol = normalizeProtocol(attack.surface_label);
+  const matchingProtocol =
+    !!expectedProtocol &&
+    (!!actualProtocol
+      ? expectedProtocol === actualProtocol
+      : !!labelProtocol?.includes(expectedProtocol));
+
+  if (matchingPair && (matchingProtocol || attack.surface_precision === "pair-inferred" || routeSurface.route_kind === "pair")) {
+    return true;
+  }
+
+  return matchingDirectedPair && !expectedProtocol && !actualProtocol;
+}
+
+function swapMatchesTerminalRoute(
+  route: ApiRouteRisk,
+  routeSurface: ReturnType<typeof parseSurface>,
+  swap: ParsedSwapCandidate,
+) {
+  if (swap.pool_address === route.route_key) return true;
+
+  const swapSurface = parseSurface(swap.pool_address ?? "pool:unknown");
+  const routeMints = normalizedMints(routeSurface.mints);
+  const swapMints = normalizedMints(
+    swapSurface.mints.length >= 2 ? swapSurface.mints : [swap.input_mint, swap.output_mint],
+  );
+  const matchingPair = sameTokenPair(routeMints, swapMints);
+  const expectedProtocol = routeProtocol(route, routeSurface);
+  const actualProtocol = normalizeProtocol(swap.source ?? swapSurface.protocol);
+
+  return matchingPair && (!!expectedProtocol ? actualProtocol === expectedProtocol : true);
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -844,27 +920,9 @@ function buildToxicFlowSurface(
 ): ToxicFlowSurfaceRecord {
   const routeSurface = parseSurface(route.route_key);
   const relatedAttacks = sourceAttacks
-    .filter((attack) => {
-      const attackSurface = parseSurface(attack.pool_address);
-      return (
-        attack.pool_address === route.route_key ||
-        (routeSurface.protocol && routeSurface.protocol === attackSurface.protocol) ||
-        (routeSurface.mints.length >= 2 &&
-          attackSurface.mints[0] === routeSurface.mints[0] &&
-          attackSurface.mints[1] === routeSurface.mints[1])
-      );
-    })
+    .filter((attack) => attackMatchesTerminalRoute(route, routeSurface, attack))
     .sort((a, b) => new Date(b.block_time).getTime() - new Date(a.block_time).getTime());
-  const relatedSwaps = sourceSwaps.filter((swap) => {
-    const swapSurface = parseSurface(swap.pool_address ?? "pool:unknown");
-    return (
-      swap.pool_address === route.route_key ||
-      (routeSurface.protocol && routeSurface.protocol === swapSurface.protocol) ||
-      (routeSurface.mints.length >= 2 &&
-        swap.input_mint === routeSurface.mints[0] &&
-        swap.output_mint === routeSurface.mints[1])
-    );
-  });
+  const relatedSwaps = sourceSwaps.filter((swap) => swapMatchesTerminalRoute(route, routeSurface, swap));
   const candles = buildToxicFlowCandles(route, routeIndex, relatedAttacks, relatedSwaps, interval);
   const firstClose = candles[0]?.close ?? 0;
   const lastClose = candles[candles.length - 1]?.close ?? firstClose;
