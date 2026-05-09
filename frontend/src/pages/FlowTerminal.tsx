@@ -34,13 +34,13 @@ type AttackMarkerPoint = {
 const intervals: Interval[] = ["5m", "15m", "1h"];
 const TERMINAL_ROUTE_LIMIT = 50;
 const NAV_RAIL_WIDTH = 52;
-const MIN_LEFT_WIDTH = 72;
+const MIN_LEFT_WIDTH = 0;
 const MAX_LEFT_WIDTH = 420;
 const DEFAULT_LEFT_WIDTH = 260;
-const MIN_RIGHT_WIDTH = 92;
+const MIN_RIGHT_WIDTH = 0;
 const MAX_RIGHT_WIDTH = 500;
 const DEFAULT_RIGHT_WIDTH = 316;
-const MIN_GRAPH_WIDTH = 360;
+const MIN_GRAPH_WIDTH = 320;
 
 function formatUsd(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "$0";
@@ -350,11 +350,13 @@ export default function FlowTerminal() {
   }, [data, selectedKey]);
 
   const chartData = useMemo<ChartPoint[]>(() => {
-    return (selected?.candles ?? []).map((candle) => ({
-      ...candle,
-      body: [Math.min(candle.open, candle.close), Math.max(candle.open, candle.close)],
-      wick: [candle.low, candle.high],
-    }));
+    return [...(selected?.candles ?? [])]
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      .map((candle) => ({
+        ...candle,
+        body: [Math.min(candle.open, candle.close), Math.max(candle.open, candle.close)],
+        wick: [candle.low, candle.high],
+      }));
   }, [selected]);
 
   const latest = chartData[chartData.length - 1] ?? null;
@@ -394,6 +396,9 @@ export default function FlowTerminal() {
       })
       .filter((marker): marker is AttackMarkerPoint => Boolean(marker)) ?? [];
   }, [chartData, selected?.overlays]);
+  const candleBarSize = chartData.length <= 8 ? 18 : chartData.length <= 24 ? 12 : 7;
+  const volumeBarSize = chartData.length <= 8 ? 14 : chartData.length <= 24 ? 9 : 5;
+  const sparseChainFeed = data?.source === "chain" && chartData.length > 0 && chartData.length < 12;
   const gridStyle = {
     "--left-panel-width": `${leftWidth}px`,
     "--right-panel-width": `${rightWidth}px`,
@@ -560,7 +565,9 @@ export default function FlowTerminal() {
             </span>
           </div>
 
-          <div className="h-[calc(100vh-15.25rem)] min-h-[430px] border-b border-border/70 p-2">
+          <GraphMap sparse={sparseChainFeed} candleCount={chartData.length} />
+
+          <div className="h-[calc(100vh-17.5rem)] min-h-[360px] border-b border-border/70 p-2">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={chartData}
@@ -575,6 +582,7 @@ export default function FlowTerminal() {
                   tickLine={false}
                   axisLine={false}
                   tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
+                  label={{ value: "TIME", position: "insideBottom", offset: -8, fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
                 />
                 <YAxis
                   yAxisId="price"
@@ -584,6 +592,7 @@ export default function FlowTerminal() {
                   axisLine={false}
                   tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
                   width={58}
+                  label={{ value: "PRICE", angle: -90, position: "insideLeft", fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
                 />
                 <YAxis
                   yAxisId="risk"
@@ -593,6 +602,7 @@ export default function FlowTerminal() {
                   axisLine={false}
                   tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
                   width={42}
+                  label={{ value: "TOXICITY", angle: 90, position: "insideRight", fill: "hsl(var(--primary))", fontSize: 10 }}
                 />
                 <YAxis yAxisId="volume" hide domain={[0, maxVolume * 4]} />
                 <Tooltip content={<ChartTooltip />} cursor={{ stroke: "hsl(var(--primary))", strokeOpacity: 0.16 }} />
@@ -631,9 +641,9 @@ export default function FlowTerminal() {
                     />
                   </>
                 )}
-                <Bar yAxisId="volume" dataKey="volume_usd" barSize={5} shape={(props: any) => <VolumeBar {...props} />} />
+                <Bar yAxisId="volume" dataKey="volume_usd" barSize={volumeBarSize} shape={(props: any) => <VolumeBar {...props} />} />
                 <Bar yAxisId="price" dataKey="wick" barSize={1} shape={(props: any) => <CandleWick {...props} />} />
-                <Bar yAxisId="price" dataKey="body" barSize={7} shape={(props: any) => <CandleBody {...props} />} />
+                <Bar yAxisId="price" dataKey="body" barSize={candleBarSize} shape={(props: any) => <CandleBody {...props} />} />
                 <Line
                   yAxisId="risk"
                   type="monotone"
@@ -759,7 +769,7 @@ function MarketRail({
   onSelect: (key: string) => void;
 }) {
   return (
-    <aside className="min-w-0 border-r border-border/70 bg-card/35 lg:h-[calc(100vh-3rem)] lg:overflow-y-auto">
+    <aside className="min-w-0 overflow-hidden border-r border-border/70 bg-card/35 lg:h-[calc(100vh-3rem)] lg:overflow-y-auto">
       <div className="flex h-10 items-center justify-between border-b border-border/70 px-3 font-mono text-[11px] uppercase tracking-[0.14em]">
         <span className="text-muted-foreground">Routes</span>
         <span className="text-primary">{data.summary.surfaces_tracked}</span>
@@ -793,6 +803,23 @@ function MarketRail({
         ))}
       </div>
     </aside>
+  );
+}
+
+function GraphMap({ sparse, candleCount }: { sparse: boolean; candleCount: number }) {
+  return (
+    <div className="grid gap-2 border-b border-border/70 bg-card/20 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground md:grid-cols-[1fr_auto] md:items-center">
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        <span><span className="text-foreground">X</span> time</span>
+        <span><span className="text-foreground">Left Y</span> price candles</span>
+        <span><span className="text-primary">Right Y</span> toxicity 0-100</span>
+        <span><span className="text-muted-foreground">Bars</span> volume</span>
+        <span><span className="text-red-300">Markers</span> attacks</span>
+      </div>
+      <div className={sparse ? "text-yellow-300" : "text-muted-foreground"}>
+        {sparse ? `Sparse live feed: ${candleCount} candles` : `${candleCount} candles`}
+      </div>
+    </div>
   );
 }
 
@@ -871,7 +898,7 @@ function ChartScrubber({
 
 function Inspector({ selected, activeCandle }: { selected: ToxicFlowSurface; activeCandle: ChartPoint | null }) {
   return (
-    <aside className="bg-card/35 lg:h-[calc(100vh-3rem)] lg:overflow-y-auto">
+    <aside className="overflow-hidden bg-card/35 lg:h-[calc(100vh-3rem)] lg:overflow-y-auto">
       <div className="border-b border-border/70 p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
