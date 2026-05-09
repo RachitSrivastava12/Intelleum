@@ -687,6 +687,10 @@ function normalizeProtocol(value?: string | null) {
   return normalized || null;
 }
 
+function normalizeSurfaceLabel(value?: string | null) {
+  return normalizeProtocol(value);
+}
+
 function normalizeMint(value?: string | null) {
   if (!value) return null;
   return TOKEN_MINTS_BY_SYMBOL[value.toUpperCase()] ?? value;
@@ -714,8 +718,13 @@ function attackMatchesTerminalRoute(
   attack: ApiAttack,
 ) {
   if (attack.pool_address === route.route_key) return true;
+  if (attack.pool_address.toLowerCase() === route.route_key.toLowerCase()) return true;
 
   const attackSurface = parseSurface(attack.pool_address);
+  const routeLabel = normalizeSurfaceLabel(route.label ?? routeSurface.label);
+  const attackLabel = normalizeSurfaceLabel(attack.surface_label ?? attackSurface.label);
+  if (routeLabel && attackLabel && routeLabel === attackLabel) return true;
+
   const routeMints = normalizedMints(routeSurface.mints);
   const attackMints = normalizedMints(attack.surface_mints?.length ? attack.surface_mints : attackSurface.mints);
   const matchingPair = sameTokenPair(routeMints, attackMints);
@@ -797,19 +806,26 @@ function terminalActionPreventRate(action: ApiRouteRisk["policy_action"]) {
   return 0.08;
 }
 
+function latestFiniteTime(values: number[]) {
+  const finite = values.filter(Number.isFinite);
+  return finite.length > 0 ? Math.max(...finite) : null;
+}
+
 function buildToxicFlowCandles(
   route: ApiRouteRisk,
   routeIndex: number,
   relatedAttacks: ApiAttack[],
   relatedSwaps: ParsedSwapCandidate[],
   interval: ToxicFlowTerminalRecord["interval"],
+  anchorTimeMs = Date.now(),
 ): ToxicFlowCandleRecord[] {
   const candleCount = interval === "1h" ? 24 : interval === "15m" ? 96 : 288;
   const intervalMs = terminalIntervalMs(interval);
   let close = basePriceForRoute(route, routeIndex);
+  const windowStart = anchorTimeMs - (candleCount - 1) * intervalMs;
 
   return Array.from({ length: candleCount }, (_, index) => {
-    const bucketStart = Date.now() - (candleCount - 1 - index) * intervalMs;
+    const bucketStart = windowStart + index * intervalMs;
     const bucketEnd = bucketStart + intervalMs;
     const timestamp = new Date(bucketStart).toISOString();
     const bucketSwaps = relatedSwaps.filter((swap) => {
@@ -923,7 +939,19 @@ function buildToxicFlowSurface(
     .filter((attack) => attackMatchesTerminalRoute(route, routeSurface, attack))
     .sort((a, b) => new Date(b.block_time).getTime() - new Date(a.block_time).getTime());
   const relatedSwaps = sourceSwaps.filter((swap) => swapMatchesTerminalRoute(route, routeSurface, swap));
-  const candles = buildToxicFlowCandles(route, routeIndex, relatedAttacks, relatedSwaps, interval);
+  const intervalMs = terminalIntervalMs(interval);
+  const candleCount = interval === "1h" ? 24 : interval === "15m" ? 96 : 288;
+  const now = Date.now();
+  const windowStart = now - (candleCount - 1) * intervalMs;
+  const latestAttackTime = latestFiniteTime(relatedAttacks.map((attack) => new Date(attack.block_time).getTime()));
+  const hasAttackInCurrentWindow =
+    latestAttackTime != null &&
+    relatedAttacks.some((attack) => {
+      const time = new Date(attack.block_time).getTime();
+      return Number.isFinite(time) && time >= windowStart && time <= now + intervalMs;
+    });
+  const anchorTimeMs = hasAttackInCurrentWindow || latestAttackTime == null ? now : latestAttackTime;
+  const candles = buildToxicFlowCandles(route, routeIndex, relatedAttacks, relatedSwaps, interval, anchorTimeMs);
   const firstClose = candles[0]?.close ?? 0;
   const lastClose = candles[candles.length - 1]?.close ?? firstClose;
   const volume24h = candles.reduce((sum, candle) => sum + candle.volume_usd, 0);
