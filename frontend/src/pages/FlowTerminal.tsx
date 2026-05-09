@@ -225,10 +225,26 @@ export default function FlowTerminal() {
   }, [data, selectedKey]);
 
   const chartData = useMemo<ChartPoint[]>(() => {
-    return [...(selected?.candles ?? [])]
+    const sorted = [...(selected?.candles ?? [])]
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
       .map(toChartPoint);
-  }, [selected]);
+    const hasBucketSignal = sorted.some((candle) =>
+      candle.toxic_flow_score > 0 ||
+      candle.attack_count > 0 ||
+      candle.volume_usd > 0 ||
+      candle.loss_at_risk_usd > 0,
+    );
+
+    if (data?.source === "chain" && !hasBucketSignal && selected && selected.toxic_flow_score > 0) {
+      return sorted.map((candle) => ({
+        ...candle,
+        toxic_flow_score: selected.toxic_flow_score,
+        markout_bps: selected.markout_30s_bps,
+      }));
+    }
+
+    return sorted;
+  }, [data?.source, selected]);
 
   const latest = chartData[chartData.length - 1] ?? null;
   const activeCandleIndex = useMemo(() => {
