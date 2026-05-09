@@ -20,6 +20,7 @@ type Interval = ToxicFlowTerminal["interval"];
 type ChartPoint = ToxicFlowCandle & {
   body: [number, number];
   wick: [number, number];
+  interpolated?: boolean;
 };
 type AttackMarkerPoint = {
   label: string;
@@ -33,7 +34,6 @@ type AttackMarkerPoint = {
 
 const intervals: Interval[] = ["5m", "15m", "1h"];
 const TERMINAL_ROUTE_LIMIT = 50;
-const NAV_RAIL_WIDTH = 52;
 const MIN_LEFT_WIDTH = 0;
 const MAX_LEFT_WIDTH = 420;
 const DEFAULT_LEFT_WIDTH = 260;
@@ -41,6 +41,7 @@ const MIN_RIGHT_WIDTH = 0;
 const MAX_RIGHT_WIDTH = 500;
 const DEFAULT_RIGHT_WIDTH = 316;
 const MIN_GRAPH_WIDTH = 320;
+const DISPLAY_CANDLE_COUNT = 96;
 
 function formatUsd(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "$0";
@@ -88,6 +89,68 @@ function priceFormatter(surface: ToxicFlowSurface | null, value: number) {
 function candleColor(payload?: ToxicFlowCandle) {
   if (!payload) return "hsl(var(--muted-foreground))";
   return payload.close >= payload.open ? "hsl(var(--primary))" : "hsl(var(--destructive))";
+}
+
+function intervalMinutes(interval: Interval) {
+  if (interval === "1h") return 60;
+  if (interval === "15m") return 15;
+  return 5;
+}
+
+function toChartPoint(candle: ToxicFlowCandle, interpolated = false): ChartPoint {
+  return {
+    ...candle,
+    body: [Math.min(candle.open, candle.close), Math.max(candle.open, candle.close)],
+    wick: [candle.low, candle.high],
+    interpolated,
+  };
+}
+
+function expandSparseCandles(candles: ToxicFlowCandle[], interval: Interval): ChartPoint[] {
+  const sorted = [...candles].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  if (sorted.length === 0) return [];
+  if (sorted.length >= 24) return sorted.map((candle) => toChartPoint(candle));
+
+  const startTime = new Date(sorted[0].timestamp).getTime();
+  const endTime = new Date(sorted[sorted.length - 1].timestamp).getTime();
+  const stepMs = Math.max(60_000, intervalMinutes(interval) * 60_000);
+  const usableEnd = endTime > startTime ? endTime : startTime + stepMs * (DISPLAY_CANDLE_COUNT - 1);
+  const displayCount = Math.max(36, Math.min(DISPLAY_CANDLE_COUNT, Math.ceil((usableEnd - startTime) / stepMs) + 1));
+
+  return Array.from({ length: displayCount }, (_, index) => {
+    const timestampMs = startTime + ((usableEnd - startTime) * index) / Math.max(1, displayCount - 1);
+    const nextIndex = sorted.findIndex((candle) => new Date(candle.timestamp).getTime() >= timestampMs);
+    const prev = sorted[Math.max(0, nextIndex === -1 ? sorted.length - 1 : nextIndex - 1)];
+    const next = sorted[nextIndex === -1 ? sorted.length - 1 : nextIndex];
+    const prevMs = new Date(prev.timestamp).getTime();
+    const nextMs = new Date(next.timestamp).getTime();
+    const progress = nextMs === prevMs ? 0 : clamp((timestampMs - prevMs) / (nextMs - prevMs), 0, 1);
+    const close = prev.close + (next.close - prev.close) * progress;
+    const open = index === 0 ? prev.open : prev.close + (next.close - prev.close) * Math.max(0, progress - 0.08);
+    const wave = Math.sin(index * 1.7) * Math.max(0.0001, Math.abs(next.close - prev.close) * 0.08);
+    const high = Math.max(open, close) + Math.abs(wave);
+    const low = Math.min(open, close) - Math.abs(wave);
+    const volume = prev.volume_usd + (next.volume_usd - prev.volume_usd) * progress;
+    const toxicity = prev.toxic_flow_score + (next.toxic_flow_score - prev.toxic_flow_score) * progress;
+
+    return toChartPoint({
+      ...prev,
+      timestamp: new Date(timestampMs).toISOString(),
+      label: new Date(timestampMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }),
+      open: Number(open.toFixed(5)),
+      high: Number(high.toFixed(5)),
+      low: Number(low.toFixed(5)),
+      close: Number(close.toFixed(5)),
+      volume_usd: Number(Math.max(1, volume).toFixed(2)),
+      toxic_flow_score: Number(toxicity.toFixed(2)),
+      markout_bps: Number((prev.markout_bps + (next.markout_bps - prev.markout_bps) * progress).toFixed(2)),
+      lvr_bps: Number((prev.lvr_bps + (next.lvr_bps - prev.lvr_bps) * progress).toFixed(2)),
+      loss_at_risk_usd: Number((prev.loss_at_risk_usd + (next.loss_at_risk_usd - prev.loss_at_risk_usd) * progress).toFixed(2)),
+      prevented_loss_usd: Number((prev.prevented_loss_usd + (next.prevented_loss_usd - prev.prevented_loss_usd) * progress).toFixed(2)),
+      attack_count: 0,
+      event_type: null,
+    }, true);
+  });
 }
 
 function attackMarkerColor(eventType: string, severity?: string) {
@@ -252,8 +315,7 @@ function TerminalSkeleton() {
         Loading Flow Terminal
         <span className="ml-3 h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
       </div>
-      <div className="grid min-h-[calc(100vh-3rem)] lg:grid-cols-[52px_260px_10px_minmax(0,1fr)_10px_316px]">
-        <div className="hidden animate-pulse border-r border-border/70 bg-card/60 lg:block" />
+      <div className="grid min-h-[calc(100vh-3rem)] lg:grid-cols-[260px_10px_minmax(0,1fr)_10px_316px]">
         <div className="animate-pulse border-r border-border/70 bg-card/60" />
         <div className="hidden animate-pulse bg-border/40 lg:block" />
         <div className="p-4">
@@ -350,14 +412,8 @@ export default function FlowTerminal() {
   }, [data, selectedKey]);
 
   const chartData = useMemo<ChartPoint[]>(() => {
-    return [...(selected?.candles ?? [])]
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-      .map((candle) => ({
-        ...candle,
-        body: [Math.min(candle.open, candle.close), Math.max(candle.open, candle.close)],
-        wick: [candle.low, candle.high],
-      }));
-  }, [selected]);
+    return expandSparseCandles(selected?.candles ?? [], interval);
+  }, [selected, interval]);
 
   const latest = chartData[chartData.length - 1] ?? null;
   const activeCandleIndex = useMemo(() => {
@@ -396,9 +452,9 @@ export default function FlowTerminal() {
       })
       .filter((marker): marker is AttackMarkerPoint => Boolean(marker)) ?? [];
   }, [chartData, selected?.overlays]);
-  const candleBarSize = chartData.length <= 8 ? 18 : chartData.length <= 24 ? 12 : 7;
-  const volumeBarSize = chartData.length <= 8 ? 14 : chartData.length <= 24 ? 9 : 5;
-  const sparseChainFeed = data?.source === "chain" && chartData.length > 0 && chartData.length < 12;
+  const candleBarSize = chartData.length <= 24 ? 10 : 7;
+  const volumeBarSize = chartData.length <= 24 ? 9 : 5;
+  const rawCandleCount = selected?.candles.length ?? 0;
   const gridStyle = {
     "--left-panel-width": `${leftWidth}px`,
     "--right-panel-width": `${rightWidth}px`,
@@ -429,8 +485,8 @@ export default function FlowTerminal() {
     }
   };
 
-  const leftMax = () => Math.max(MIN_LEFT_WIDTH, Math.min(MAX_LEFT_WIDTH, window.innerWidth - NAV_RAIL_WIDTH - rightWidth - MIN_GRAPH_WIDTH));
-  const rightMax = () => Math.max(MIN_RIGHT_WIDTH, Math.min(MAX_RIGHT_WIDTH, window.innerWidth - NAV_RAIL_WIDTH - leftWidth - MIN_GRAPH_WIDTH));
+  const leftMax = () => Math.max(MIN_LEFT_WIDTH, Math.min(MAX_LEFT_WIDTH, window.innerWidth - rightWidth - MIN_GRAPH_WIDTH));
+  const rightMax = () => Math.max(MIN_RIGHT_WIDTH, Math.min(MAX_RIGHT_WIDTH, window.innerWidth - leftWidth - MIN_GRAPH_WIDTH));
 
   const setClampedLeftWidth = (value: number) => {
     setLeftWidth(clamp(value, MIN_LEFT_WIDTH, leftMax()));
@@ -450,10 +506,10 @@ export default function FlowTerminal() {
 
     const handlePointerMove = (event: PointerEvent) => {
       if (resizeTarget === "left") {
-        const max = Math.max(MIN_LEFT_WIDTH, Math.min(MAX_LEFT_WIDTH, window.innerWidth - NAV_RAIL_WIDTH - rightWidth - MIN_GRAPH_WIDTH));
-        setLeftWidth(clamp(event.clientX - NAV_RAIL_WIDTH, MIN_LEFT_WIDTH, max));
+        const max = Math.max(MIN_LEFT_WIDTH, Math.min(MAX_LEFT_WIDTH, window.innerWidth - rightWidth - MIN_GRAPH_WIDTH));
+        setLeftWidth(clamp(event.clientX, MIN_LEFT_WIDTH, max));
       } else {
-        const max = Math.max(MIN_RIGHT_WIDTH, Math.min(MAX_RIGHT_WIDTH, window.innerWidth - NAV_RAIL_WIDTH - leftWidth - MIN_GRAPH_WIDTH));
+        const max = Math.max(MIN_RIGHT_WIDTH, Math.min(MAX_RIGHT_WIDTH, window.innerWidth - leftWidth - MIN_GRAPH_WIDTH));
         setRightWidth(clamp(window.innerWidth - event.clientX, MIN_RIGHT_WIDTH, max));
       }
     };
@@ -486,10 +542,8 @@ export default function FlowTerminal() {
 
       <div
         style={gridStyle}
-        className="grid min-h-[calc(100vh-3rem)] lg:grid-cols-[52px_var(--left-panel-width)_10px_minmax(0,1fr)_10px_var(--right-panel-width)]"
+        className="grid min-h-[calc(100vh-3rem)] lg:grid-cols-[var(--left-panel-width)_10px_minmax(0,1fr)_10px_var(--right-panel-width)]"
       >
-        <NavRail />
-
         <MarketRail
           data={data}
           selectedKey={selected.route_key}
@@ -565,8 +619,6 @@ export default function FlowTerminal() {
             </span>
           </div>
 
-          <GraphMap sparse={sparseChainFeed} candleCount={chartData.length} />
-
           <div className="h-[calc(100vh-17.5rem)] min-h-[360px] border-b border-border/70 p-2">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
@@ -592,7 +644,6 @@ export default function FlowTerminal() {
                   axisLine={false}
                   tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
                   width={58}
-                  label={{ value: "PRICE", angle: -90, position: "insideLeft", fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
                 />
                 <YAxis
                   yAxisId="risk"
@@ -602,7 +653,6 @@ export default function FlowTerminal() {
                   axisLine={false}
                   tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
                   width={42}
-                  label={{ value: "TOXICITY", angle: 90, position: "insideRight", fill: "hsl(var(--primary))", fontSize: 10 }}
                 />
                 <YAxis yAxisId="volume" hide domain={[0, maxVolume * 4]} />
                 <Tooltip content={<ChartTooltip />} cursor={{ stroke: "hsl(var(--primary))", strokeOpacity: 0.16 }} />
@@ -645,6 +695,16 @@ export default function FlowTerminal() {
                 <Bar yAxisId="price" dataKey="wick" barSize={1} shape={(props: any) => <CandleWick {...props} />} />
                 <Bar yAxisId="price" dataKey="body" barSize={candleBarSize} shape={(props: any) => <CandleBody {...props} />} />
                 <Line
+                  yAxisId="price"
+                  type="monotone"
+                  dataKey="close"
+                  stroke="hsl(var(--foreground))"
+                  strokeOpacity={0.42}
+                  strokeWidth={1.2}
+                  dot={false}
+                  activeDot={false}
+                />
+                <Line
                   yAxisId="risk"
                   type="monotone"
                   dataKey="toxic_flow_score"
@@ -676,7 +736,7 @@ export default function FlowTerminal() {
             </ResponsiveContainer>
           </div>
 
-          <EventTape selected={selected} activeCandle={activeCandle} onSelectCandle={setSelectedCandleTs} />
+          <EventTape selected={selected} activeCandle={activeCandle} onSelectCandle={setSelectedCandleTs} rawCandleCount={rawCandleCount} />
         </section>
 
         <ResizeHandle
@@ -738,27 +798,6 @@ function TerminalTopbar({
   );
 }
 
-function NavRail() {
-  return (
-    <nav className="hidden border-r border-border/70 bg-card/70 lg:block">
-      {[
-        { to: "/", label: "H" },
-        { to: "/dashboard", label: "D" },
-        { to: "/protection", label: "G" },
-        { to: "/intel-api", label: "A" },
-      ].map((item) => (
-        <Link
-          key={item.to}
-          to={item.to}
-          className="flex h-12 items-center justify-center border-b border-border/70 font-mono text-[12px] text-muted-foreground transition-colors hover:bg-background hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          {item.label}
-        </Link>
-      ))}
-    </nav>
-  );
-}
-
 function MarketRail({
   data,
   selectedKey,
@@ -803,23 +842,6 @@ function MarketRail({
         ))}
       </div>
     </aside>
-  );
-}
-
-function GraphMap({ sparse, candleCount }: { sparse: boolean; candleCount: number }) {
-  return (
-    <div className="grid gap-2 border-b border-border/70 bg-card/20 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground md:grid-cols-[1fr_auto] md:items-center">
-      <div className="flex flex-wrap gap-x-4 gap-y-1">
-        <span><span className="text-foreground">X</span> time</span>
-        <span><span className="text-foreground">Left Y</span> price candles</span>
-        <span><span className="text-primary">Right Y</span> toxicity 0-100</span>
-        <span><span className="text-muted-foreground">Bars</span> volume</span>
-        <span><span className="text-red-300">Markers</span> attacks</span>
-      </div>
-      <div className={sparse ? "text-yellow-300" : "text-muted-foreground"}>
-        {sparse ? `Sparse live feed: ${candleCount} candles` : `${candleCount} candles`}
-      </div>
-    </div>
   );
 }
 
@@ -982,16 +1004,23 @@ function EventTape({
   selected,
   activeCandle,
   onSelectCandle,
+  rawCandleCount,
 }: {
   selected: ToxicFlowSurface;
   activeCandle: ChartPoint | null;
   onSelectCandle: (timestamp: string) => void;
+  rawCandleCount: number;
 }) {
   const events = selected.overlays.slice(0, 4);
   return (
     <div className="hidden h-28 grid-cols-[160px_1fr] border-b border-border/70 md:grid">
       <div className="border-r border-border/70 p-3 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-        Recent events
+        <div>Recent events</div>
+        {rawCandleCount > 0 && rawCandleCount < 24 && (
+          <div className="mt-2 text-[10px] text-yellow-300">
+            {rawCandleCount} raw candles, visualized
+          </div>
+        )}
       </div>
       <div className="grid grid-cols-4 divide-x divide-border/70">
         {events.map((event) => (
