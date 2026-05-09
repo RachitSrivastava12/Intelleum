@@ -80,14 +80,14 @@ function ChartTooltip({ active, payload }: any) {
     <div className="border border-border bg-background/95 px-3 py-2 shadow-2xl backdrop-blur">
       <div className="font-mono text-[11px] uppercase tracking-[0.14em] text-foreground">{row.label}</div>
       <div className="mt-2 grid grid-cols-2 gap-x-5 gap-y-1 font-mono text-[11px]">
-        <span className="text-muted-foreground">Toxic</span>
-        <span className="text-right text-primary">{row.toxic_flow_score.toFixed(1)}</span>
+        <span className="text-muted-foreground">Markout</span>
+        <span className="text-right text-primary">{row.markout_bps.toFixed(2)} bps</span>
         <span className="text-muted-foreground">Loss risk</span>
         <span className="text-right text-red-300">{formatUsd(row.loss_at_risk_usd)}</span>
         <span className="text-muted-foreground">Prevented</span>
         <span className="text-right text-primary">{formatUsd(row.prevented_loss_usd)}</span>
-        <span className="text-muted-foreground">Markout</span>
-        <span className="text-right text-foreground">{row.markout_bps.toFixed(2)} bps</span>
+        <span className="text-muted-foreground">Toxic signal</span>
+        <span className="text-right text-foreground">{row.toxic_flow_score.toFixed(1)} / 100</span>
         <span className="text-muted-foreground">Events</span>
         <span className="text-right text-foreground">{row.attack_count}</span>
       </div>
@@ -235,11 +235,17 @@ export default function FlowTerminal() {
       candle.loss_at_risk_usd > 0,
     );
 
-    if (data?.source === "chain" && !hasBucketSignal && selected && selected.toxic_flow_score > 0) {
+    if (data?.source === "chain" && !hasBucketSignal && selected && selected.markout_30s_bps > 0) {
       return sorted.map((candle) => ({
         ...candle,
         toxic_flow_score: selected.toxic_flow_score,
         markout_bps: selected.markout_30s_bps,
+        loss_at_risk_usd: selected.loss_at_risk_24h_usd > 0
+          ? selected.loss_at_risk_24h_usd / Math.max(1, sorted.length)
+          : 0,
+        prevented_loss_usd: selected.prevented_loss_24h_usd > 0
+          ? selected.prevented_loss_24h_usd / Math.max(1, sorted.length)
+          : 0,
       }));
     }
 
@@ -263,6 +269,10 @@ export default function FlowTerminal() {
     }, 0);
   }, [chartData, selectedCandleTs]);
   const activeCandle = activeCandleIndex >= 0 ? chartData[activeCandleIndex] : null;
+  const markoutDomain = useMemo<[number, number]>(() => {
+    const max = Math.max(1, selected?.markout_30s_bps ?? 0, ...chartData.map((candle) => candle.markout_bps));
+    return [0, Number((max * 1.25).toFixed(2))];
+  }, [chartData, selected?.markout_30s_bps]);
   const rawCandleCount = selected?.candles.length ?? 0;
   const gridStyle = {
     "--left-panel-width": `${leftWidth}px`,
@@ -389,9 +399,10 @@ export default function FlowTerminal() {
 
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-[12px]">
               <TapeValue label="T" value={activeCandle?.label ?? latest?.label ?? "Live"} tone="accent" />
-              <TapeValue label="Toxic" value={formatNumber(activeCandle?.toxic_flow_score ?? selected.toxic_flow_score, 0)} tone={(activeCandle?.toxic_flow_score ?? selected.toxic_flow_score) >= 75 ? "bad" : "accent"} />
               <TapeValue label="Markout" value={`${formatNumber(activeCandle?.markout_bps ?? selected.markout_30s_bps, 2)} bps`} tone="bad" />
               <TapeValue label="Loss" value={formatUsd(activeCandle?.loss_at_risk_usd ?? selected.loss_at_risk_24h_usd)} tone="bad" />
+              <TapeValue label="Prevented" value={formatUsd(activeCandle?.prevented_loss_usd ?? selected.prevented_loss_24h_usd)} tone="accent" />
+              <TapeValue label="Toxic" value={formatNumber(activeCandle?.toxic_flow_score ?? selected.toxic_flow_score, 0)} tone={(activeCandle?.toxic_flow_score ?? selected.toxic_flow_score) >= 75 ? "bad" : "accent"} />
               <TapeValue label="Events" value={String(activeCandle?.attack_count ?? selected.overlays.length)} />
             </div>
           </div>
@@ -416,7 +427,7 @@ export default function FlowTerminal() {
             <div className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
               <span className="text-primary">Single line</span>
               <span>X axis: time</span>
-              <span>Y axis: toxic flow score 0-100</span>
+              <span>Y axis: adverse markout bps</span>
             </div>
             <span className="ml-auto hidden font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground md:block">
               Source: {data.source === "chain" ? "QuickNode / chain" : "fallback demo"}
@@ -441,8 +452,9 @@ export default function FlowTerminal() {
                   tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
                 />
                 <YAxis
-                  yAxisId="toxicity"
-                  domain={[0, 100]}
+                  yAxisId="markout"
+                  domain={markoutDomain}
+                  tickFormatter={(value) => `${Number(value).toFixed(1)}`}
                   tickLine={false}
                   axisLine={false}
                   tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
@@ -450,9 +462,9 @@ export default function FlowTerminal() {
                 />
                 <Tooltip content={<ChartTooltip />} cursor={{ stroke: "hsl(var(--primary))", strokeOpacity: 0.16 }} />
                 <Line
-                  yAxisId="toxicity"
+                  yAxisId="markout"
                   type="linear"
-                  dataKey="toxic_flow_score"
+                  dataKey="markout_bps"
                   stroke="hsl(var(--primary))"
                   strokeOpacity={0.95}
                   strokeWidth={2.4}
