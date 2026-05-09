@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, lazy } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -18,37 +18,25 @@ const Protection = lazy(() => import("./pages/Protection"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
-const PAGE_LOADER_MS = 1500;
 
 function AppRoutes() {
   const location = useLocation();
   const routeKey = `${location.pathname}${location.search}`;
-  const [showPageLoader, setShowPageLoader] = useState(true);
-
-  useEffect(() => {
-    setShowPageLoader(true);
-    const timer = window.setTimeout(() => setShowPageLoader(false), PAGE_LOADER_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [routeKey]);
 
   return (
-    <>
-      <Suspense fallback={<IntelleumPageLoader key={`route-fallback-${routeKey}`} />}>
-        <Routes>
-          <Route path="/"               element={<Index />} />
-          <Route path="/dashboard"      element={<Dashboard />} />
-          <Route path="/protection"     element={<Protection />} />
-          <Route path="/flow-terminal"  element={<FlowTerminal />} />
-          <Route path="/intel-api"      element={<IntelApi />} />
-          <Route path="/history"        element={<History />} />
-          <Route path="/entities"       element={<EntityExplorer />} />
-          <Route path="/entities/:id"   element={<EntityDetail />} />
-          <Route path="*"               element={<NotFound />} />
-        </Routes>
-      </Suspense>
-      {showPageLoader && <IntelleumPageLoader key={`route-loader-${routeKey}`} />}
-    </>
+    <Suspense fallback={<IntelleumPageLoader key={`route-fallback-${routeKey}`} />}>
+      <Routes>
+        <Route path="/"               element={<Index />} />
+        <Route path="/dashboard"      element={<Dashboard />} />
+        <Route path="/protection"     element={<Protection />} />
+        <Route path="/flow-terminal"  element={<FlowTerminal />} />
+        <Route path="/intel-api"      element={<IntelApi />} />
+        <Route path="/history"        element={<History />} />
+        <Route path="/entities"       element={<EntityExplorer />} />
+        <Route path="/entities/:id"   element={<EntityDetail />} />
+        <Route path="*"               element={<NotFound />} />
+      </Routes>
+    </Suspense>
   );
 }
 

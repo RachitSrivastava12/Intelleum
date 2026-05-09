@@ -6,15 +6,14 @@ import { motion, useReducedMotion } from "framer-motion";
  *    0ms   dark grid shell appears
  *  150ms   scanner core locks into view
  *  280ms   diagnostic checks begin to light up
- *  420ms   progress rail sweeps across
- * 1500ms   route wrapper releases the next page
+ *  420ms   progress rail breathes while the page chunk resolves
  * --------------------------------------------------------- */
 
 const TIMING = {
   shellIn: 0.2,
   scannerSpin: 3.2,
   corePulse: 1.1,
-  progressSweep: 1.28,
+  progressSweep: 1.4,
   checkBaseDelay: 0.18,
   checkGap: 0.14,
 };
@@ -75,7 +74,7 @@ export default function IntelleumPageLoader() {
               <div className="absolute h-32 w-px bg-gradient-to-b from-transparent via-primary/70 to-transparent" />
               <div className="absolute h-px w-32 bg-gradient-to-r from-transparent via-primary/70 to-transparent" />
               <motion.div
-                className="glow-box flex h-24 w-24 items-center justify-center border border-primary/70 bg-primary/10 font-mono text-xs font-bold tracking-[0.24em] text-primary"
+                className="glow-box relative flex h-24 w-24 items-center justify-center overflow-hidden border border-primary/70 bg-primary/10"
                 animate={corePulse}
                 transition={{
                   duration: reduceMotion ? 0 : TIMING.corePulse,
@@ -83,7 +82,19 @@ export default function IntelleumPageLoader() {
                   ease: "easeInOut",
                 }}
               >
-                INT
+                <div className="absolute inset-0 bg-[radial-gradient(circle,hsl(var(--primary)/0.26),transparent_62%)]" />
+                <motion.img
+                  src="/intelleum-logo.png"
+                  alt=""
+                  aria-hidden="true"
+                  className="relative h-14 w-14 object-contain drop-shadow-[0_0_18px_hsl(var(--primary)/0.55)]"
+                  animate={reduceMotion ? { rotate: 0 } : { rotate: [0, -4, 4, 0] }}
+                  transition={{
+                    duration: reduceMotion ? 0 : 1.6,
+                    repeat: reduceMotion ? 0 : Infinity,
+                    ease: "easeInOut",
+                  }}
+                />
               </motion.div>
               <div className="absolute -bottom-2 border border-primary/30 bg-background/90 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.24em] text-primary">
                 Live Guard
@@ -106,16 +117,17 @@ export default function IntelleumPageLoader() {
                   <motion.div
                     className="h-full origin-left bg-primary"
                     initial={{ scaleX: 0.08 }}
-                    animate={{ scaleX: 1 }}
+                    animate={reduceMotion ? { scaleX: 1 } : { scaleX: [0.08, 1, 0.18] }}
                     transition={{
                       duration: reduceMotion ? 0 : TIMING.progressSweep,
+                      repeat: reduceMotion ? 0 : Infinity,
                       ease: [0.16, 1, 0.3, 1],
                     }}
                   />
                 </div>
                 <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
                   <span>Order flow</span>
-                  <span className="text-primary">Arming</span>
+                  <span className="text-primary">Loading</span>
                 </div>
               </div>
 

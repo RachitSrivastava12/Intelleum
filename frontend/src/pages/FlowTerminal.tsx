@@ -24,6 +24,7 @@ type ChartPoint = ToxicFlowCandle & {
 };
 type AttackMarkerPoint = {
   label: string;
+  price: number;
   toxic_flow_score: number;
   timestamp: string;
   event_type: ToxicFlowSurface["overlays"][number]["event_type"];
@@ -125,11 +126,20 @@ function expandSparseCandles(candles: ToxicFlowCandle[], interval: Interval): Ch
     const prevMs = new Date(prev.timestamp).getTime();
     const nextMs = new Date(next.timestamp).getTime();
     const progress = nextMs === prevMs ? 0 : clamp((timestampMs - prevMs) / (nextMs - prevMs), 0, 1);
-    const close = prev.close + (next.close - prev.close) * progress;
-    const open = index === 0 ? prev.open : prev.close + (next.close - prev.close) * Math.max(0, progress - 0.08);
-    const wave = Math.sin(index * 1.7) * Math.max(0.0001, Math.abs(next.close - prev.close) * 0.08);
-    const high = Math.max(open, close) + Math.abs(wave);
-    const low = Math.min(open, close) - Math.abs(wave);
+    const trend = prev.close + (next.close - prev.close) * progress;
+    const baseVolatility = Math.max(
+      Math.abs(next.close - prev.close),
+      Math.abs(prev.close) * 0.0012,
+      Math.abs(prev.markout_bps) * Math.abs(prev.close) * 0.00008,
+    );
+    const close = trend + Math.sin(index * 1.37) * baseVolatility * 0.26 + Math.cos(index * 0.61) * baseVolatility * 0.12;
+    const openTrend = prev.close + (next.close - prev.close) * clamp(progress - 0.06, 0, 1);
+    const open = index === 0
+      ? prev.open
+      : openTrend + Math.sin(index * 1.37 - 0.75) * baseVolatility * 0.22;
+    const wick = baseVolatility * (0.18 + Math.abs(Math.sin(index * 1.11)) * 0.16);
+    const high = Math.max(open, close) + wick;
+    const low = Math.max(0, Math.min(open, close) - wick);
     const volume = prev.volume_usd + (next.volume_usd - prev.volume_usd) * progress;
     const toxicity = prev.toxic_flow_score + (next.toxic_flow_score - prev.toxic_flow_score) * progress;
 
@@ -151,6 +161,18 @@ function expandSparseCandles(candles: ToxicFlowCandle[], interval: Interval): Ch
       event_type: null,
     }, true);
   });
+}
+
+function findNearestCandle(candles: ChartPoint[], timestamp: string) {
+  if (candles.length === 0) return null;
+  const eventTime = new Date(timestamp).getTime();
+  if (!Number.isFinite(eventTime)) return null;
+
+  return candles.reduce((nearest, candle) => {
+    const nearestDistance = Math.abs(new Date(nearest.timestamp).getTime() - eventTime);
+    const candleDistance = Math.abs(new Date(candle.timestamp).getTime() - eventTime);
+    return candleDistance < nearestDistance ? candle : nearest;
+  }, candles[0]);
 }
 
 function attackMarkerColor(eventType: string, severity?: string) {
@@ -276,8 +298,27 @@ function AttackMarkerShape(props: any) {
 function ChartTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
   const row = payload.find((item: any) => item?.payload?.open != null)?.payload as ToxicFlowCandle | undefined;
-  if (!row) return null;
   const attack = payload.find((item: any) => item?.payload?.loss_usd)?.payload as AttackMarkerPoint | undefined;
+
+  if (!row && attack) {
+    return (
+      <div className="border border-border bg-background/95 px-3 py-2 shadow-2xl backdrop-blur">
+        <div className="font-mono text-[11px] uppercase tracking-[0.14em] text-red-300">
+          {attack.event_type.replace(/_/g, " ")}
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-x-5 gap-y-1 font-mono text-[11px]">
+          <span className="text-muted-foreground">Time</span>
+          <span className="text-right text-foreground">{attack.label}</span>
+          <span className="text-muted-foreground">Loss</span>
+          <span className="text-right text-red-300">{formatUsd(attack.loss_usd)}</span>
+          <span className="text-muted-foreground">Confidence</span>
+          <span className="text-right text-primary">{attack.confidence.toFixed(0)}%</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!row) return null;
 
   return (
     <div className="border border-border bg-background/95 px-3 py-2 shadow-2xl backdrop-blur">
@@ -371,6 +412,32 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
   );
 }
 
+function ChartLoadingOverlay({ interval }: { interval: Interval }) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="pointer-events-none absolute inset-2 z-10 grid place-items-center border border-primary/20 bg-background/72 backdrop-blur-sm"
+    >
+      <span className="sr-only">Loading {interval} candles</span>
+      <div className="flex items-center gap-3 border border-border/80 bg-card/90 px-4 py-3 shadow-2xl">
+        <div className="relative grid h-10 w-10 place-items-center">
+          <div className="absolute inset-0 border border-primary/35 motion-safe:animate-spin" />
+          <img
+            src="/intelleum-logo.png"
+            alt=""
+            aria-hidden="true"
+            className="h-6 w-6 object-contain drop-shadow-[0_0_14px_hsl(var(--primary)/0.45)]"
+          />
+        </div>
+        <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+          Loading {interval} candles
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function FlowTerminal() {
   const [data, setData] = useState<ToxicFlowTerminal | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -380,6 +447,8 @@ export default function FlowTerminal() {
   const [leftWidth, setLeftWidth] = useState(DEFAULT_LEFT_WIDTH);
   const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH);
   const [resizeTarget, setResizeTarget] = useState<"left" | "right" | null>(null);
+  const [showRiskOverlay, setShowRiskOverlay] = useState(false);
+  const [showAttacks, setShowAttacks] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -419,7 +488,17 @@ export default function FlowTerminal() {
   const activeCandleIndex = useMemo(() => {
     if (chartData.length === 0) return -1;
     const selectedIndex = chartData.findIndex((candle) => candle.timestamp === selectedCandleTs);
-    return selectedIndex >= 0 ? selectedIndex : chartData.length - 1;
+    if (selectedIndex >= 0) return selectedIndex;
+    if (!selectedCandleTs) return chartData.length - 1;
+
+    const selectedTime = new Date(selectedCandleTs).getTime();
+    if (!Number.isFinite(selectedTime)) return chartData.length - 1;
+
+    return chartData.reduce((nearestIndex, candle, index) => {
+      const nearestDistance = Math.abs(new Date(chartData[nearestIndex].timestamp).getTime() - selectedTime);
+      const candleDistance = Math.abs(new Date(candle.timestamp).getTime() - selectedTime);
+      return candleDistance < nearestDistance ? index : nearestIndex;
+    }, 0);
   }, [chartData, selectedCandleTs]);
   const activeCandle = activeCandleIndex >= 0 ? chartData[activeCandleIndex] : null;
   const priceDomain = useMemo<[number, number]>(() => {
@@ -436,12 +515,14 @@ export default function FlowTerminal() {
     [chartData],
   );
   const attackMarkers = useMemo<AttackMarkerPoint[]>(() => {
+    const priceRange = Math.max(0.0001, priceDomain[1] - priceDomain[0]);
     return selected?.overlays
       .map((event) => {
-        const candle = chartData.find((entry) => entry.timestamp === event.timestamp);
+        const candle = findNearestCandle(chartData, event.timestamp);
         if (!candle) return null;
         return {
           label: candle.label,
+          price: Number(clamp(candle.high + priceRange * 0.018, priceDomain[0], priceDomain[1]).toFixed(5)),
           toxic_flow_score: candle.toxic_flow_score,
           timestamp: event.timestamp,
           event_type: event.event_type,
@@ -451,7 +532,7 @@ export default function FlowTerminal() {
         };
       })
       .filter((marker): marker is AttackMarkerPoint => Boolean(marker)) ?? [];
-  }, [chartData, selected?.overlays]);
+  }, [chartData, priceDomain, selected?.overlays]);
   const candleBarSize = chartData.length <= 24 ? 10 : 7;
   const volumeBarSize = chartData.length <= 24 ? 9 : 5;
   const rawCandleCount = selected?.candles.length ?? 0;
@@ -470,9 +551,16 @@ export default function FlowTerminal() {
     if (candle) setSelectedCandleTs(candle.timestamp);
   };
 
+  const selectCandleByTimestamp = (timestamp: string) => {
+    const candle = findNearestCandle(chartData, timestamp);
+    setSelectedCandleTs(candle?.timestamp ?? timestamp);
+  };
+
   const handleChartPointer = (state: any) => {
-    const candle = state?.activePayload?.find((item: any) => item?.payload)?.payload as ChartPoint | undefined;
-    if (candle?.timestamp) setSelectedCandleTs(candle.timestamp);
+    const candle = state?.activePayload?.find((item: any) => item?.payload?.open != null)?.payload as ChartPoint | undefined;
+    const marker = state?.activePayload?.find((item: any) => item?.payload?.timestamp)?.payload as AttackMarkerPoint | undefined;
+    const timestamp = candle?.timestamp ?? marker?.timestamp;
+    if (timestamp) selectCandleByTimestamp(timestamp);
   };
 
   const copyRouteKey = async () => {
@@ -606,24 +694,52 @@ export default function FlowTerminal() {
               </button>
             ))}
             <div className="mx-2 h-5 w-px bg-border" />
-            <span className="font-mono text-[12px] text-muted-foreground">Price</span>
-            <span className="font-mono text-[12px] text-primary">Toxicity</span>
+            <span className="flex min-h-10 items-center px-2 font-mono text-[12px] text-foreground">
+              Price candles
+            </span>
+            <button
+              type="button"
+              aria-pressed={showRiskOverlay}
+              onClick={() => setShowRiskOverlay((current) => !current)}
+              className={[
+                "min-h-10 px-3 font-mono text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                showRiskOverlay
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:bg-card hover:text-foreground",
+              ].join(" ")}
+            >
+              Risk overlay
+            </button>
+            <button
+              type="button"
+              aria-pressed={showAttacks}
+              onClick={() => setShowAttacks((current) => !current)}
+              className={[
+                "min-h-10 px-3 font-mono text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                showAttacks
+                  ? "bg-red-500/10 text-red-300"
+                  : "text-muted-foreground hover:bg-card hover:text-foreground",
+              ].join(" ")}
+            >
+              Attacks
+            </button>
             <ChartScrubber
               chartData={chartData}
               activeIndex={activeCandleIndex}
               onSelectIndex={selectCandleByIndex}
             />
-            <AttackLegend />
+            {showAttacks && <AttackLegend />}
             <span className="ml-auto hidden font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground md:block">
               Source: {data.source}
             </span>
           </div>
 
-          <div className="h-[calc(100vh-17.5rem)] min-h-[360px] border-b border-border/70 p-2">
+          <div className="relative h-[calc(100vh-17.5rem)] min-h-[360px] border-b border-border/70 p-2">
+            {loading && <ChartLoadingOverlay interval={interval} />}
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={chartData}
-                margin={{ top: 10, right: 10, bottom: 26, left: 0 }}
+                margin={{ top: 10, right: showRiskOverlay ? 10 : 0, bottom: 26, left: 4 }}
                 onClick={handleChartPointer}
                 onMouseMove={handleChartPointer}
               >
@@ -634,7 +750,6 @@ export default function FlowTerminal() {
                   tickLine={false}
                   axisLine={false}
                   tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
-                  label={{ value: "TIME", position: "insideBottom", offset: -8, fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
                 />
                 <YAxis
                   yAxisId="price"
@@ -645,15 +760,17 @@ export default function FlowTerminal() {
                   tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
                   width={58}
                 />
-                <YAxis
-                  yAxisId="risk"
-                  orientation="right"
-                  domain={[0, 100]}
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
-                  width={42}
-                />
+                {showRiskOverlay && (
+                  <YAxis
+                    yAxisId="risk"
+                    orientation="right"
+                    domain={[0, 100]}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
+                    width={42}
+                  />
+                )}
                 <YAxis yAxisId="volume" hide domain={[0, maxVolume * 4]} />
                 <Tooltip content={<ChartTooltip />} cursor={{ stroke: "hsl(var(--primary))", strokeOpacity: 0.16 }} />
                 <ReferenceLine
@@ -663,14 +780,16 @@ export default function FlowTerminal() {
                   strokeDasharray="3 3"
                   strokeOpacity={0.45}
                 />
-                <ReferenceLine
-                  yAxisId="risk"
-                  y={80}
-                  stroke="hsl(var(--destructive))"
-                  strokeDasharray="4 4"
-                  strokeOpacity={0.28}
-                />
-                {activeCandle && (
+                {showRiskOverlay && (
+                  <ReferenceLine
+                    yAxisId="risk"
+                    y={80}
+                    stroke="hsl(var(--destructive))"
+                    strokeDasharray="4 4"
+                    strokeOpacity={0.28}
+                  />
+                )}
+                {selectedCandleTs && activeCandle && (
                   <>
                     <ReferenceLine
                       xAxisId={0}
@@ -681,9 +800,9 @@ export default function FlowTerminal() {
                       strokeOpacity={0.32}
                     />
                     <ReferenceDot
-                      yAxisId="risk"
+                      yAxisId="price"
                       x={activeCandle.label}
-                      y={activeCandle.toxic_flow_score}
+                      y={activeCandle.close}
                       r={4}
                       fill="hsl(var(--primary))"
                       stroke="hsl(var(--background))"
@@ -694,33 +813,27 @@ export default function FlowTerminal() {
                 <Bar yAxisId="volume" dataKey="volume_usd" barSize={volumeBarSize} shape={(props: any) => <VolumeBar {...props} />} />
                 <Bar yAxisId="price" dataKey="wick" barSize={1} shape={(props: any) => <CandleWick {...props} />} />
                 <Bar yAxisId="price" dataKey="body" barSize={candleBarSize} shape={(props: any) => <CandleBody {...props} />} />
-                <Line
-                  yAxisId="price"
-                  type="monotone"
-                  dataKey="close"
-                  stroke="hsl(var(--foreground))"
-                  strokeOpacity={0.42}
-                  strokeWidth={1.2}
-                  dot={false}
-                  activeDot={false}
-                />
-                <Line
-                  yAxisId="risk"
-                  type="monotone"
-                  dataKey="toxic_flow_score"
-                  stroke="hsl(var(--primary))"
-                  strokeOpacity={0.76}
-                  strokeWidth={1.4}
-                  dot={false}
-                  activeDot={false}
-                />
-                <Scatter
-                  yAxisId="risk"
-                  data={attackMarkers}
-                  dataKey="toxic_flow_score"
-                  shape={(props: any) => <AttackMarkerShape {...props} />}
-                  isAnimationActive={false}
-                />
+                {showRiskOverlay && (
+                  <Line
+                    yAxisId="risk"
+                    type="monotone"
+                    dataKey="toxic_flow_score"
+                    stroke="hsl(var(--primary))"
+                    strokeOpacity={0.76}
+                    strokeWidth={1.4}
+                    dot={false}
+                    activeDot={false}
+                  />
+                )}
+                {showAttacks && (
+                  <Scatter
+                    yAxisId="price"
+                    data={attackMarkers}
+                    dataKey="price"
+                    shape={(props: any) => <AttackMarkerShape {...props} />}
+                    isAnimationActive={false}
+                  />
+                )}
                 <Brush
                   dataKey="label"
                   height={22}
@@ -736,7 +849,7 @@ export default function FlowTerminal() {
             </ResponsiveContainer>
           </div>
 
-          <EventTape selected={selected} activeCandle={activeCandle} onSelectCandle={setSelectedCandleTs} rawCandleCount={rawCandleCount} />
+          <EventTape selected={selected} activeCandle={activeCandle} onSelectCandle={selectCandleByTimestamp} rawCandleCount={rawCandleCount} />
         </section>
 
         <ResizeHandle
