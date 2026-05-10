@@ -844,11 +844,20 @@ function seedFromString(value: string) {
   return value.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
 }
 
-function terminalIntervalMs(interval: ToxicFlowTerminalRecord["interval"]) {
-  if (interval === "1h") return 60 * 60 * 1000;
-  if (interval === "15m") return 15 * 60 * 1000;
-  if (interval === "5m") return 5 * 60 * 1000;
-  return 60 * 1000;
+function terminalWindowConfig(interval: ToxicFlowTerminalRecord["interval"]) {
+  if (interval === "1h") return { windowMs: 60 * 60 * 1000, bucketCount: 120 };
+  if (interval === "15m") return { windowMs: 15 * 60 * 1000, bucketCount: 90 };
+  if (interval === "5m") return { windowMs: 5 * 60 * 1000, bucketCount: 60 };
+  return { windowMs: 60 * 1000, bucketCount: 60 };
+}
+
+function terminalBucketLabel(timestamp: string, interval: ToxicFlowTerminalRecord["interval"]) {
+  const options: Intl.DateTimeFormatOptions =
+    interval === "1m" || interval === "5m"
+      ? { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }
+      : { hour: "2-digit", minute: "2-digit", hour12: false };
+
+  return new Date(timestamp).toLocaleTimeString("en-US", options);
 }
 
 function pairLabelForRoute(route: RouteRiskRecord) {
@@ -881,8 +890,8 @@ function buildToxicFlowCandles(
   relatedAttacks: AttackRecord[],
   interval: ToxicFlowTerminalRecord["interval"],
 ): ToxicFlowCandleRecord[] {
-  const candleCount = interval === "1h" ? 24 : interval === "15m" ? 96 : interval === "5m" ? 288 : 360;
-  const intervalMs = terminalIntervalMs(interval);
+  const { windowMs, bucketCount } = terminalWindowConfig(interval);
+  const bucketMs = windowMs / bucketCount;
   const seed = seedFromString(route.route_key) % 31;
   const baseVolume = clamp(
     route.recommended_max_notional_usd * (5.5 + route.total_attacks * 1.15) +
@@ -892,8 +901,8 @@ function buildToxicFlowCandles(
   );
   let close = basePriceForRoute(route, routeIndex);
 
-  return Array.from({ length: candleCount }, (_, index) => {
-    const timestamp = new Date(Date.now() - (candleCount - 1 - index) * intervalMs).toISOString();
+  return Array.from({ length: bucketCount }, (_, index) => {
+    const timestamp = new Date(Date.now() - windowMs + index * bucketMs).toISOString();
     const wave = Math.sin((index + seed) * 0.42);
     const pulse = Math.max(0, Math.sin((index + seed) * 0.17));
     const incidentBoost = relatedAttacks.length > 0 && index % Math.max(9, 16 - Math.min(7, relatedAttacks.length)) === 0
@@ -914,7 +923,7 @@ function buildToxicFlowCandles(
 
     return {
       timestamp,
-      label: new Date(timestamp).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false }),
+      label: terminalBucketLabel(timestamp, interval),
       open: round(open, 6),
       high: round(Math.max(open, close) + spread * 0.58, 6),
       low: round(Math.max(0.000001, Math.min(open, close) - spread * 0.42), 6),

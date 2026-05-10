@@ -345,7 +345,7 @@ for (const row of regimes) {
       "Use this for internal trading/risk screens. Watch toxic_flow_score and prevented_loss_24h_usd to decide when to block, reroute, or cap orderflow.",
     inputs: [
       { name: "limit", type: "number", required: false, description: "Max route surfaces to return" },
-      { name: "interval", type: "enum", required: false, description: "1m | 5m | 15m | 1h candle interval" },
+      { name: "interval", type: "enum", required: false, description: "Rolling lookback window: 1m | 5m | 15m | 1h" },
     ],
     responseFields: [
       { name: "summary",                    type: "object", description: "Portfolio-level loss-at-risk and prevented loss" },

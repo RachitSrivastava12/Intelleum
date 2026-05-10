@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import SquareLoopLoader from "@/components/SquareLoopLoader";
 import { api, ToxicFlowCandle, ToxicFlowSurface, ToxicFlowTerminal } from "@/lib/api";
 
 type Interval = ToxicFlowTerminal["interval"];
@@ -94,6 +95,13 @@ function actionTone(action: ToxicFlowSurface["action"]) {
   return "border-primary/35 bg-primary/10 text-primary";
 }
 
+function intervalWindowLabel(interval: Interval) {
+  if (interval === "1m") return "last 1 minute";
+  if (interval === "5m") return "last 5 minutes";
+  if (interval === "15m") return "last 15 minutes";
+  return "last 1 hour";
+}
+
 function surfaceEventCount(surface: ToxicFlowSurface) {
   return surface.candles.reduce((sum, candle) => sum + candle.attack_count, 0);
 }
@@ -144,21 +152,10 @@ function ChartTooltip({ active, payload }: any) {
 
 function TerminalSkeleton() {
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <div className="flex h-12 items-center border-b border-border/70 bg-card px-4 font-mono text-[12px] uppercase tracking-[0.16em] text-primary">
-        Loading Flow Terminal
-        <span className="ml-3 h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
-      </div>
-      <div className="grid min-h-[calc(100vh-3rem)] lg:grid-cols-[260px_10px_minmax(0,1fr)_10px_316px]">
-        <div className="animate-pulse border-r border-border/70 bg-card/60" />
-        <div className="hidden animate-pulse bg-border/40 lg:block" />
-        <div className="p-4">
-          <div className="h-10 animate-pulse border border-border/70 bg-card/70" />
-          <div className="mt-4 h-[58vh] animate-pulse border border-border/70 bg-card/40" />
-        </div>
-        <div className="hidden animate-pulse bg-border/40 lg:block" />
-        <div className="hidden animate-pulse border-l border-border/70 bg-card/60 lg:block" />
-      </div>
+    <main className="relative grid min-h-screen place-items-center overflow-hidden bg-background text-foreground">
+      <div className="absolute inset-0 grid-overlay-subtle opacity-20" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,hsl(var(--primary)/0.16),transparent_30%)]" />
+      <SquareLoopLoader size="lg" />
     </main>
   );
 }
@@ -205,28 +202,14 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
   );
 }
 
-function ChartLoadingOverlay({ interval }: { interval: Interval }) {
+function ChartLoadingOverlay() {
   return (
     <div
       role="status"
       aria-live="polite"
       className="pointer-events-none absolute inset-2 z-10 grid place-items-center border border-primary/20 bg-background/72 backdrop-blur-sm"
     >
-      <span className="sr-only">Loading {interval} toxic flow signal</span>
-      <div className="flex items-center gap-3 border border-border/80 bg-card/90 px-4 py-3 shadow-2xl">
-        <div className="relative grid h-10 w-10 place-items-center">
-          <div className="absolute inset-0 border border-primary/35 motion-safe:animate-spin" />
-          <img
-            src="/intelleum-logo.png"
-            alt=""
-            aria-hidden="true"
-            className="h-6 w-6 object-contain drop-shadow-[0_0_14px_hsl(var(--primary)/0.45)]"
-          />
-        </div>
-        <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-          Loading {interval} signal
-        </div>
-      </div>
+      <SquareLoopLoader size="md" />
     </div>
   );
 }
@@ -576,6 +559,7 @@ export default function FlowTerminal() {
             <div className="mx-2 h-5 w-px bg-border" />
             <div className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
               <span className="text-primary">Observed detections</span>
+              <span>Window: {intervalWindowLabel(interval)}</span>
               <span>X axis: time</span>
               <span>Left Y: detected value USD</span>
               <span>Right Y: event count</span>
@@ -610,7 +594,7 @@ export default function FlowTerminal() {
               panStartRef.current ? "cursor-grabbing" : "cursor-grab",
             ].join(" ")}
           >
-            {loading && <ChartLoadingOverlay interval={interval} />}
+            {loading && <ChartLoadingOverlay />}
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={visibleChartData}
