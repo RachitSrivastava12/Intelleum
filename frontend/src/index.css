@@ -228,9 +228,105 @@
     }
   }
 
+  .intelleum-square-loader {
+    position: relative;
+    display: block;
+    isolation: isolate;
+  }
+
+  .intelleum-square-loader__halo,
+  .intelleum-square-loader__frame,
+  .intelleum-square-loader__track,
+  .intelleum-square-loader__runner,
+  .intelleum-square-loader__core {
+    position: absolute;
+    inset: 0;
+  }
+
+  .intelleum-square-loader__halo {
+    inset: -45%;
+    z-index: -1;
+    background:
+      radial-gradient(circle, hsl(var(--primary) / 0.34), transparent 58%),
+      radial-gradient(circle, hsl(var(--primary) / 0.18), transparent 72%);
+    filter: blur(14px);
+    animation: intelleumLoaderBreathe 1.6s ease-in-out infinite;
+  }
+
+  .intelleum-square-loader__frame {
+    border: 1px solid hsl(var(--primary) / 0.32);
+    background: hsl(var(--primary) / 0.055);
+    box-shadow:
+      0 0 26px hsl(var(--primary) / 0.22),
+      inset 0 0 18px hsl(var(--primary) / 0.08);
+  }
+
+  .intelleum-square-loader__track {
+    inset: 18%;
+    border: 1px solid hsl(var(--primary) / 0.18);
+    background: hsl(var(--background) / 0.45);
+  }
+
+  .intelleum-square-loader__runner {
+    border: 2px solid transparent;
+    border-right-color: hsl(var(--primary));
+    border-top-color: hsl(var(--primary));
+    box-shadow:
+      0 0 18px hsl(var(--primary) / 0.62),
+      inset 0 0 12px hsl(var(--primary) / 0.12);
+    animation: intelleumSquareLoop 0.95s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  }
+
+  .intelleum-square-loader__core {
+    inset: 39%;
+    background: hsl(var(--primary));
+    box-shadow: 0 0 18px hsl(var(--primary) / 0.85);
+    animation: intelleumCorePulse 0.95s ease-in-out infinite;
+  }
+
+  @keyframes intelleumSquareLoop {
+    0% {
+      opacity: 0.75;
+      transform: rotate(0deg) scale(0.96);
+    }
+    50% {
+      opacity: 1;
+      transform: rotate(180deg) scale(1.04);
+    }
+    100% {
+      opacity: 0.75;
+      transform: rotate(360deg) scale(0.96);
+    }
+  }
+
+  @keyframes intelleumCorePulse {
+    0%, 100% {
+      opacity: 0.6;
+      transform: scale(0.72);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes intelleumLoaderBreathe {
+    0%, 100% {
+      opacity: 0.55;
+      transform: scale(0.92);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.08);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .scanline::after,
-    .pulse-glow {
+    .pulse-glow,
+    .intelleum-square-loader__halo,
+    .intelleum-square-loader__runner,
+    .intelleum-square-loader__core {
       animation: none;
     }
 

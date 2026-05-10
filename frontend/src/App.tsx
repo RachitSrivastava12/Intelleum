@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -18,6 +18,20 @@ const Protection = lazy(() => import("./pages/Protection"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
+const ROUTE_LOADER_MS = 900;
+
+function RouteTransitionLoader() {
+  const location = useLocation();
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    setVisible(true);
+    const timer = window.setTimeout(() => setVisible(false), ROUTE_LOADER_MS);
+    return () => window.clearTimeout(timer);
+  }, [location.pathname, location.search]);
+
+  return visible ? <IntelleumPageLoader /> : null;
+}
 
 function AppRoutes() {
   const location = useLocation();
@@ -47,6 +61,7 @@ const App = () => (
       <Sonner />
       <Analytics />
       <BrowserRouter>
+        <RouteTransitionLoader />
         <AppRoutes />
       </BrowserRouter>
     </TooltipProvider>

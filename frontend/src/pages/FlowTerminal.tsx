@@ -135,7 +135,7 @@ function ChartTooltip({ active, payload }: any) {
     <div className="border border-border bg-background/95 px-3 py-2 shadow-2xl backdrop-blur">
       <div className="font-mono text-[11px] uppercase tracking-[0.14em] text-foreground">{row.label}</div>
       <div className="mt-2 grid grid-cols-2 gap-x-5 gap-y-1 font-mono text-[11px]">
-        <span className="text-muted-foreground">Observed value</span>
+        <span className="text-muted-foreground">Detected value</span>
         <span className="text-right text-red-300">{formatUsd(row.loss_at_risk_usd)}</span>
         <span className="text-muted-foreground">Prevented</span>
         <span className="text-right text-primary">{formatUsd(row.prevented_loss_usd)}</span>
@@ -532,7 +532,7 @@ export default function FlowTerminal() {
 
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-[12px]">
               <TapeValue label="T" value={activeCandle?.label ?? latest?.label ?? "Live"} tone="accent" />
-              <TapeValue label="Visible value" value={formatUsd(visibleObservedValueUsd)} tone={visibleObservedValueUsd > 0 ? "bad" : undefined} />
+              <TapeValue label="Detected value" value={formatUsd(visibleObservedValueUsd)} tone={visibleObservedValueUsd > 0 ? "bad" : undefined} />
               <TapeValue label="Preventable" value={formatUsd(selected.prevented_loss_24h_usd)} tone="accent" />
               <TapeValue label="Event buckets" value={`${visibleEventBucketCount}/${visibleChartData.length}`} tone={visibleEventBucketCount > 0 ? "accent" : undefined} />
               <TapeValue label="Events" value={String(visibleTotalEventCount)} tone={visibleTotalEventCount > 0 ? "bad" : undefined} />
@@ -561,8 +561,8 @@ export default function FlowTerminal() {
               <span className="text-primary">Observed detections</span>
               <span>Window: {intervalWindowLabel(interval)}</span>
               <span>X axis: time</span>
-              <span>Left Y: detected value USD</span>
-              <span>Right Y: event count</span>
+              <span className="text-red-300">Red bars: detected value USD</span>
+              <span className="text-primary">Blue line: event count</span>
               <span className={isQuietWindow ? "text-yellow-300" : "text-primary"}>
                 Event buckets: {visibleEventBucketCount}/{visibleChartData.length}
               </span>
@@ -825,7 +825,7 @@ function Inspector({ selected, activeCandle }: { selected: ToxicFlowSurface; act
       </div>
 
       <div className="divide-y divide-border/70 border-b border-border/70 font-mono">
-        <StatRow label="Observed value" value={formatUsd(observedValue)} tone={observedValue > 0 ? "bad" : undefined} />
+        <StatRow label="Detected value" value={formatUsd(observedValue)} tone={observedValue > 0 ? "bad" : undefined} />
         <StatRow label="Preventable" value={formatUsd(selected.prevented_loss_24h_usd)} tone="accent" />
         <StatRow label="Events" value={String(selectedEvents)} tone={selectedEvents > 0 ? "bad" : undefined} />
         <StatRow label="Swap volume" value={formatUsd(selected.volume_24h_usd)} />
@@ -840,7 +840,7 @@ function Inspector({ selected, activeCandle }: { selected: ToxicFlowSurface; act
             <span className="text-primary">{activeCandle.label}</span>
           </div>
           <StatRow label="Events" value={String(activeCandle.attack_count)} />
-          <StatRow label="Observed value" value={formatUsd(activeCandle.loss_at_risk_usd)} tone={activeCandle.loss_at_risk_usd > 0 ? "bad" : undefined} />
+          <StatRow label="Detected value" value={formatUsd(activeCandle.loss_at_risk_usd)} tone={activeCandle.loss_at_risk_usd > 0 ? "bad" : undefined} />
           <StatRow label="Preventable" value={formatUsd(activeCandle.prevented_loss_usd)} tone="accent" />
           <StatRow label="Observed bps" value={`${activeCandle.markout_bps.toFixed(2)} bps`} />
           <StatRow label="Bucket signal" value={`${activeCandle.toxic_flow_score.toFixed(1)} / 100`} tone={activeCandle.toxic_flow_score >= 75 ? "bad" : "accent"} />
