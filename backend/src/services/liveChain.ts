@@ -581,7 +581,7 @@ interface ToxicFlowSurfaceRecord {
 interface ToxicFlowTerminalRecord {
   generated_at: string;
   source: "fallback" | "chain";
-  interval: "5m" | "15m" | "1h";
+  interval: "1m" | "5m" | "15m" | "1h";
   summary: {
     surfaces_tracked: number;
     routes_in_block: number;
@@ -779,7 +779,8 @@ function seedFromString(value: string) {
 function terminalIntervalMs(interval: ToxicFlowTerminalRecord["interval"]) {
   if (interval === "1h") return 60 * 60 * 1000;
   if (interval === "15m") return 15 * 60 * 1000;
-  return 5 * 60 * 1000;
+  if (interval === "5m") return 5 * 60 * 1000;
+  return 60 * 1000;
 }
 
 function pairLabelForRoute(route: ApiRouteRisk) {
@@ -819,7 +820,7 @@ function buildToxicFlowCandles(
   interval: ToxicFlowTerminalRecord["interval"],
   anchorTimeMs = Date.now(),
 ): ToxicFlowCandleRecord[] {
-  const candleCount = interval === "1h" ? 24 : interval === "15m" ? 96 : 288;
+  const candleCount = interval === "1h" ? 24 : interval === "15m" ? 96 : interval === "5m" ? 288 : 360;
   const intervalMs = terminalIntervalMs(interval);
   let close = basePriceForRoute(route, routeIndex);
   const windowStart = anchorTimeMs - (candleCount - 1) * intervalMs;
@@ -939,7 +940,7 @@ function buildToxicFlowSurface(
     .sort((a, b) => new Date(b.block_time).getTime() - new Date(a.block_time).getTime());
   const relatedSwaps = sourceSwaps.filter((swap) => swapMatchesTerminalRoute(route, routeSurface, swap));
   const intervalMs = terminalIntervalMs(interval);
-  const candleCount = interval === "1h" ? 24 : interval === "15m" ? 96 : 288;
+  const candleCount = interval === "1h" ? 24 : interval === "15m" ? 96 : interval === "5m" ? 288 : 360;
   const now = Date.now();
   const windowStart = now - (candleCount - 1) * intervalMs;
   const latestAttackTime = latestFiniteTime(relatedAttacks.map((attack) => new Date(attack.block_time).getTime()));
@@ -4518,9 +4519,12 @@ class LiveChainService {
 
   getToxicFlowTerminal(
     limit = 8,
-    interval: ToxicFlowTerminalRecord["interval"] = "5m",
+    interval: ToxicFlowTerminalRecord["interval"] = "1m",
   ): ToxicFlowTerminalRecord {
-    const normalizedInterval = interval === "1h" || interval === "15m" ? interval : "5m";
+    const normalizedInterval =
+      interval === "1h" || interval === "15m" || interval === "5m" || interval === "1m"
+        ? interval
+        : "1m";
     const surfaces = this.getRouteRisks(Math.max(limit, 8))
       .slice(0, limit)
       .map((route, index) => buildToxicFlowSurface(route, index, this.attacks, this.recentSwaps, normalizedInterval));

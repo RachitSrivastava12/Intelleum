@@ -185,7 +185,7 @@ router.get("/routes/policies", (req: Request, res: Response) => {
 
 router.get("/terminal/toxic-flow", (req: Request, res: Response) => {
   const limit = Number.parseInt((req.query.limit as string) ?? "8", 10) || 8;
-  const interval = ((req.query.interval as string) ?? "5m") as "5m" | "15m" | "1h";
+  const interval = ((req.query.interval as string) ?? "1m") as "1m" | "5m" | "15m" | "1h";
   res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
   res.json(
     liveChainService.hasLiveData()

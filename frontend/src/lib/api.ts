@@ -281,7 +281,8 @@ function fallbackPairLabel(route: RouteRisk) {
 function terminalIntervalMs(interval: ToxicFlowTerminal["interval"]) {
   if (interval === "1h") return 60 * 60 * 1000;
   if (interval === "15m") return 15 * 60 * 1000;
-  return 5 * 60 * 1000;
+  if (interval === "5m") return 5 * 60 * 1000;
+  return 60 * 1000;
 }
 
 function terminalActionPreventRate(action: RouteRisk["policy_action"]) {
@@ -305,7 +306,7 @@ function buildFallbackToxicFlowCandles(
   index: number,
   interval: ToxicFlowTerminal["interval"],
 ): ToxicFlowCandle[] {
-  const candleCount = interval === "1h" ? 24 : interval === "15m" ? 96 : 288;
+  const candleCount = interval === "1h" ? 24 : interval === "15m" ? 96 : interval === "5m" ? 288 : 360;
   const intervalMs = terminalIntervalMs(interval);
   const seed = seedFromString(route.route_key) % 31;
   const baseVolume = clamp(
@@ -397,8 +398,11 @@ function buildFallbackToxicFlowSurface(route: RouteRisk, index: number, interval
   };
 }
 
-function buildFallbackToxicFlowTerminal(limit = 8, interval: ToxicFlowTerminal["interval"] = "5m"): ToxicFlowTerminal {
-  const normalizedInterval = interval === "1h" || interval === "15m" ? interval : "5m";
+function buildFallbackToxicFlowTerminal(limit = 8, interval: ToxicFlowTerminal["interval"] = "1m"): ToxicFlowTerminal {
+  const normalizedInterval =
+    interval === "1h" || interval === "15m" || interval === "5m" || interval === "1m"
+      ? interval
+      : "1m";
   const surfaces = getDemoRouteRisks(Math.max(limit, 8))
     .slice(0, limit)
     .map((route, index) => buildFallbackToxicFlowSurface(route, index, normalizedInterval));
@@ -678,7 +682,7 @@ function getFallback<T>(path: string, params?: Record<string, string>): T | unde
   if (path === "/terminal/toxic-flow") {
     return buildFallbackToxicFlowTerminal(
       Number.parseInt(params?.limit ?? "8", 10) || 8,
-      (params?.interval as ToxicFlowTerminal["interval"]) ?? "5m",
+      (params?.interval as ToxicFlowTerminal["interval"]) ?? "1m",
     ) as T;
   }
   if (path === "/integrations/live-alerts") {
@@ -1469,7 +1473,7 @@ export interface ToxicFlowSurface {
 export interface ToxicFlowTerminal {
   generated_at: string;
   source: "fallback" | "chain";
-  interval: "5m" | "15m" | "1h";
+  interval: "1m" | "5m" | "15m" | "1h";
   summary: {
     surfaces_tracked: number;
     routes_in_block: number;
@@ -1512,7 +1516,7 @@ export const api = {
     get<RoutePolicy[]>("/routes/policies", { limit: String(limit ?? 20), objective: objective ?? "protect_users" }),
 
   toxicFlowTerminal: (limit?: number, interval?: ToxicFlowTerminal["interval"]) =>
-    get<ToxicFlowTerminal>("/terminal/toxic-flow", { limit: String(limit ?? 8), interval: interval ?? "5m" }),
+    get<ToxicFlowTerminal>("/terminal/toxic-flow", { limit: String(limit ?? 8), interval: interval ?? "1m" }),
 
   evaluateRoute: (payload: RouteEvaluationRequest) =>
     post<RouteEvaluation>("/routes/evaluate", payload),

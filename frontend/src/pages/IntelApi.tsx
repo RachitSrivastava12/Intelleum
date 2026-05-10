@@ -345,7 +345,7 @@ for (const row of regimes) {
       "Use this for internal trading/risk screens. Watch toxic_flow_score and prevented_loss_24h_usd to decide when to block, reroute, or cap orderflow.",
     inputs: [
       { name: "limit", type: "number", required: false, description: "Max route surfaces to return" },
-      { name: "interval", type: "enum", required: false, description: "5m | 15m | 1h candle interval" },
+      { name: "interval", type: "enum", required: false, description: "1m | 5m | 15m | 1h candle interval" },
     ],
     responseFields: [
       { name: "summary",                    type: "object", description: "Portfolio-level loss-at-risk and prevented loss" },
@@ -356,9 +356,9 @@ for (const row of regimes) {
       { name: "overlays",                   type: "array",  description: "Attack events overlaid on the chart" },
     ],
     teams: buyerTeams.filter((t) => ["Jupiter", "Orca", "Kamino", "Keyrock"].includes(t.name)),
-    curl: `curl "${BASE_URL}/api/terminal/toxic-flow?limit=8&interval=5m" \\
+    curl: `curl "${BASE_URL}/api/terminal/toxic-flow?limit=8&interval=1m" \\
   -H "x-api-key: YOUR_API_KEY"`,
-    typescript: `const terminal = await fetch("${BASE_URL}/api/terminal/toxic-flow?limit=8&interval=5m", {
+    typescript: `const terminal = await fetch("${BASE_URL}/api/terminal/toxic-flow?limit=8&interval=1m", {
   headers: { "x-api-key": process.env.INTELLEUM_API_KEY! },
 }).then((r) => r.json());
 

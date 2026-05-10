@@ -1,4 +1,4 @@
-import { CSSProperties, type PointerEvent, type WheelEvent, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Bar,
@@ -16,7 +16,7 @@ type Interval = ToxicFlowTerminal["interval"];
 type ChartPoint = ToxicFlowCandle;
 type ViewRange = { start: number; end: number };
 
-const intervals: Interval[] = ["5m", "15m", "1h"];
+const intervals: Interval[] = ["1m", "5m", "15m", "1h"];
 const TERMINAL_ROUTE_LIMIT = 50;
 const FULL_VIEW_RANGE: ViewRange = { start: 0, end: 1 };
 const MIN_VISIBLE_POINTS = 12;
@@ -236,7 +236,7 @@ export default function FlowTerminal() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedCandleTs, setSelectedCandleTs] = useState<string | null>(null);
   const [copiedRoute, setCopiedRoute] = useState(false);
-  const [interval, setSelectedInterval] = useState<Interval>("5m");
+  const [interval, setSelectedInterval] = useState<Interval>("1m");
   const [leftWidth, setLeftWidth] = useState(DEFAULT_LEFT_WIDTH);
   const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH);
   const [resizeTarget, setResizeTarget] = useState<"left" | "right" | null>(null);
@@ -385,7 +385,7 @@ export default function FlowTerminal() {
     setRightWidth(clamp(value, MIN_RIGHT_WIDTH, rightMax()));
   };
 
-  const zoomChartAt = (clientX: number, deltaY: number) => {
+  const zoomChartAt = useCallback((clientX: number, deltaY: number) => {
     const viewport = chartViewportRef.current;
     if (!viewport || chartData.length <= MIN_VISIBLE_POINTS) return;
 
@@ -406,9 +406,9 @@ export default function FlowTerminal() {
         minViewSpan,
       );
     });
-  };
+  }, [chartData.length, minViewSpan]);
 
-  const panChartByPixels = (deltaPixels: number, baseRange = viewRangeRef.current) => {
+  const panChartByPixels = useCallback((deltaPixels: number, baseRange = viewRangeRef.current) => {
     const viewport = chartViewportRef.current;
     if (!viewport || chartData.length <= MIN_VISIBLE_POINTS) return;
 
@@ -416,22 +416,7 @@ export default function FlowTerminal() {
     const span = baseRange.end - baseRange.start;
     const delta = (deltaPixels / Math.max(1, rect.width)) * span;
     setViewRange(clampViewRange({ start: baseRange.start + delta, end: baseRange.end + delta }, minViewSpan));
-  };
-
-  const handleChartWheel = (event: WheelEvent<HTMLDivElement>) => {
-    if (chartData.length <= MIN_VISIBLE_POINTS) return;
-
-    if (event.ctrlKey || event.metaKey) {
-      event.preventDefault();
-      zoomChartAt(event.clientX, event.deltaY);
-      return;
-    }
-
-    if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey) {
-      event.preventDefault();
-      panChartByPixels(event.shiftKey ? event.deltaY : event.deltaX);
-    }
-  };
+  }, [chartData.length, minViewSpan]);
 
   const handleChartPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || chartData.length <= MIN_VISIBLE_POINTS) return;
@@ -447,6 +432,38 @@ export default function FlowTerminal() {
   const stopChartPan = () => {
     panStartRef.current = null;
   };
+
+  useEffect(() => {
+    const viewport = chartViewportRef.current;
+    if (!viewport) return;
+
+    const handleNativeWheel = (event: globalThis.WheelEvent) => {
+      if (chartData.length <= MIN_VISIBLE_POINTS) return;
+
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        zoomChartAt(event.clientX, event.deltaY);
+        return;
+      }
+
+      if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey) {
+        event.preventDefault();
+        panChartByPixels(event.shiftKey ? event.deltaY : event.deltaX);
+      }
+    };
+    const preventBrowserZoom = (event: Event) => event.preventDefault();
+    const listenerOptions = { passive: false } as AddEventListenerOptions;
+
+    viewport.addEventListener("wheel", handleNativeWheel, listenerOptions);
+    viewport.addEventListener("gesturestart", preventBrowserZoom, listenerOptions);
+    viewport.addEventListener("gesturechange", preventBrowserZoom, listenerOptions);
+
+    return () => {
+      viewport.removeEventListener("wheel", handleNativeWheel);
+      viewport.removeEventListener("gesturestart", preventBrowserZoom);
+      viewport.removeEventListener("gesturechange", preventBrowserZoom);
+    };
+  }, [chartData.length, panChartByPixels, zoomChartAt]);
 
   useEffect(() => {
     if (!resizeTarget) return;
@@ -584,7 +601,6 @@ export default function FlowTerminal() {
 
           <div
             ref={chartViewportRef}
-            onWheel={handleChartWheel}
             onPointerDown={handleChartPointerDown}
             onPointerMove={handleChartPointerMove}
             onPointerUp={stopChartPan}
