@@ -115,8 +115,8 @@ export default function Hero() {
               >
                 Open Live Demo
               </Link>
-              
-              
+
+
               <Link
                 to="/flow-terminal"
                 className="border border-primary bg-primary px-7 py-4 font-mono text-xs uppercase tracking-[0.22em] text-background transition-colors hover:bg-primary/90 "

@@ -421,6 +421,8 @@ interface LiveStatus {
   attacksDetected: number;
   lastSyncAt: string | null;
   lastError: string | null;
+  lastBlockProcessingMs: number | null;
+  avgBlockProcessingMs: number | null;
   recentMetrics: DetectionMetrics;
   recentAttackPreview: Array<{
     attack_type: AttackType;
@@ -596,6 +598,7 @@ interface ToxicFlowTerminalRecord {
 const MAX_ATTACKS = 500;
 const MAX_SWAP_HISTORY = 2000;
 const MAX_LIQUIDITY_HISTORY = 2000;
+const MAX_WALLET_VALUE_EDGES = 4000;
 const COMPUTE_BUDGET_PROGRAM = "ComputeBudget111111111111111111111111111111";
 const PARSE_BATCH_SIZE = 100;
 const MAX_PARSE_CANDIDATES_PER_SLOT = 240;
@@ -1127,6 +1130,16 @@ interface EntityGroupContext {
   groups: Array<{ id: string; label: string; wallets: string[] }>;
 }
 
+interface WalletValueEdge {
+  signature: string;
+  slot: number;
+  block_time: string;
+  from_wallet: string;
+  to_wallet: string;
+  mint: string;
+  value_usd: number;
+}
+
 type AttackQuality = NonNullable<ApiAttack["attack_quality"]>;
 
 class LiveChainService {
@@ -1141,6 +1154,8 @@ class LiveChainService {
   private lastError: string | null = null;
   private attacksDetected = 0;
   private blocksProcessed = 0;
+  private lastBlockProcessingMs: number | null = null;
+  private avgBlockProcessingMs: number | null = null;
   private nextId = 1;
   private attacks: ApiAttack[] = [];
   private attackKeys = new Set<string>();
@@ -1149,6 +1164,7 @@ class LiveChainService {
   private externalStreamActive = false;
   private recentSwaps: ParsedSwapCandidate[] = [];
   private recentLiquidityLegs: LiquidityLegCandidate[] = [];
+  private recentWalletValueEdges: WalletValueEdge[] = [];
   private recentSlotTxs: TxFlow[] = [];
   private lastSnapshotPersistAt = 0;
   private recentMetrics: DetectionMetrics = {
@@ -1374,6 +1390,7 @@ class LiveChainService {
   private async processBlock(slot: number, block: any) {
     if (!block?.transactions?.length) return;
 
+    const _blockStart = Date.now();
     const leaderIdentity =
       block.rewards?.find((reward: any) => reward.rewardType === "Fee")?.pubkey ?? "unknown";
     const blockTime = new Date((block.blockTime ?? Math.floor(Date.now() / 1000)) * 1000);
@@ -1388,6 +1405,7 @@ class LiveChainService {
       if (!flowsByTx.has(flow.tx_sig)) flowsByTx.set(flow.tx_sig, []);
       flowsByTx.get(flow.tx_sig)!.push(flow);
     }
+    this.observeWalletValueEdges(flowsByTx, blockTime, slot);
 
     const txRows = block.transactions
       .map((tx: any, index: number) => {
@@ -1585,6 +1603,10 @@ class LiveChainService {
     ]);
     this.recentMetrics.detectedAttacks = detected.length;
 
+    this.lastBlockProcessingMs = Date.now() - _blockStart;
+    this.avgBlockProcessingMs = this.avgBlockProcessingMs == null
+      ? this.lastBlockProcessingMs
+      : Math.round(this.avgBlockProcessingMs * 0.85 + this.lastBlockProcessingMs * 0.15);
     this.blocksProcessed += 1;
 
     if (detected.length === 0) {
@@ -2203,6 +2225,122 @@ class LiveChainService {
     return "likely";
   }
 
+  private observeWalletValueEdges(
+    flowsByTx: Map<string, TxFlow["flows"]>,
+    blockTime: Date,
+    slot: number,
+  ) {
+    const edges: WalletValueEdge[] = [];
+
+    for (const [signature, txFlows] of flowsByTx) {
+      const hasMarketProgram = txFlows.some((flow) => flow.program_id && (isDex(flow.program_id) || isLending(flow.program_id)));
+      if (hasMarketProgram) continue;
+
+      const byMint = new Map<string, TxFlow["flows"]>();
+      for (const flow of txFlows) {
+        if (!STABLE_AND_MAJOR_MINTS.has(flow.mint)) continue;
+        if (flow.delta_usd == null || Math.abs(flow.delta_usd) < 10) continue;
+        if (!byMint.has(flow.mint)) byMint.set(flow.mint, []);
+        byMint.get(flow.mint)!.push(flow);
+      }
+
+      for (const [mint, mintFlows] of byMint) {
+        const debits = mintFlows
+          .filter((flow) => flow.delta_usd !== null && flow.delta_usd < 0)
+          .sort((a, b) => Math.abs(b.delta_usd ?? 0) - Math.abs(a.delta_usd ?? 0));
+        const credits = mintFlows
+          .filter((flow) => flow.delta_usd !== null && flow.delta_usd > 0)
+          .sort((a, b) => Math.abs(b.delta_usd ?? 0) - Math.abs(a.delta_usd ?? 0));
+
+        if (debits.length === 0 || credits.length === 0) continue;
+        if (debits.length > 4 || credits.length > 4) continue;
+
+        const usedCredits = new Set<number>();
+        for (const debit of debits) {
+          const debitValue = Math.abs(debit.delta_usd ?? 0);
+          const creditIndex = credits.findIndex((credit, index) => {
+            if (usedCredits.has(index) || credit.wallet === debit.wallet) return false;
+            const creditValue = Math.abs(credit.delta_usd ?? 0);
+            const ratio = creditValue / Math.max(1, debitValue);
+            return ratio >= 0.75 && ratio <= 1.25;
+          });
+          if (creditIndex < 0) continue;
+
+          const credit = credits[creditIndex];
+          usedCredits.add(creditIndex);
+          const valueUsd = Math.min(debitValue, Math.abs(credit.delta_usd ?? 0));
+          if (valueUsd < 10) continue;
+
+          edges.push({
+            signature,
+            slot,
+            block_time: blockTime.toISOString(),
+            from_wallet: debit.wallet,
+            to_wallet: credit.wallet,
+            mint,
+            value_usd: round(valueUsd, 2),
+          });
+        }
+      }
+    }
+
+    if (edges.length === 0) return;
+    this.recentWalletValueEdges.unshift(...edges);
+    if (this.recentWalletValueEdges.length > MAX_WALLET_VALUE_EDGES) {
+      this.recentWalletValueEdges.length = MAX_WALLET_VALUE_EDGES;
+    }
+  }
+
+  private hasWalletGraphEntityEvidence(a: string, b: string) {
+    const directEdges = this.recentWalletValueEdges.filter(
+      (edge) =>
+        (edge.from_wallet === a && edge.to_wallet === b) ||
+        (edge.from_wallet === b && edge.to_wallet === a),
+    );
+    const directValue = directEdges.reduce((sum, edge) => sum + edge.value_usd, 0);
+    if (directEdges.length >= 2 || directValue >= 250) return true;
+
+    const fundingBySource = new Map<string, { toA: number; toB: number; valueA: number; valueB: number }>();
+    const sinkByTarget = new Map<string, { fromA: number; fromB: number; valueA: number; valueB: number }>();
+
+    for (const edge of this.recentWalletValueEdges) {
+      if (edge.from_wallet !== a && edge.from_wallet !== b && (edge.to_wallet === a || edge.to_wallet === b)) {
+        const item = fundingBySource.get(edge.from_wallet) ?? { toA: 0, toB: 0, valueA: 0, valueB: 0 };
+        if (edge.to_wallet === a) {
+          item.toA += 1;
+          item.valueA += edge.value_usd;
+        }
+        if (edge.to_wallet === b) {
+          item.toB += 1;
+          item.valueB += edge.value_usd;
+        }
+        fundingBySource.set(edge.from_wallet, item);
+      }
+
+      if (edge.to_wallet !== a && edge.to_wallet !== b && (edge.from_wallet === a || edge.from_wallet === b)) {
+        const item = sinkByTarget.get(edge.to_wallet) ?? { fromA: 0, fromB: 0, valueA: 0, valueB: 0 };
+        if (edge.from_wallet === a) {
+          item.fromA += 1;
+          item.valueA += edge.value_usd;
+        }
+        if (edge.from_wallet === b) {
+          item.fromB += 1;
+          item.valueB += edge.value_usd;
+        }
+        sinkByTarget.set(edge.to_wallet, item);
+      }
+    }
+
+    const hasSharedFunder = [...fundingBySource.values()].some(
+      (item) => item.toA > 0 && item.toB > 0 && item.valueA + item.valueB >= 250,
+    );
+    const hasSharedSink = [...sinkByTarget.values()].some(
+      (item) => item.fromA > 0 && item.fromB > 0 && item.valueA + item.valueB >= 250,
+    );
+
+    return hasSharedFunder || hasSharedSink;
+  }
+
   private buildEntityContext(attacks = this.attacks): EntityGroupContext {
     const wallets = [...new Set(attacks.map((attack) => attack.attacker_wallet))];
     const parent = new Map<string, string>();
@@ -2226,89 +2364,22 @@ class LiveChainService {
 
     for (const wallet of wallets) parent.set(wallet, wallet);
 
-    const profileByWallet = new Map<
-      string,
-      { pools: Set<string>; validators: Set<string>; strategies: Set<string>; tokens: Set<string>; attacks: ApiAttack[] }
-    >();
-
-    for (const attack of attacks) {
-      if (!profileByWallet.has(attack.attacker_wallet)) {
-        profileByWallet.set(attack.attacker_wallet, {
-          pools: new Set(),
-          validators: new Set(),
-          strategies: new Set(),
-          tokens: new Set(),
-          attacks: [],
-        });
-      }
-      const profile = profileByWallet.get(attack.attacker_wallet)!;
-      if (attack.pool_address && attack.pool_address !== "unknown") {
-        profile.pools.add(this.canonicalEntitySurface(attack.pool_address));
-      }
-      if (attack.validator) profile.validators.add(attack.validator);
-      if (attack.attack_type) profile.strategies.add(attack.attack_type);
-      if (attack.token_mint) profile.tokens.add(attack.token_mint);
-      profile.attacks.push(attack);
-    }
-
     for (let i = 0; i < wallets.length; i++) {
       for (let j = i + 1; j < wallets.length; j++) {
         const a = wallets[i];
         const b = wallets[j];
-        const profileA = profileByWallet.get(a);
-        const profileB = profileByWallet.get(b);
-        if (!profileA || !profileB) continue;
+        const sharedTxEvidence = attacks.some((attackA) => {
+          if (attackA.attacker_wallet !== a) return false;
+          const txsA = [attackA.frontrun_tx, attackA.backrun_tx].filter(Boolean);
+          if (txsA.length === 0) return false;
+          return attacks.some((attackB) => {
+            if (attackB.attacker_wallet !== b) return false;
+            const txsB = new Set([attackB.frontrun_tx, attackB.backrun_tx].filter(Boolean));
+            return txsA.some((tx) => txsB.has(tx));
+          });
+        });
 
-        let exactWindowHits = 0;
-        let repeatedBundleLaneHits = 0;
-        let sharedVictims = 0;
-        let sharedTxEvidence = 0;
-        const matchedSlots = new Set<number>();
-
-        for (const attackA of profileA.attacks) {
-          for (const attackB of profileB.attacks) {
-            const sameStrategy = attackA.attack_type === attackB.attack_type;
-            const preciseSurface =
-              attackA.surface_precision === "exact-pool" &&
-              attackB.surface_precision === "exact-pool";
-            const sameSurface =
-              preciseSurface &&
-              attackA.pool_address !== "unknown" &&
-              attackB.pool_address !== "unknown" &&
-              attackA.pool_address === attackB.pool_address;
-            const sameToken = !attackA.token_mint || !attackB.token_mint || attackA.token_mint === attackB.token_mint;
-            const slotDistance = Math.abs(attackA.slot - attackB.slot);
-
-            if (attackA.victim_wallet && attackA.victim_wallet === attackB.victim_wallet) {
-              sharedVictims += 1;
-            }
-
-            const txsA = [attackA.frontrun_tx, attackA.victim_tx, attackA.backrun_tx].filter(Boolean);
-            const txsB = new Set([attackB.frontrun_tx, attackB.victim_tx, attackB.backrun_tx].filter(Boolean));
-            if (txsA.some((tx) => txsB.has(tx))) {
-              sharedTxEvidence += 1;
-            }
-
-            if (sameStrategy && sameSurface && sameToken && slotDistance <= 1) {
-              exactWindowHits += 1;
-              matchedSlots.add(Math.min(attackA.slot, attackB.slot));
-              if (
-                attackA.execution_lane === attackB.execution_lane &&
-                attackA.execution_lane !== "standard" &&
-                (attackA.bundle_likelihood ?? 0) >= 0.55 &&
-                (attackB.bundle_likelihood ?? 0) >= 0.55
-              ) {
-                repeatedBundleLaneHits += 1;
-              }
-            }
-          }
-        }
-
-        const repeatedPreciseCoordination = exactWindowHits >= 3 && matchedSlots.size >= 2;
-        const bundleCoordination = repeatedBundleLaneHits >= 2 && matchedSlots.size >= 2;
-        const directSharedEvidence = sharedVictims >= 2 || sharedTxEvidence >= 1;
-
-        if (directSharedEvidence || bundleCoordination || repeatedPreciseCoordination) {
+        if (sharedTxEvidence || this.hasWalletGraphEntityEvidence(a, b)) {
           union(a, b);
         }
       }
@@ -3415,6 +3486,8 @@ class LiveChainService {
       attacksDetected: this.attacksDetected,
       lastSyncAt: this.lastSyncAt,
       lastError: this.lastError,
+      lastBlockProcessingMs: this.lastBlockProcessingMs,
+      avgBlockProcessingMs: this.avgBlockProcessingMs,
       recentMetrics: this.recentMetrics,
       recentAttackPreview: this.attacks.slice(0, 5).map((attack) => ({
         attack_type: attack.attack_type,

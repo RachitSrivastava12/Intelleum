@@ -133,6 +133,12 @@ export default function EngineStatusPanel() {
             Slot lag: <span className="text-foreground">{slotLag}</span>
           </div>
         )}
+        {status.avgBlockProcessingMs != null && (
+          <div className="flex items-center gap-1.5 border border-cyan-500/30 bg-cyan-500/8 px-2 py-1 text-xs text-cyan-400 font-mono">
+            ⚡ <span className="font-bold">{status.avgBlockProcessingMs}ms</span>
+            <span className="text-cyan-500/70">avg block</span>
+          </div>
+        )}
         {status.lastError && (
           <div className="text-xs text-yellow-300">
             {status.lastError}

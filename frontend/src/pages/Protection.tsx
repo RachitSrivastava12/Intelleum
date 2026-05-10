@@ -519,6 +519,15 @@ function DecisionReceipt({ guard, loading }: { guard: PreventionGuard | null; lo
             {formatAction(guard?.action)}
           </div>
         </div>
+        {guard?.ai_brief && (
+          <div className="mt-5 border border-primary/20 bg-primary/5 p-4">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">// AI Analysis</span>
+              <span className="font-mono text-[9px] text-muted-foreground">gpt-4o-mini</span>
+            </div>
+            <p className="text-sm leading-relaxed text-foreground/90">{guard.ai_brief}</p>
+          </div>
+        )}
       </div>
 
       <div className="grid border-b border-border/70 md:grid-cols-4">

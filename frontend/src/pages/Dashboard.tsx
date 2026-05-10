@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import LiveAttackFeed from "@/components/LiveAttackFeed";
+import { api } from "@/lib/api";
 import EngineStatusPanel from "@/components/EngineStatusPanel";
 import LiveValidatorBoard from "@/components/LiveValidatorBoard";
 import EntityExplorer from "./EntityExplorer";
@@ -21,6 +22,15 @@ type Tab = "feed" | "entities" | "routes" | "pools" | "validators" | "integratio
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<Tab>("feed");
+  const [dataMode, setDataMode] = useState<"chain" | "fallback" | null>(null);
+
+  useEffect(() => {
+    api.systemStatus().then(s => setDataMode(s.mode)).catch(() => {});
+    const t = setInterval(() => {
+      api.systemStatus().then(s => setDataMode(s.mode)).catch(() => {});
+    }, 10_000);
+    return () => clearInterval(t);
+  }, []);
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "feed", label: "Live Feed" },
@@ -72,12 +82,21 @@ export default function Dashboard() {
             >
               PROTECTION
             </Link>
-            <motion.div
-              className="w-1.5 h-1.5 rounded-full bg-green-500"
-              animate={{ opacity: [1, 0.4, 1] }}
-              transition={{ duration: 2, repeat: Infinity }}
-            />
-            LIVE · Updates every 5s
+            {dataMode === "chain" ? (
+              <div className="flex items-center gap-1.5 border border-green-500/40 bg-green-500/10 px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-green-400">
+                <motion.div
+                  className="w-1.5 h-1.5 rounded-full bg-green-400"
+                  animate={{ opacity: [1, 0.3, 1] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                />
+                LIVE CHAIN
+              </div>
+            ) : dataMode === "fallback" ? (
+              <div className="flex items-center gap-1.5 border border-yellow-500/40 bg-yellow-500/10 px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-yellow-400">
+                <div className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
+                DEMO MODE
+              </div>
+            ) : null}
           </div>
         </div>
 

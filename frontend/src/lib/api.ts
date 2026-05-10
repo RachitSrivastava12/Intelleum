@@ -933,6 +933,8 @@ export interface SystemStatus {
   attacksDetected: number;
   lastSyncAt: string | null;
   lastError: string | null;
+  lastBlockProcessingMs: number | null;
+  avgBlockProcessingMs: number | null;
   recentMetrics: {
     candidateRows: number;
     parsedTransactions: number;
@@ -1384,6 +1386,7 @@ export interface PreventionGuard {
   protected_send_policy: ProtectedSendPolicy;
   customer_impact: CustomerImpact[];
   warning: string;
+  ai_brief?: string;
 }
 
 export interface RoutePolicy {

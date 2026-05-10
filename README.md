@@ -1,4 +1,4 @@
-# INTELLEUM V3
+# INTELLEUM V3  
 ### MEV Intelligence Layer for Solana
 
 Real-time detection and attribution of MEV (Maximal Extractable Value) extraction on Solana. Exposes sandwich attacks, arbitrage, JIT liquidity, liquidation sniping — clustered into named entities with behavioral fingerprints.

@@ -1,4 +1,5 @@
 import express, { Request, Response } from "express";
+import { generateGuardBrief } from "../../ai/guardBrief";
 import crypto from "crypto";
 import {
   evaluateRoute,
@@ -236,14 +237,29 @@ router.post("/prevention/guard", (req: Request, res: Response) => {
   );
 });
 
-router.post("/prevention/protected-send", (req: Request, res: Response) => {
+router.post("/prevention/protected-send", async (req: Request, res: Response) => {
   const body = req.body ?? {};
   res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
-  res.json(
-    liveChainService.hasLiveData()
-      ? liveChainService.protectedSendPlan(body)
-      : protectedSendPlan(body),
-  );
+  const result = liveChainService.hasLiveData()
+    ? liveChainService.protectedSendPlan(body)
+    : protectedSendPlan(body);
+
+  const ai_brief = await generateGuardBrief({
+    action: result.action,
+    route_label: result.selected_label ?? body.route_label ?? "Unknown route",
+    protocol: body.protocol ?? null,
+    notional_usd: body.notional_usd ?? 0,
+    expected_loss_at_risk_bps: result.expected_loss_at_risk_bps,
+    expected_loss_at_risk_usd: result.expected_loss_at_risk_usd,
+    reason_codes: result.reason_codes ?? [],
+    safer_alternatives: (result.safer_alternatives ?? []).slice(0, 1).map((a: any) => ({
+      label: a.label ?? a.route_key ?? "alternative",
+      estimated_bps_saved: a.estimated_bps_saved ?? 0,
+    })),
+    objective: body.objective ?? "protect_users",
+  });
+
+  res.json({ ...result, ai_brief: ai_brief ?? undefined });
 });
 
 router.get("/integrations/feeds", (req: Request, res: Response) => {
