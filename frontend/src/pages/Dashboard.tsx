@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import LiveAttackFeed from "@/components/LiveAttackFeed";
-import { api } from "@/lib/api";
+import { api, SavingsSummary } from "@/lib/api";
 import EngineStatusPanel from "@/components/EngineStatusPanel";
 import LiveValidatorBoard from "@/components/LiveValidatorBoard";
 import EntityExplorer from "./EntityExplorer";
@@ -13,22 +13,61 @@ import FlowSegmentationPanel from "@/components/FlowSegmentationPanel";
 import JitoExecutionPanel from "@/components/JitoExecutionPanel";
 import SystemicRiskPanel from "@/components/SystemicRiskPanel";
 
-// ============================================================
-// DASHBOARD — the real intelligence app
-// Tab-based: Feed | Entities | Pools | Validators
-// ============================================================
-
 type Tab = "feed" | "entities" | "routes" | "pools" | "validators" | "integrations";
+
+function formatUSD(n: number) {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
+  return `$${n.toFixed(0)}`;
+}
+
+// Slim savings proof strip — shown at top of feed tab
+function SavingsStrip({ savings }: { savings: SavingsSummary | null }) {
+  if (!savings || savings.estimated_loss_avoided_usd_24h <= 0) return null;
+  return (
+    <div className="mb-4 border border-primary/25 bg-primary/5 px-5 py-3 flex flex-wrap items-center gap-x-6 gap-y-1 font-mono">
+      <div className="flex items-center gap-2">
+        <motion.div
+          className="w-1.5 h-1.5 rounded-full bg-primary shrink-0"
+          animate={{ opacity: [1, 0.3, 1] }}
+          transition={{ duration: 1.8, repeat: Infinity }}
+        />
+        <span className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">Toxic Flow Blocked</span>
+        <span className="text-lg font-bold text-primary tabular-nums">
+          {formatUSD(savings.estimated_loss_avoided_usd_24h)}
+        </span>
+        <span className="text-[10px] text-muted-foreground">estimated / session</span>
+      </div>
+      <div className="h-4 w-px bg-border hidden sm:block" />
+      <div className="text-[10px] text-muted-foreground">
+        <span className="text-foreground font-bold">{savings.estimated_bps_saved_avg.toFixed(1)} bps</span> avg preserved
+      </div>
+      <div className="h-4 w-px bg-border hidden sm:block" />
+      <div className="text-[10px] text-muted-foreground">
+        <span className="text-foreground font-bold">{savings.routes_flagged}</span> routes flagged
+      </div>
+      <div className="h-4 w-px bg-border hidden sm:block" />
+      <div className="text-[10px] text-muted-foreground">
+        <span className="text-foreground font-bold">{savings.pools_protected}</span> pools protected
+      </div>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<Tab>("feed");
   const [dataMode, setDataMode] = useState<"chain" | "fallback" | null>(null);
+  const [savings, setSavings] = useState<SavingsSummary | null>(null);
 
+  // Single poll: systemStatus drives the live/demo badge; savings drives the strip.
+  // EngineStatusPanel independently polls systemStatus every 5s — no need to duplicate here.
   useEffect(() => {
-    api.systemStatus().then(s => setDataMode(s.mode)).catch(() => {});
-    const t = setInterval(() => {
+    const load = () => {
       api.systemStatus().then(s => setDataMode(s.mode)).catch(() => {});
-    }, 10_000);
+      api.savingsSummary().then(setSavings).catch(() => {});
+    };
+    load();
+    const t = setInterval(load, 30_000);
     return () => clearInterval(t);
   }, []);
 
@@ -54,19 +93,19 @@ export default function Dashboard() {
           </Link>
 
           <div className="flex flex-1 items-center gap-1 overflow-x-auto">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`whitespace-nowrap px-4 py-2 text-xs font-mono tracking-wider transition-all ${
-                activeTab === tab.id
-                  ? "text-primary border-b-2 border-primary -mb-[17px]"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+            {tabs.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`whitespace-nowrap px-4 py-2 text-xs font-mono tracking-wider transition-all ${
+                  activeTab === tab.id
+                    ? "text-primary border-b-2 border-primary -mb-[17px]"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
           <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
@@ -109,6 +148,7 @@ export default function Dashboard() {
         >
           {activeTab === "feed" && (
             <div>
+              <SavingsStrip savings={savings} />
               <EngineStatusPanel />
               <div className="mb-4 grid gap-4 xl:grid-cols-3">
                 <FlowSegmentationPanel />

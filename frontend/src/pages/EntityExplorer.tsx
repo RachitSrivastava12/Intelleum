@@ -101,6 +101,14 @@ function EntityCard({ entity, selected, onSelect }: {
             <div className="text-xs text-muted-foreground">24h</div>
             <div className="text-sm text-foreground">{formatUSD(entity.profit_24h_usd)}</div>
           </div>
+          {entity.mev_market_share_pct !== undefined && entity.mev_market_share_pct > 0 && (
+            <div>
+              <div className="text-xs text-muted-foreground">
+                MEV Share <InfoHint text="This entity's share of total extracted value across all tracked operators. Higher = more dominant player in the MEV supply chain." />
+              </div>
+              <div className="text-sm font-bold text-cyan-400">{entity.mev_market_share_pct.toFixed(1)}%</div>
+            </div>
+          )}
           <div>
             <div className="text-xs text-muted-foreground">Attacks</div>
             <div className="text-sm text-foreground">{entity.attack_count.toLocaleString()}</div>
@@ -197,9 +205,9 @@ export default function EntityExplorer() {
   const [filterStrategy, setFilterStrategy] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const data = await api.entities({
         sort,
         strategy: filterStrategy || undefined,
@@ -208,16 +216,16 @@ export default function EntityExplorer() {
       setEntities(data);
       setError(null);
     } catch (e: any) {
-      setError(e.message);
+      if (!silent) setError(e.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [sort, filterStrategy]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(false); }, [load]);
 
   useEffect(() => {
-    const t = setInterval(load, 30_000);
+    const t = setInterval(() => load(true), 30_000);
     return () => clearInterval(t);
   }, [load]);
 

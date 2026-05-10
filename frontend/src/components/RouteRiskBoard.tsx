@@ -40,12 +40,13 @@ export default function RouteRiskBoard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let first = true;
     const load = async () => {
       try {
         const data = await api.routeRisks(20);
         setRoutes(data);
       } finally {
-        setLoading(false);
+        if (first) { setLoading(false); first = false; }
       }
     };
 

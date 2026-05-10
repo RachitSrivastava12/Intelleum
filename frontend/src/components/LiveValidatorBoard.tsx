@@ -42,7 +42,7 @@ export default function LiveValidatorBoard() {
     };
 
     load();
-    const timer = setInterval(load, 5000);
+    const timer = setInterval(load, 15_000);
     return () => clearInterval(timer);
   }, []);
 

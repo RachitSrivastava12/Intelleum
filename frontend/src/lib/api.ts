@@ -1025,6 +1025,7 @@ export interface Entity {
   profit_consistency: number;
   wallet_count: number;
   sample_wallets: string[];
+  mev_market_share_pct?: number;
 }
 
 export interface EntityDetail extends Entity {

@@ -66,6 +66,7 @@ interface ApiEntity {
   profit_consistency: number;
   wallet_count: number;
   sample_wallets: string[];
+  mev_market_share_pct: number;
 }
 
 interface ApiPool {
@@ -2364,10 +2365,26 @@ class LiveChainService {
 
     for (const wallet of wallets) parent.set(wallet, wallet);
 
+    // Pre-compute per-wallet pool sets and slot-epoch sets for O(n) Jaccard
+    const poolsByWallet = new Map<string, Set<string>>();
+    const epochsByWallet = new Map<string, Set<number>>();
+    for (const attack of attacks) {
+      const w = attack.attacker_wallet;
+      if (!poolsByWallet.has(w)) poolsByWallet.set(w, new Set());
+      if (!epochsByWallet.has(w)) epochsByWallet.set(w, new Set());
+      if (attack.pool_address && attack.pool_address !== "unknown") {
+        poolsByWallet.get(w)!.add(attack.pool_address);
+      }
+      // Bucket slots into 200-slot epochs (~80 seconds) for temporal co-activity
+      epochsByWallet.get(w)!.add(Math.floor(attack.slot / 200));
+    }
+
     for (let i = 0; i < wallets.length; i++) {
       for (let j = i + 1; j < wallets.length; j++) {
         const a = wallets[i];
         const b = wallets[j];
+
+        // Signal 1: shared frontrun/backrun tx (multi-signer bundles)
         const sharedTxEvidence = attacks.some((attackA) => {
           if (attackA.attacker_wallet !== a) return false;
           const txsA = [attackA.frontrun_tx, attackA.backrun_tx].filter(Boolean);
@@ -2378,9 +2395,32 @@ class LiveChainService {
             return txsA.some((tx) => txsB.has(tx));
           });
         });
+        if (sharedTxEvidence) { union(a, b); continue; }
 
-        if (sharedTxEvidence || this.hasWalletGraphEntityEvidence(a, b)) {
-          union(a, b);
+        // Signal 2: shared wallet funding/profit sink
+        if (this.hasWalletGraphEntityEvidence(a, b)) { union(a, b); continue; }
+
+        // Signal 3: pool Jaccard + temporal co-activity (main clustering signal)
+        const poolsA = poolsByWallet.get(a) ?? new Set<string>();
+        const poolsB = poolsByWallet.get(b) ?? new Set<string>();
+        if (poolsA.size > 0 && poolsB.size > 0) {
+          let intersection = 0;
+          for (const p of poolsA) if (poolsB.has(p)) intersection++;
+          const jaccard = intersection / (poolsA.size + poolsB.size - intersection);
+
+          if (jaccard >= 0.45) {
+            // Require temporal co-activity to avoid false positives
+            const epochsA = epochsByWallet.get(a) ?? new Set<number>();
+            const epochsB = epochsByWallet.get(b) ?? new Set<number>();
+            let epochIntersection = 0;
+            for (const e of epochsA) if (epochsB.has(e)) epochIntersection++;
+            const maxEpochs = Math.max(epochsA.size, epochsB.size, 1);
+            const temporalOverlap = epochIntersection / maxEpochs;
+
+            if (temporalOverlap >= 0.25) {
+              union(a, b);
+            }
+          }
         }
       }
     }
@@ -3573,6 +3613,8 @@ class LiveChainService {
     offset?: string;
   }): ApiEntity[] {
     const entityContext = this.buildEntityContext();
+    // Pre-compute total extracted profit across all entities for market share
+    const totalExtractedUsd = this.attacks.reduce((sum, a) => sum + (a.profit_usd ?? 0), 0);
     const results = entityContext.groups.map((group) => {
       const groupAttacks = this.attacks.filter((attack) => group.wallets.includes(attack.attacker_wallet));
       const profit = this.sumProfit(groupAttacks);
@@ -3620,25 +3662,49 @@ class LiveChainService {
             ).toFixed(2),
           ),
         ),
-        fee_aggression:
-          groupAttacks.length > 0
-            ? Math.min(
-                1,
-                groupAttacks.reduce((sum, attack) => sum + (attack.tip_lamports ?? 0), 0) /
-                  groupAttacks.length /
-                  300000,
-              )
-            : 0,
-        position_dominance:
-          groupAttacks.filter((attack) => attack.attack_type === "sandwich").length >= Math.max(2, Math.ceil(groupAttacks.length / 2))
-            ? 0.88
-            : 0.58,
-        pool_concentration:
-          groupAttacks.length > 0 ? Number((Math.min(0.98, 0.35 + uniquePools.size / Math.max(1, groupAttacks.length))).toFixed(2)) : 0.35,
-        profit_consistency:
-          groupAttacks.length > 0 ? Number((Math.min(0.98, 0.4 + attacks24h.length / Math.max(1, groupAttacks.length) * 0.4)).toFixed(2)) : 0.4,
+        fee_aggression: (() => {
+          if (groupAttacks.length === 0) return 0;
+          const jitoAligned = groupAttacks.filter(a => a.execution_lane === "jito-aligned").length;
+          const avgBundle = groupAttacks.reduce((s, a) => s + (a.bundle_likelihood ?? 0), 0) / groupAttacks.length;
+          const jitoShare = jitoAligned / groupAttacks.length;
+          // tip_lamports proxy: jito = paying for priority, bundle = elevated fees
+          return Number(Math.min(0.99, jitoShare * 0.55 + avgBundle * 0.45).toFixed(2));
+        })(),
+        position_dominance: (() => {
+          if (groupAttacks.length === 0) return 0;
+          // Sandwiches require exact slot positioning (before AND after victim)
+          const sandwichCount = groupAttacks.filter(a => a.attack_type === "sandwich").length;
+          // Jito-aligned = explicit slot purchase = high position control
+          const jitoCount = groupAttacks.filter(a => a.execution_lane === "jito-aligned").length;
+          // High confidence = detector confident about slot ordering
+          const highConfCount = groupAttacks.filter(a => a.confidence >= 0.85).length;
+          const n = groupAttacks.length;
+          return Number(Math.min(0.99, (sandwichCount / n) * 0.50 + (jitoCount / n) * 0.35 + (highConfCount / n) * 0.15).toFixed(2));
+        })(),
+        pool_concentration: (() => {
+          if (groupAttacks.length === 0 || uniquePools.size === 0) return 0;
+          // HHI-style: what fraction of attacks target the single most-hit pool?
+          const poolCounts = new Map<string, number>();
+          for (const a of groupAttacks) {
+            if (a.pool_address && a.pool_address !== "unknown") {
+              poolCounts.set(a.pool_address, (poolCounts.get(a.pool_address) ?? 0) + 1);
+            }
+          }
+          const topPoolCount = Math.max(...poolCounts.values(), 0);
+          return Number(Math.min(0.99, topPoolCount / groupAttacks.length).toFixed(2));
+        })(),
+        profit_consistency: (() => {
+          if (groupAttacks.length === 0) return 0;
+          // Profitable = attack has positive profit_usd OR high confidence (detector is certain)
+          const profitableCount = groupAttacks.filter(a => (a.profit_usd ?? 0) > 0).length;
+          const highConfCount = groupAttacks.filter(a => a.confidence >= 0.80).length;
+          return Number(Math.min(0.99, (profitableCount * 0.65 + highConfCount * 0.35) / groupAttacks.length).toFixed(2));
+        })(),
         wallet_count: group.wallets.length,
         sample_wallets: group.wallets.slice(0, 6),
+        mev_market_share_pct: totalExtractedUsd > 0
+          ? Number(Math.min(100, (profit / totalExtractedUsd) * 100).toFixed(1))
+          : 0,
       } satisfies ApiEntity;
     });
 
@@ -3841,7 +3907,7 @@ class LiveChainService {
                 ),
               ),
               stale_quote_arb_frequency: routeRiskBySurface.get(pool.pool_address)!.stale_quote_pickup_rate,
-              lp_drag_estimate_usd: round(routeRiskBySurface.get(pool.pool_address)!.estimated_savings_usd * Math.max(1.2, pool.total_attacks / 6), 2),
+              lp_drag_estimate_usd: round(routeRiskBySurface.get(pool.pool_address)!.estimated_savings_usd * Math.min(4.0, Math.max(1.2, pool.total_attacks / 6)), 2),
               toxic_to_benign_volume_ratio: round(
                 clamp(
                   routeRiskBySurface.get(pool.pool_address)!.toxic_flow_rate / Math.max(12, 100 - routeRiskBySurface.get(pool.pool_address)!.toxic_flow_rate),
@@ -4119,7 +4185,7 @@ class LiveChainService {
               jitRate * 18 +
               arbitrageRate * 14 +
               item.attackers.size * 2.5,
-            3,
+            item.total_attacks > 0 ? 2 : 0,
             99,
           ),
         );
@@ -4128,7 +4194,7 @@ class LiveChainService {
             ? (liveAnalytics.staleQuotePickups / liveAnalytics.swaps) * 100
             : null;
         const staleQuotePickupRate = round(
-          clamp(liveStaleRate ?? (arbitrageRate * 48 + sandwichRate * 36 + bundleShare * 18), 1, 98),
+          clamp(liveStaleRate ?? (arbitrageRate * 48 + sandwichRate * 36 + bundleShare * 18), item.total_attacks > 0 ? 0.5 : 0, 98),
         );
         const quoteFreshnessMs = round(
           clamp(
@@ -4140,12 +4206,13 @@ class LiveChainService {
           ),
           0,
         );
+        const slipFloor = item.total_attacks > 0 ? 0.5 : 0;
         const realizedSlippageBps = round(
           clamp(
             liveAnalytics?.slippageBps.length
               ? this.median(liveAnalytics.slippageBps) ?? 2
               : riskScore * 0.07 + sandwichRate * 8 + bundleShare * 3.8,
-            0.8,
+            slipFloor,
             28,
           ),
           2,
@@ -4155,7 +4222,7 @@ class LiveChainService {
             liveAnalytics?.markout1s.length
               ? this.median(liveAnalytics.markout1s) ?? 1
               : realizedSlippageBps * 0.6 + sandwichRate * 2.2 + bundleShare * 0.15,
-            0.5,
+            item.total_attacks > 0 ? 0.2 : 0,
             18,
           ),
           2,
@@ -4165,7 +4232,7 @@ class LiveChainService {
             liveAnalytics?.markout5s.length
               ? this.median(liveAnalytics.markout5s) ?? 1.5
               : realizedSlippageBps * 0.95 + sandwichRate * 4.1 + staleQuotePickupRate * 0.05,
-            0.8,
+            item.total_attacks > 0 ? 0.3 : 0,
             26,
           ),
           2,
@@ -4175,21 +4242,24 @@ class LiveChainService {
             liveAnalytics?.markout30s.length
               ? this.median(liveAnalytics.markout30s) ?? 2
               : realizedSlippageBps * 1.2 + sandwichRate * 5.5 + staleQuotePickupRate * 0.08,
-            1,
+            item.total_attacks > 0 ? 0.5 : 0,
             32,
           ),
           2,
         );
-        const executionQualityScore = round(clamp(100 - (markout30 * 2 + realizedSlippageBps * 1.7 + toxicFlowRate * 0.42), 4, 98));
-        const flowQualityScore = round(clamp(100 - toxicFlowRate * 0.72 - bundleShare * 16 + (item.route_kind === "venue" ? 6 : 0), 3, 97));
-        const toxicityProbability = round(clamp(toxicFlowRate * 0.88 + bundleShare * 19, 4, 99));
-        const retailLikelihood = round(clamp(100 - toxicFlowRate * 0.92 - bundleShare * 24, 2, 92));
-        const lpAdverseSelectionProbability = round(clamp(staleQuotePickupRate * 0.62 + markout30 * 2.1 + sandwichRate * 21, 3, 99));
-        const lvrProxyScore = round(clamp(staleQuotePickupRate * 0.58 + markout30 * 1.95 + arbitrageRate * 18 + sandwichRate * 12, 2, 99));
+        const hasSignal = item.total_attacks > 0;
+        const executionQualityScore = round(clamp(100 - (markout30 * 2 + realizedSlippageBps * 1.7 + toxicFlowRate * 0.42), hasSignal ? 4 : 72, 98));
+        const flowQualityScore = round(clamp(100 - toxicFlowRate * 0.72 - bundleShare * 16 + (item.route_kind === "venue" ? 6 : 0), hasSignal ? 3 : 72, 97));
+        const toxicityProbability = round(clamp(toxicFlowRate * 0.88 + bundleShare * 19, hasSignal ? 1 : 0, 99));
+        const retailLikelihood = round(clamp(100 - toxicFlowRate * 0.92 - bundleShare * 24, 2, hasSignal ? 92 : 98));
+        const lpAdverseSelectionProbability = round(clamp(staleQuotePickupRate * 0.62 + markout30 * 2.1 + sandwichRate * 21, hasSignal ? 1 : 0, 99));
+        // LVR proxy: arbitrage exploitation of stale quotes is the primary LVR driver (Milionis et al.)
+        // Weights: markout30 (realized adverse selection) > arbitrageRate (stale quote pickup) > sandwich (slot manipulation) > stale quotes
+        const lvrProxyScore = round(clamp(markout30 * 2.8 + arbitrageRate * 22 + sandwichRate * 10 + staleQuotePickupRate * 0.42, hasSignal ? 1 : 0, 99));
         const priorityFeePressure = round(clamp(bundleShare * 0.68 + avgConfidence * 12, 2, 98));
         const validatorMarkoutQuality = round(clamp(100 - markout5 * 3.1 - bundleShare * 24, 3, 96));
         const recommendedMaxNotionalUsd = round(clamp(180_000 - toxicFlowRate * 1_250 - bundleShare * 650, 7_500, 180_000), 0);
-        const estimatedSavingsBps = round(clamp(markout30 * 0.55 + lvrProxyScore * 0.05, 0.3, 18), 2);
+        const estimatedSavingsBps = round(clamp(markout30 * 0.55 + lvrProxyScore * 0.05, hasSignal ? 0.2 : 0, 18), 2);
         const estimatedSavingsUsd = round((50_000 * estimatedSavingsBps) / 10_000, 2);
         const reasonCodes = buildReasonCodes({
           sandwichRate,
