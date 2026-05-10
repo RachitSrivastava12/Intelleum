@@ -846,30 +846,44 @@ function buildToxicFlowCandles(
       const time = new Date(attack.block_time).getTime();
       return time >= bucketStart && time < bucketEnd;
     });
-    const bucketLossUsd = bucketAttacks.reduce(
+    const rawDetectedValueUsd = bucketAttacks.reduce(
       (sum, attack) => sum + (attack.victim_loss_usd ?? attack.profit_usd ?? 0),
-      0,
-    );
-    const detectedPressure = bucketAttacks.reduce(
-      (sum, attack) => sum + attack.confidence * 52 + Math.min(34, (attack.victim_loss_usd ?? attack.profit_usd ?? 0) / 25),
       0,
     );
     const liveVolumeUsd = bucketSwaps.reduce(
       (sum, swap) => sum + (swap.notional_usd ?? swap.input_usd ?? swap.output_usd ?? 0),
       0,
     );
-    const observedLossBps = liveVolumeUsd > 0 && bucketLossUsd > 0
-      ? (bucketLossUsd / liveVolumeUsd) * 10_000
+    const routeMarkoutBps = clamp(
+      Math.max(route.markout_30s_bps, route.estimated_savings_bps, route.lvr_proxy_score * 0.04, 0),
+      0.25,
+      250,
+    );
+    const valueBasisUsd = liveVolumeUsd > 0
+      ? liveVolumeUsd
+      : rawDetectedValueUsd > 0
+        ? Math.min(rawDetectedValueUsd, route.recommended_max_notional_usd)
+        : 0;
+    const cappedValueAtRiskUsd = valueBasisUsd > 0 ? (valueBasisUsd * routeMarkoutBps) / 10_000 : 0;
+    const lossAtRiskUsd = bucketAttacks.length > 0
+      ? round(Math.min(rawDetectedValueUsd || cappedValueAtRiskUsd, cappedValueAtRiskUsd || rawDetectedValueUsd), 2)
       : 0;
+    const observedLossBps = liveVolumeUsd > 0 && lossAtRiskUsd > 0
+      ? (lossAtRiskUsd / liveVolumeUsd) * 10_000
+      : 0;
+    const avgConfidence = bucketAttacks.length > 0
+      ? bucketAttacks.reduce((sum, attack) => sum + attack.confidence, 0) / bucketAttacks.length
+      : 0;
+    const countPressure = clamp(bucketAttacks.length * 6, 0, 30);
+    const valuePressure = valueBasisUsd > 0 ? clamp((lossAtRiskUsd / valueBasisUsd) * 1_000, 0, 25) : 0;
     const toxicScore = bucketAttacks.length > 0
-      ? round(clamp(detectedPressure + bucketAttacks.length * 8, 0, 100), 2)
+      ? round(clamp(avgConfidence * 65 + countPressure + valuePressure, 0, 100), 2)
       : 0;
-    const markoutBps = round(clamp(observedLossBps, 0, 100), 2);
+    const markoutBps = round(clamp(observedLossBps, 0, 250), 2);
     const lvrBps = bucketAttacks.length > 0
       ? round(clamp(route.lvr_proxy_score * 0.05 + markoutBps * 0.42, 0, 36), 2)
       : 0;
     const volumeUsd = liveVolumeUsd > 0 ? round(liveVolumeUsd, 0) : 0;
-    const lossAtRiskUsd = round(bucketLossUsd, 2);
     const preventedLossUsd = round(lossAtRiskUsd * terminalActionPreventRate(route.policy_action), 2);
     const open = close;
     close = open;

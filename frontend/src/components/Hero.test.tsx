@@ -17,7 +17,7 @@ describe("Hero", () => {
     expect(screen.getByText(/routed/i)).toBeInTheDocument();
 
     expect(screen.getByRole("link", { name: /open live demo/i })).toHaveAttribute("href", "/dashboard");
-    expect(screen.getByRole("link", { name: /explore apis/i })).toHaveAttribute("href", "/intel-api");
+    expect(screen.getByRole("link", { name: /flow terminal/i })).toHaveAttribute("href", "/flow-terminal");
     expect(screen.getByText(/sandwich/i)).toBeInTheDocument();
     expect(screen.getByText(/backrun/i)).toBeInTheDocument();
   });
