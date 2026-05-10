@@ -2259,31 +2259,58 @@ class LiveChainService {
         const profileB = profileByWallet.get(b);
         if (!profileA || !profileB) continue;
 
-        const sharedPools = [...profileA.pools].filter((pool) => profileB.pools.has(pool)).length;
-        const sharedValidators = [...profileA.validators].filter((validator) => profileB.validators.has(validator)).length;
-        const sharedStrategies = [...profileA.strategies].filter((strategy) => profileB.strategies.has(strategy)).length;
-        const sharedTokens = [...profileA.tokens].filter((token) => profileB.tokens.has(token)).length;
-        const coordinatedWindows = profileA.attacks.filter((attackA) =>
-          profileB.attacks.some(
-            (attackB) =>
-              attackA.attack_type === attackB.attack_type &&
-              this.canonicalEntitySurface(attackA.pool_address) === this.canonicalEntitySurface(attackB.pool_address) &&
-              Math.abs(attackA.slot - attackB.slot) <= 8,
-          ),
-        ).length;
+        let exactWindowHits = 0;
+        let repeatedBundleLaneHits = 0;
+        let sharedVictims = 0;
+        let sharedTxEvidence = 0;
+        const matchedSlots = new Set<number>();
 
-        const score =
-          sharedPools * 2 +
-          sharedValidators * 1.5 +
-          sharedStrategies * 1.5 +
-          sharedTokens +
-          coordinatedWindows * 2;
+        for (const attackA of profileA.attacks) {
+          for (const attackB of profileB.attacks) {
+            const sameStrategy = attackA.attack_type === attackB.attack_type;
+            const preciseSurface =
+              attackA.surface_precision === "exact-pool" &&
+              attackB.surface_precision === "exact-pool";
+            const sameSurface =
+              preciseSurface &&
+              attackA.pool_address !== "unknown" &&
+              attackB.pool_address !== "unknown" &&
+              attackA.pool_address === attackB.pool_address;
+            const sameToken = !attackA.token_mint || !attackB.token_mint || attackA.token_mint === attackB.token_mint;
+            const slotDistance = Math.abs(attackA.slot - attackB.slot);
 
-        const strongCoordination =
-          (sharedPools >= 1 && coordinatedWindows >= 2) ||
-          (sharedValidators >= 2 && sharedStrategies >= 2 && sharedTokens >= 1 && coordinatedWindows >= 1);
+            if (attackA.victim_wallet && attackA.victim_wallet === attackB.victim_wallet) {
+              sharedVictims += 1;
+            }
 
-        if (score >= 5 || strongCoordination) union(a, b);
+            const txsA = [attackA.frontrun_tx, attackA.victim_tx, attackA.backrun_tx].filter(Boolean);
+            const txsB = new Set([attackB.frontrun_tx, attackB.victim_tx, attackB.backrun_tx].filter(Boolean));
+            if (txsA.some((tx) => txsB.has(tx))) {
+              sharedTxEvidence += 1;
+            }
+
+            if (sameStrategy && sameSurface && sameToken && slotDistance <= 1) {
+              exactWindowHits += 1;
+              matchedSlots.add(Math.min(attackA.slot, attackB.slot));
+              if (
+                attackA.execution_lane === attackB.execution_lane &&
+                attackA.execution_lane !== "standard" &&
+                (attackA.bundle_likelihood ?? 0) >= 0.55 &&
+                (attackB.bundle_likelihood ?? 0) >= 0.55
+              ) {
+                repeatedBundleLaneHits += 1;
+              }
+            }
+          }
+        }
+
+        const repeatedPreciseCoordination = exactWindowHits >= 3 && matchedSlots.size >= 2;
+        const bundleCoordination = repeatedBundleLaneHits >= 2 && matchedSlots.size >= 2;
+        const directSharedEvidence = sharedVictims >= 2 || sharedTxEvidence >= 1;
+
+        if (directSharedEvidence || bundleCoordination || repeatedPreciseCoordination) {
+          union(a, b);
+        }
       }
     }
 
@@ -3495,7 +3522,7 @@ class LiveChainService {
 
       return {
         id: group.id,
-        label: group.label,
+        label: `ENT-${topWallet.slice(0, 6).toUpperCase()}`,
         operator_wallet: topWallet,
         first_seen: groupAttacks.reduce((earliest, attack) => (new Date(attack.block_time) < new Date(earliest) ? attack.block_time : earliest), groupAttacks[0]?.block_time ?? new Date().toISOString()),
         last_seen: groupAttacks.reduce((latest, attack) => (new Date(attack.block_time) > new Date(latest) ? attack.block_time : latest), groupAttacks[0]?.block_time ?? new Date().toISOString()),

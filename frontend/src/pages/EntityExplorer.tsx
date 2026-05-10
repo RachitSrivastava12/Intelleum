@@ -78,6 +78,10 @@ export default function EntityExplorer() {
           <div>
             <p className="text-xs text-primary tracking-widest uppercase mb-1">// Entity Intelligence</p>
             <h1 className="text-2xl font-bold text-foreground">MEV Entity Explorer</h1>
+            <p className="mt-2 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+              Conservative clustering: one wallet stays one entity unless we see repeated tight-slot coordination or direct shared evidence.
+              Operator is the highest-impact signer inside the cluster.
+            </p>
           </div>
           <div className="flex items-center gap-3">
             {/* Sort */}
@@ -233,7 +237,11 @@ export default function EntityExplorer() {
                         </div>
                         {entity.operator_wallet && (
                           <div className="mt-3 text-xs">
-                            <span className="text-muted-foreground">Operator wallet: </span>
+                            <span className="text-muted-foreground">
+                              Primary operator wallet
+                              <InfoHint text="The attacker signer with the most observed extracted value inside this entity. If the entity has one wallet, that wallet is the operator. This is not a real-world identity label." />
+                              {": "}
+                            </span>
                             <CopyableValue
                               value={entity.operator_wallet}
                               display={truncateAddress(entity.operator_wallet, 8, 4)}
