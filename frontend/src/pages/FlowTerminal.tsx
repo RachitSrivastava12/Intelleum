@@ -96,10 +96,10 @@ function actionTone(action: ToxicFlowSurface["action"]) {
 }
 
 function intervalWindowLabel(interval: Interval) {
-  if (interval === "1m") return "last 1 minute";
-  if (interval === "5m") return "last 5 minutes";
-  if (interval === "15m") return "last 15 minutes";
-  return "last 1 hour";
+  if (interval === "1m") return "latest 1m detection window";
+  if (interval === "5m") return "latest 5m detection window";
+  if (interval === "15m") return "latest 15m detection window";
+  return "latest 1h detection window";
 }
 
 function surfaceEventCount(surface: ToxicFlowSurface) {

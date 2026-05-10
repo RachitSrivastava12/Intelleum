@@ -783,6 +783,11 @@ function terminalWindowConfig(interval: ToxicFlowTerminalRecord["interval"]) {
   return { windowMs: 60 * 1000, bucketCount: 60 };
 }
 
+function terminalBucketMs(interval: ToxicFlowTerminalRecord["interval"]) {
+  const { windowMs, bucketCount } = terminalWindowConfig(interval);
+  return windowMs / bucketCount;
+}
+
 function terminalBucketLabel(timestamp: string, interval: ToxicFlowTerminalRecord["interval"]) {
   const options: Intl.DateTimeFormatOptions =
     interval === "1m" || interval === "5m"
@@ -944,9 +949,23 @@ function buildToxicFlowSurface(
     .sort((a, b) => new Date(b.block_time).getTime() - new Date(a.block_time).getTime());
   const relatedSwaps = sourceSwaps.filter((swap) => swapMatchesTerminalRoute(route, routeSurface, swap));
   const { windowMs } = terminalWindowConfig(interval);
+  const bucketMs = terminalBucketMs(interval);
   const now = Date.now();
-  const windowStart = now - windowMs;
-  const windowEnd = now;
+  const latestAttackTime = relatedAttacks.reduce((latest, attack) => {
+    const time = new Date(attack.block_time).getTime();
+    return Number.isFinite(time) ? Math.max(latest, time) : latest;
+  }, 0);
+  const latestSwapTime = relatedSwaps.reduce((latest, swap) => {
+    const time = swap.block_time.getTime();
+    return Number.isFinite(time) ? Math.max(latest, time) : latest;
+  }, 0);
+  const latestRouteActivity = Math.max(latestAttackTime, latestSwapTime);
+  const anchorTimeMs =
+    latestRouteActivity > 0 && latestRouteActivity < now - windowMs
+      ? latestRouteActivity + bucketMs
+      : now;
+  const windowStart = anchorTimeMs - windowMs;
+  const windowEnd = anchorTimeMs;
   const windowAttacks = relatedAttacks.filter((attack) => {
     const time = new Date(attack.block_time).getTime();
     return Number.isFinite(time) && time >= windowStart && time <= windowEnd;
@@ -955,7 +974,7 @@ function buildToxicFlowSurface(
     const time = swap.block_time.getTime();
     return Number.isFinite(time) && time >= windowStart && time <= windowEnd;
   });
-  const candles = buildToxicFlowCandles(route, routeIndex, windowAttacks, windowSwaps, interval, now);
+  const candles = buildToxicFlowCandles(route, routeIndex, windowAttacks, windowSwaps, interval, anchorTimeMs);
   const firstClose = candles[0]?.close ?? 0;
   const lastClose = candles[candles.length - 1]?.close ?? firstClose;
   const volume24h = candles.reduce((sum, candle) => sum + candle.volume_usd, 0);
@@ -982,6 +1001,14 @@ function buildToxicFlowSurface(
     candles,
     overlays: buildToxicFlowOverlays(route, candles, windowAttacks),
   };
+}
+
+function terminalSurfaceEventCount(surface: ToxicFlowSurfaceRecord) {
+  return surface.candles.reduce((sum, candle) => sum + candle.attack_count, 0);
+}
+
+function terminalSurfaceObservedValue(surface: ToxicFlowSurfaceRecord) {
+  return surface.candles.reduce((sum, candle) => sum + candle.loss_at_risk_usd, 0);
 }
 
 function inferSourceLabel(attack: ApiAttack) {
@@ -4529,9 +4556,15 @@ class LiveChainService {
       interval === "1h" || interval === "15m" || interval === "5m" || interval === "1m"
         ? interval
         : "1m";
-    const surfaces = this.getRouteRisks(Math.max(limit, 8))
-      .slice(0, limit)
-      .map((route, index) => buildToxicFlowSurface(route, index, this.attacks, this.recentSwaps, normalizedInterval));
+    const surfaces = this.getRouteRisks(Math.max(limit * 2, 24))
+      .map((route, index) => buildToxicFlowSurface(route, index, this.attacks, this.recentSwaps, normalizedInterval))
+      .sort(
+        (a, b) =>
+          terminalSurfaceEventCount(b) - terminalSurfaceEventCount(a) ||
+          terminalSurfaceObservedValue(b) - terminalSurfaceObservedValue(a) ||
+          b.risk_score - a.risk_score,
+      )
+      .slice(0, limit);
 
     return {
       generated_at: new Date().toISOString(),
