@@ -1,6 +1,7 @@
 import { CSSProperties, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  Bar,
   CartesianGrid,
   ComposedChart,
   Line,
@@ -31,11 +32,6 @@ function formatUsd(value: number | null | undefined) {
   return `$${value.toFixed(0)}`;
 }
 
-function formatNumber(value: number | null | undefined, digits = 1) {
-  if (value == null || !Number.isFinite(value)) return "0";
-  return value.toFixed(digits);
-}
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -53,6 +49,14 @@ function actionTone(action: ToxicFlowSurface["action"]) {
   if (action === "reroute" || action === "penalize") return "border-yellow-500/45 bg-yellow-500/10 text-yellow-200";
   if (action === "allow") return "border-green-500/40 bg-green-500/10 text-green-300";
   return "border-primary/35 bg-primary/10 text-primary";
+}
+
+function surfaceEventCount(surface: ToxicFlowSurface) {
+  return surface.candles.reduce((sum, candle) => sum + candle.attack_count, 0);
+}
+
+function surfaceObservedValue(surface: ToxicFlowSurface) {
+  return surface.candles.reduce((sum, candle) => sum + candle.loss_at_risk_usd, 0);
 }
 
 function toChartPoint(candle: ToxicFlowCandle): ChartPoint {
@@ -80,16 +84,16 @@ function ChartTooltip({ active, payload }: any) {
     <div className="border border-border bg-background/95 px-3 py-2 shadow-2xl backdrop-blur">
       <div className="font-mono text-[11px] uppercase tracking-[0.14em] text-foreground">{row.label}</div>
       <div className="mt-2 grid grid-cols-2 gap-x-5 gap-y-1 font-mono text-[11px]">
-        <span className="text-muted-foreground">Markout</span>
-        <span className="text-right text-primary">{row.markout_bps.toFixed(2)} bps</span>
-        <span className="text-muted-foreground">Loss risk</span>
+        <span className="text-muted-foreground">Observed value</span>
         <span className="text-right text-red-300">{formatUsd(row.loss_at_risk_usd)}</span>
         <span className="text-muted-foreground">Prevented</span>
         <span className="text-right text-primary">{formatUsd(row.prevented_loss_usd)}</span>
-        <span className="text-muted-foreground">Toxic signal</span>
-        <span className="text-right text-foreground">{row.toxic_flow_score.toFixed(1)} / 100</span>
         <span className="text-muted-foreground">Events</span>
         <span className="text-right text-foreground">{row.attack_count}</span>
+        <span className="text-muted-foreground">Observed bps</span>
+        <span className="text-right text-primary">{row.markout_bps.toFixed(2)} bps</span>
+        <span className="text-muted-foreground">Type</span>
+        <span className="text-right text-foreground">{row.event_type ? row.event_type.replace(/_/g, " ") : "none"}</span>
       </div>
     </div>
   );
@@ -225,32 +229,10 @@ export default function FlowTerminal() {
   }, [data, selectedKey]);
 
   const chartData = useMemo<ChartPoint[]>(() => {
-    const sorted = [...(selected?.candles ?? [])]
+    return [...(selected?.candles ?? [])]
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
       .map(toChartPoint);
-    const hasBucketSignal = sorted.some((candle) =>
-      candle.toxic_flow_score > 0 ||
-      candle.attack_count > 0 ||
-      candle.volume_usd > 0 ||
-      candle.loss_at_risk_usd > 0,
-    );
-
-    if (data?.source === "chain" && !hasBucketSignal && selected && selected.markout_30s_bps > 0) {
-      return sorted.map((candle) => ({
-        ...candle,
-        toxic_flow_score: selected.toxic_flow_score,
-        markout_bps: selected.markout_30s_bps,
-        loss_at_risk_usd: selected.loss_at_risk_24h_usd > 0
-          ? selected.loss_at_risk_24h_usd / Math.max(1, sorted.length)
-          : 0,
-        prevented_loss_usd: selected.prevented_loss_24h_usd > 0
-          ? selected.prevented_loss_24h_usd / Math.max(1, sorted.length)
-          : 0,
-      }));
-    }
-
-    return sorted;
-  }, [data?.source, selected]);
+  }, [selected]);
 
   const latest = chartData[chartData.length - 1] ?? null;
   const activeCandleIndex = useMemo(() => {
@@ -269,19 +251,27 @@ export default function FlowTerminal() {
     }, 0);
   }, [chartData, selectedCandleTs]);
   const activeCandle = activeCandleIndex >= 0 ? chartData[activeCandleIndex] : null;
-  const markoutDomain = useMemo<[number, number]>(() => {
-    const max = Math.max(1, selected?.markout_30s_bps ?? 0, ...chartData.map((candle) => candle.markout_bps));
-    return [0, Number((max * 1.25).toFixed(2))];
-  }, [chartData, selected?.markout_30s_bps]);
-  const activeBucketCount = useMemo(
-    () => chartData.filter((candle) =>
-      candle.volume_usd > 0 ||
-      candle.loss_at_risk_usd > 0 ||
-      candle.attack_count > 0,
-    ).length,
+  const observedValueDomain = useMemo<[number, number]>(() => {
+    const max = Math.max(1, ...chartData.map((candle) => candle.loss_at_risk_usd));
+    return [0, Number((max * 1.18).toFixed(2))];
+  }, [chartData]);
+  const eventCountDomain = useMemo<[number, number]>(() => {
+    const max = Math.max(1, ...chartData.map((candle) => candle.attack_count));
+    return [0, max + 1];
+  }, [chartData]);
+  const eventBucketCount = useMemo(
+    () => chartData.filter((candle) => candle.attack_count > 0).length,
     [chartData],
   );
-  const isBaselineOnly = data?.source === "chain" && chartData.length > 0 && activeBucketCount === 0;
+  const totalEventCount = useMemo(
+    () => chartData.reduce((sum, candle) => sum + candle.attack_count, 0),
+    [chartData],
+  );
+  const observedValueUsd = useMemo(
+    () => chartData.reduce((sum, candle) => sum + candle.loss_at_risk_usd, 0),
+    [chartData],
+  );
+  const isBaselineOnly = data?.source === "chain" && chartData.length > 0 && totalEventCount === 0;
   const rawCandleCount = selected?.candles.length ?? 0;
   const gridStyle = {
     "--left-panel-width": `${leftWidth}px`,
@@ -408,11 +398,11 @@ export default function FlowTerminal() {
 
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-[12px]">
               <TapeValue label="T" value={activeCandle?.label ?? latest?.label ?? "Live"} tone="accent" />
-              <TapeValue label="Markout" value={`${formatNumber(activeCandle?.markout_bps ?? selected.markout_30s_bps, 2)} bps`} tone="bad" />
-              <TapeValue label="Loss" value={formatUsd(activeCandle?.loss_at_risk_usd ?? selected.loss_at_risk_24h_usd)} tone="bad" />
-              <TapeValue label="Prevented" value={formatUsd(activeCandle?.prevented_loss_usd ?? selected.prevented_loss_24h_usd)} tone="accent" />
-              <TapeValue label="Toxic" value={formatNumber(activeCandle?.toxic_flow_score ?? selected.toxic_flow_score, 0)} tone={(activeCandle?.toxic_flow_score ?? selected.toxic_flow_score) >= 75 ? "bad" : "accent"} />
-              <TapeValue label="Events" value={String(activeCandle?.attack_count ?? selected.overlays.length)} />
+              <TapeValue label="Observed" value={formatUsd(observedValueUsd)} tone={observedValueUsd > 0 ? "bad" : undefined} />
+              <TapeValue label="Preventable" value={formatUsd(selected.prevented_loss_24h_usd)} tone="accent" />
+              <TapeValue label="Event buckets" value={`${eventBucketCount}/${chartData.length}`} tone={eventBucketCount > 0 ? "accent" : undefined} />
+              <TapeValue label="Events" value={String(totalEventCount)} tone={totalEventCount > 0 ? "bad" : undefined} />
+              <TapeValue label="Route risk" value={selected.risk_score.toFixed(0)} tone={selected.risk_score >= 80 ? "bad" : "accent"} />
             </div>
           </div>
 
@@ -434,13 +424,14 @@ export default function FlowTerminal() {
             ))}
             <div className="mx-2 h-5 w-px bg-border" />
             <div className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-              <span className="text-primary">Single line</span>
+              <span className="text-primary">Observed detections</span>
               <span>X axis: time</span>
-              <span>Y axis: adverse markout bps</span>
+              <span>Left Y: detected value USD</span>
+              <span>Right Y: event count</span>
               <span className={isBaselineOnly ? "text-yellow-300" : "text-primary"}>
-                Buckets: {activeBucketCount}/{chartData.length}
+                Event buckets: {eventBucketCount}/{chartData.length}
               </span>
-              {isBaselineOnly && <span>Showing route baseline until matched buckets arrive</span>}
+              {isBaselineOnly && <span>No matched events in this terminal window</span>}
             </div>
             <span className="ml-auto hidden font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground md:block">
               Source: {data.source === "chain" ? "QuickNode / chain" : "fallback demo"}
@@ -465,23 +456,40 @@ export default function FlowTerminal() {
                   tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
                 />
                 <YAxis
-                  yAxisId="markout"
-                  domain={markoutDomain}
-                  tickFormatter={(value) => `${Number(value).toFixed(1)}`}
+                  yAxisId="value"
+                  domain={observedValueDomain}
+                  tickFormatter={(value) => formatUsd(Number(value)).replace("$", "")}
                   tickLine={false}
                   axisLine={false}
                   tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
-                  width={42}
+                  width={52}
+                />
+                <YAxis
+                  yAxisId="events"
+                  orientation="right"
+                  domain={eventCountDomain}
+                  tickFormatter={(value) => `${Number(value).toFixed(0)}`}
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
+                  width={34}
                 />
                 <Tooltip content={<ChartTooltip />} cursor={{ stroke: "hsl(var(--primary))", strokeOpacity: 0.16 }} />
+                <Bar
+                  yAxisId="value"
+                  dataKey="loss_at_risk_usd"
+                  fill="hsl(0 85% 62%)"
+                  fillOpacity={0.72}
+                  radius={[2, 2, 0, 0]}
+                  isAnimationActive={false}
+                />
                 <Line
-                  yAxisId="markout"
-                  type="linear"
-                  dataKey="markout_bps"
+                  yAxisId="events"
+                  type="stepAfter"
+                  dataKey="attack_count"
                   stroke="hsl(var(--primary))"
                   strokeOpacity={0.95}
-                  strokeWidth={2.4}
-                  strokeDasharray={isBaselineOnly ? "6 5" : undefined}
+                  strokeWidth={2}
                   dot={false}
                   activeDot={{ r: 4, fill: "hsl(var(--primary))", stroke: "hsl(var(--background))", strokeWidth: 1.5 }}
                   isAnimationActive={false}
@@ -540,8 +548,8 @@ function TerminalTopbar({
           >
             <span className="text-muted-foreground">#{index + 1}</span>
             <span>{surface.pair}</span>
-            <span className={surface.risk_score >= 80 ? "text-red-300" : "text-primary"}>
-              {surface.toxic_flow_score.toFixed(0)}
+            <span className={surfaceEventCount(surface) > 0 ? "text-red-300" : "text-primary"}>
+              {surfaceEventCount(surface)} evt
             </span>
           </button>
         ))}
@@ -586,11 +594,11 @@ function MarketRail({
               <div className="mt-1 truncate text-[12px]">{surface.protocol ?? "mixed route"}</div>
             </div>
             <div className="text-right font-mono">
-              <div className={surface.risk_score >= 80 ? "text-red-300" : "text-primary"}>
-                {surface.toxic_flow_score.toFixed(0)}
+              <div className={surfaceEventCount(surface) > 0 ? "text-red-300" : "text-primary"}>
+                {surfaceEventCount(surface)}
               </div>
               <div className="mt-1 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                {actionLabel(surface.action)}
+                {formatUsd(surfaceObservedValue(surface))}
               </div>
             </div>
           </button>
@@ -635,6 +643,9 @@ function ResizeHandle({
 }
 
 function Inspector({ selected, activeCandle }: { selected: ToxicFlowSurface; activeCandle: ChartPoint | null }) {
+  const selectedEvents = surfaceEventCount(selected);
+  const observedValue = surfaceObservedValue(selected);
+
   return (
     <aside className="overflow-hidden bg-card/35 lg:h-[calc(100vh-3rem)] lg:overflow-y-auto">
       <div className="border-b border-border/70 p-4">
@@ -659,12 +670,12 @@ function Inspector({ selected, activeCandle }: { selected: ToxicFlowSurface; act
       </div>
 
       <div className="divide-y divide-border/70 border-b border-border/70 font-mono">
-        <StatRow label="Prevented" value={formatUsd(selected.prevented_loss_24h_usd)} tone="accent" />
-        <StatRow label="At risk" value={formatUsd(selected.loss_at_risk_24h_usd)} />
-        <StatRow label="Volume" value={formatUsd(selected.volume_24h_usd)} />
+        <StatRow label="Observed value" value={formatUsd(observedValue)} tone={observedValue > 0 ? "bad" : undefined} />
+        <StatRow label="Preventable" value={formatUsd(selected.prevented_loss_24h_usd)} tone="accent" />
+        <StatRow label="Events" value={String(selectedEvents)} tone={selectedEvents > 0 ? "bad" : undefined} />
+        <StatRow label="Swap volume" value={formatUsd(selected.volume_24h_usd)} />
         <StatRow label="Risk" value={selected.risk_score.toFixed(0)} tone={selected.risk_score >= 80 ? "bad" : "accent"} />
-        <StatRow label="Markout" value={`${selected.markout_30s_bps.toFixed(2)} bps`} />
-        <StatRow label="Liq stress" value={selected.liquidity_stress.toFixed(0)} />
+        <StatRow label="Route markout" value={`${selected.markout_30s_bps.toFixed(2)} bps`} />
       </div>
 
       {activeCandle && (
@@ -673,12 +684,11 @@ function Inspector({ selected, activeCandle }: { selected: ToxicFlowSurface; act
             <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Selected</span>
             <span className="text-primary">{activeCandle.label}</span>
           </div>
-          <StatRow label="Toxicity" value={`${activeCandle.toxic_flow_score.toFixed(1)} / 100`} tone={activeCandle.toxic_flow_score >= 75 ? "bad" : "accent"} />
-          <StatRow label="Markout" value={`${activeCandle.markout_bps.toFixed(2)} bps`} />
-          <StatRow label="LVR" value={`${activeCandle.lvr_bps.toFixed(2)} bps`} />
-          <StatRow label="Loss risk" value={formatUsd(activeCandle.loss_at_risk_usd)} tone={activeCandle.loss_at_risk_usd > 0 ? "bad" : undefined} />
-          <StatRow label="Prevented" value={formatUsd(activeCandle.prevented_loss_usd)} tone="accent" />
           <StatRow label="Events" value={String(activeCandle.attack_count)} />
+          <StatRow label="Observed value" value={formatUsd(activeCandle.loss_at_risk_usd)} tone={activeCandle.loss_at_risk_usd > 0 ? "bad" : undefined} />
+          <StatRow label="Preventable" value={formatUsd(activeCandle.prevented_loss_usd)} tone="accent" />
+          <StatRow label="Observed bps" value={`${activeCandle.markout_bps.toFixed(2)} bps`} />
+          <StatRow label="Bucket signal" value={`${activeCandle.toxic_flow_score.toFixed(1)} / 100`} tone={activeCandle.toxic_flow_score >= 75 ? "bad" : "accent"} />
         </div>
       )}
 

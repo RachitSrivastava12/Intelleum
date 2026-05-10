@@ -848,19 +848,18 @@ function buildToxicFlowCandles(
       (sum, swap) => sum + (swap.notional_usd ?? swap.input_usd ?? swap.output_usd ?? 0),
       0,
     );
-    const routeBaseline = route.toxicity_probability * 0.82 + route.bundle_share * 0.08 + route.lvr_proxy_score * 0.05;
-    const activityPressure = bucketSwaps.length > 0
-      ? Math.min(12, bucketSwaps.length * 1.6) + Math.min(10, liveVolumeUsd / 25_000)
+    const observedLossBps = liveVolumeUsd > 0 && bucketLossUsd > 0
+      ? (bucketLossUsd / liveVolumeUsd) * 10_000
       : 0;
-    const toxicScore = round(clamp(routeBaseline + activityPressure + detectedPressure, 0, 100), 2);
-    const markoutBps = toxicScore > 0
-      ? round(clamp(route.markout_30s_bps * (0.45 + toxicScore / 100), 0, 48), 2)
+    const toxicScore = bucketAttacks.length > 0
+      ? round(clamp(detectedPressure + bucketAttacks.length * 8, 0, 100), 2)
       : 0;
-    const lvrBps = toxicScore > 0
+    const markoutBps = round(clamp(observedLossBps, 0, 100), 2);
+    const lvrBps = bucketAttacks.length > 0
       ? round(clamp(route.lvr_proxy_score * 0.05 + markoutBps * 0.42, 0, 36), 2)
       : 0;
     const volumeUsd = liveVolumeUsd > 0 ? round(liveVolumeUsd, 0) : 0;
-    const lossAtRiskUsd = round(Math.max(bucketLossUsd, (volumeUsd * Math.max(markoutBps, lvrBps)) / 10_000), 2);
+    const lossAtRiskUsd = round(bucketLossUsd, 2);
     const preventedLossUsd = round(lossAtRiskUsd * terminalActionPreventRate(route.policy_action), 2);
     const open = close;
     close = open;
