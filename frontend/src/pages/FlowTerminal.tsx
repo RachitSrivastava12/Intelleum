@@ -1,4 +1,4 @@
-import { CSSProperties, useEffect, useMemo, useState } from "react";
+import { CSSProperties, type PointerEvent, type WheelEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Bar,
@@ -14,9 +14,12 @@ import { api, ToxicFlowCandle, ToxicFlowSurface, ToxicFlowTerminal } from "@/lib
 
 type Interval = ToxicFlowTerminal["interval"];
 type ChartPoint = ToxicFlowCandle;
+type ViewRange = { start: number; end: number };
 
 const intervals: Interval[] = ["5m", "15m", "1h"];
 const TERMINAL_ROUTE_LIMIT = 50;
+const FULL_VIEW_RANGE: ViewRange = { start: 0, end: 1 };
+const MIN_VISIBLE_POINTS = 12;
 const MIN_LEFT_WIDTH = 0;
 const MAX_LEFT_WIDTH = 420;
 const DEFAULT_LEFT_WIDTH = 260;
@@ -34,6 +37,46 @@ function formatUsd(value: number | null | undefined) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function clampViewRange(range: ViewRange, minSpan: number) {
+  const boundedMinSpan = clamp(minSpan, 0.01, 1);
+  let start = clamp(Math.min(range.start, range.end), 0, 1);
+  let end = clamp(Math.max(range.start, range.end), 0, 1);
+
+  if (end - start < boundedMinSpan) {
+    const center = (start + end) / 2;
+    start = center - boundedMinSpan / 2;
+    end = center + boundedMinSpan / 2;
+  }
+
+  if (start < 0) {
+    end = Math.min(1, end - start);
+    start = 0;
+  }
+
+  if (end > 1) {
+    start = Math.max(0, start - (end - 1));
+    end = 1;
+  }
+
+  return { start, end };
+}
+
+function rangeForTimestamp(candles: ChartPoint[], timestamp: string, current: ViewRange) {
+  const index = candles.findIndex((candle) => candle.timestamp === timestamp);
+  if (index < 0 || candles.length <= 1) return current;
+  const position = index / (candles.length - 1);
+  if (position >= current.start && position <= current.end) return current;
+
+  const span = current.end - current.start;
+  return clampViewRange(
+    {
+      start: position - span / 2,
+      end: position + span / 2,
+    },
+    Math.min(1, MIN_VISIBLE_POINTS / candles.length),
+  );
 }
 
 function actionLabel(action: ToxicFlowSurface["action"]) {
@@ -197,8 +240,12 @@ export default function FlowTerminal() {
   const [leftWidth, setLeftWidth] = useState(DEFAULT_LEFT_WIDTH);
   const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH);
   const [resizeTarget, setResizeTarget] = useState<"left" | "right" | null>(null);
+  const [viewRange, setViewRange] = useState<ViewRange>(FULL_VIEW_RANGE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const chartViewportRef = useRef<HTMLDivElement | null>(null);
+  const viewRangeRef = useRef<ViewRange>(FULL_VIEW_RANGE);
+  const panStartRef = useRef<{ x: number; range: ViewRange } | null>(null);
 
   const loadTerminal = async () => {
     setLoading(true);
@@ -233,6 +280,21 @@ export default function FlowTerminal() {
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
       .map(toChartPoint);
   }, [selected]);
+  const minViewSpan = useMemo(
+    () => chartData.length > 0 ? Math.min(1, MIN_VISIBLE_POINTS / chartData.length) : 1,
+    [chartData.length],
+  );
+  const normalizedViewRange = useMemo(
+    () => clampViewRange(viewRange, minViewSpan),
+    [minViewSpan, viewRange],
+  );
+  const visibleChartData = useMemo<ChartPoint[]>(() => {
+    if (chartData.length <= MIN_VISIBLE_POINTS) return chartData;
+    const lastIndex = chartData.length - 1;
+    const startIndex = Math.floor(normalizedViewRange.start * lastIndex);
+    const endIndex = Math.ceil(normalizedViewRange.end * lastIndex);
+    return chartData.slice(startIndex, endIndex + 1);
+  }, [chartData, normalizedViewRange]);
 
   const latest = chartData[chartData.length - 1] ?? null;
   const activeCandleIndex = useMemo(() => {
@@ -252,26 +314,27 @@ export default function FlowTerminal() {
   }, [chartData, selectedCandleTs]);
   const activeCandle = activeCandleIndex >= 0 ? chartData[activeCandleIndex] : null;
   const observedValueDomain = useMemo<[number, number]>(() => {
-    const max = Math.max(1, ...chartData.map((candle) => candle.loss_at_risk_usd));
+    const max = Math.max(1, ...visibleChartData.map((candle) => candle.loss_at_risk_usd));
     return [0, Number((max * 1.18).toFixed(2))];
-  }, [chartData]);
+  }, [visibleChartData]);
   const eventCountDomain = useMemo<[number, number]>(() => {
-    const max = Math.max(1, ...chartData.map((candle) => candle.attack_count));
+    const max = Math.max(1, ...visibleChartData.map((candle) => candle.attack_count));
     return [0, max + 1];
-  }, [chartData]);
-  const eventBucketCount = useMemo(
-    () => chartData.filter((candle) => candle.attack_count > 0).length,
-    [chartData],
+  }, [visibleChartData]);
+  const visibleEventBucketCount = useMemo(
+    () => visibleChartData.filter((candle) => candle.attack_count > 0).length,
+    [visibleChartData],
   );
-  const totalEventCount = useMemo(
-    () => chartData.reduce((sum, candle) => sum + candle.attack_count, 0),
-    [chartData],
+  const visibleTotalEventCount = useMemo(
+    () => visibleChartData.reduce((sum, candle) => sum + candle.attack_count, 0),
+    [visibleChartData],
   );
-  const observedValueUsd = useMemo(
-    () => chartData.reduce((sum, candle) => sum + candle.loss_at_risk_usd, 0),
-    [chartData],
+  const visibleObservedValueUsd = useMemo(
+    () => visibleChartData.reduce((sum, candle) => sum + candle.loss_at_risk_usd, 0),
+    [visibleChartData],
   );
-  const isBaselineOnly = data?.source === "chain" && chartData.length > 0 && totalEventCount === 0;
+  const isQuietWindow = data?.source === "chain" && visibleChartData.length > 0 && visibleTotalEventCount === 0;
+  const isZoomed = normalizedViewRange.start > 0.001 || normalizedViewRange.end < 0.999;
   const rawCandleCount = selected?.candles.length ?? 0;
   const gridStyle = {
     "--left-panel-width": `${leftWidth}px`,
@@ -279,13 +342,21 @@ export default function FlowTerminal() {
   } as CSSProperties;
 
   useEffect(() => {
+    viewRangeRef.current = normalizedViewRange;
+  }, [normalizedViewRange]);
+
+  useEffect(() => {
     setSelectedCandleTs(null);
     setCopiedRoute(false);
+    setViewRange(FULL_VIEW_RANGE);
   }, [selected?.route_key, interval]);
 
   const selectCandleByTimestamp = (timestamp: string) => {
     const candle = findNearestCandle(chartData, timestamp);
     setSelectedCandleTs(candle?.timestamp ?? timestamp);
+    if (candle?.timestamp) {
+      setViewRange((current) => rangeForTimestamp(chartData, candle.timestamp, current));
+    }
   };
 
   const handleChartPointer = (state: any) => {
@@ -312,6 +383,69 @@ export default function FlowTerminal() {
 
   const setClampedRightWidth = (value: number) => {
     setRightWidth(clamp(value, MIN_RIGHT_WIDTH, rightMax()));
+  };
+
+  const zoomChartAt = (clientX: number, deltaY: number) => {
+    const viewport = chartViewportRef.current;
+    if (!viewport || chartData.length <= MIN_VISIBLE_POINTS) return;
+
+    const rect = viewport.getBoundingClientRect();
+    const anchor = clamp((clientX - rect.left) / Math.max(1, rect.width), 0, 1);
+    const factor = deltaY < 0 ? 0.78 : 1.22;
+
+    setViewRange((current) => {
+      const range = clampViewRange(current, minViewSpan);
+      const span = range.end - range.start;
+      const nextSpan = clamp(span * factor, minViewSpan, 1);
+      const anchorValue = range.start + span * anchor;
+      return clampViewRange(
+        {
+          start: anchorValue - nextSpan * anchor,
+          end: anchorValue + nextSpan * (1 - anchor),
+        },
+        minViewSpan,
+      );
+    });
+  };
+
+  const panChartByPixels = (deltaPixels: number, baseRange = viewRangeRef.current) => {
+    const viewport = chartViewportRef.current;
+    if (!viewport || chartData.length <= MIN_VISIBLE_POINTS) return;
+
+    const rect = viewport.getBoundingClientRect();
+    const span = baseRange.end - baseRange.start;
+    const delta = (deltaPixels / Math.max(1, rect.width)) * span;
+    setViewRange(clampViewRange({ start: baseRange.start + delta, end: baseRange.end + delta }, minViewSpan));
+  };
+
+  const handleChartWheel = (event: WheelEvent<HTMLDivElement>) => {
+    if (chartData.length <= MIN_VISIBLE_POINTS) return;
+
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      zoomChartAt(event.clientX, event.deltaY);
+      return;
+    }
+
+    if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.shiftKey) {
+      event.preventDefault();
+      panChartByPixels(event.shiftKey ? event.deltaY : event.deltaX);
+    }
+  };
+
+  const handleChartPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || chartData.length <= MIN_VISIBLE_POINTS) return;
+    panStartRef.current = { x: event.clientX, range: viewRangeRef.current };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleChartPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!panStartRef.current) return;
+    panChartByPixels(panStartRef.current.x - event.clientX, panStartRef.current.range);
+  };
+
+  const stopChartPan = () => {
+    panStartRef.current = null;
   };
 
   useEffect(() => {
@@ -398,10 +532,10 @@ export default function FlowTerminal() {
 
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1 font-mono text-[12px]">
               <TapeValue label="T" value={activeCandle?.label ?? latest?.label ?? "Live"} tone="accent" />
-              <TapeValue label="Observed" value={formatUsd(observedValueUsd)} tone={observedValueUsd > 0 ? "bad" : undefined} />
+              <TapeValue label="Visible value" value={formatUsd(visibleObservedValueUsd)} tone={visibleObservedValueUsd > 0 ? "bad" : undefined} />
               <TapeValue label="Preventable" value={formatUsd(selected.prevented_loss_24h_usd)} tone="accent" />
-              <TapeValue label="Event buckets" value={`${eventBucketCount}/${chartData.length}`} tone={eventBucketCount > 0 ? "accent" : undefined} />
-              <TapeValue label="Events" value={String(totalEventCount)} tone={totalEventCount > 0 ? "bad" : undefined} />
+              <TapeValue label="Event buckets" value={`${visibleEventBucketCount}/${visibleChartData.length}`} tone={visibleEventBucketCount > 0 ? "accent" : undefined} />
+              <TapeValue label="Events" value={String(visibleTotalEventCount)} tone={visibleTotalEventCount > 0 ? "bad" : undefined} />
               <TapeValue label="Route risk" value={selected.risk_score.toFixed(0)} tone={selected.risk_score >= 80 ? "bad" : "accent"} />
             </div>
           </div>
@@ -428,21 +562,42 @@ export default function FlowTerminal() {
               <span>X axis: time</span>
               <span>Left Y: detected value USD</span>
               <span>Right Y: event count</span>
-              <span className={isBaselineOnly ? "text-yellow-300" : "text-primary"}>
-                Event buckets: {eventBucketCount}/{chartData.length}
+              <span className={isQuietWindow ? "text-yellow-300" : "text-primary"}>
+                Event buckets: {visibleEventBucketCount}/{visibleChartData.length}
               </span>
-              {isBaselineOnly && <span>No matched events in this terminal window</span>}
+              <span>Pinch zoom · Drag pan</span>
+              {isQuietWindow && <span>No matched events in this view</span>}
             </div>
+            {isZoomed && (
+              <button
+                type="button"
+                onClick={() => setViewRange(FULL_VIEW_RANGE)}
+                className="ml-0 min-h-10 border border-primary/40 px-3 font-mono text-[11px] uppercase tracking-[0.12em] text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:ml-auto"
+              >
+                Reset zoom
+              </button>
+            )}
             <span className="ml-auto hidden font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground md:block">
               Source: {data.source === "chain" ? "QuickNode / chain" : "fallback demo"}
             </span>
           </div>
 
-          <div className="relative h-[calc(100vh-17.5rem)] min-h-[360px] border-b border-border/70 p-2">
+          <div
+            ref={chartViewportRef}
+            onWheel={handleChartWheel}
+            onPointerDown={handleChartPointerDown}
+            onPointerMove={handleChartPointerMove}
+            onPointerUp={stopChartPan}
+            onPointerCancel={stopChartPan}
+            className={[
+              "relative h-[calc(100vh-17.5rem)] min-h-[360px] touch-none select-none border-b border-border/70 p-2",
+              panStartRef.current ? "cursor-grabbing" : "cursor-grab",
+            ].join(" ")}
+          >
             {loading && <ChartLoadingOverlay interval={interval} />}
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
-                data={chartData}
+                data={visibleChartData}
                 margin={{ top: 10, right: 8, bottom: 26, left: 4 }}
                 onClick={handleChartPointer}
                 onMouseMove={handleChartPointer}
