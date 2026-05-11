@@ -915,7 +915,8 @@ function buildToxicFlowCandles(
     const markoutBps = round(clamp(route.markout_30s_bps * (0.72 + pulse * 0.54 + wave * 0.08), 0.2, 48), 2);
     const lvrBps = round(clamp(route.lvr_proxy_score * 0.08 + markoutBps * 0.42, 0.1, 36), 2);
     const volumeUsd = round(baseVolume * clamp(0.72 + pulse * 0.58 + route.bundle_share * 0.003, 0.5, 2.4), 0);
-    const lossAtRiskUsd = round((volumeUsd * Math.max(markoutBps, lvrBps)) / 10_000, 2);
+    const perCandleCap = Math.min(route.recommended_max_notional_usd * 0.08, 20_000);
+    const lossAtRiskUsd = round(clamp((volumeUsd * Math.max(markoutBps, lvrBps)) / 10_000, 0, perCandleCap), 2);
     const preventedLossUsd = round(lossAtRiskUsd * terminalActionPreventRate(route.policy_action), 2);
     const driftBps = (wave * 1.7) - markoutBps * 0.045 + (route.execution_quality_score - 50) * 0.002;
     const open = close;
@@ -994,8 +995,9 @@ function buildToxicFlowSurface(
   const firstClose = candles[0]?.close ?? 0;
   const lastClose = candles[candles.length - 1]?.close ?? firstClose;
   const volume24h = candles.reduce((sum, candle) => sum + candle.volume_usd, 0);
-  const lossAtRisk24h = candles.reduce((sum, candle) => sum + candle.loss_at_risk_usd, 0);
-  const preventedLoss24h = candles.reduce((sum, candle) => sum + candle.prevented_loss_usd, 0);
+  const surfaceLossCap = Math.min(route.recommended_max_notional_usd * 2, 500_000);
+  const lossAtRisk24h = Math.min(candles.reduce((sum, candle) => sum + candle.loss_at_risk_usd, 0), surfaceLossCap);
+  const preventedLoss24h = Math.min(candles.reduce((sum, candle) => sum + candle.prevented_loss_usd, 0), surfaceLossCap);
 
   return {
     route_key: route.route_key,

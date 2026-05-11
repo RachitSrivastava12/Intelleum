@@ -893,16 +893,25 @@ function buildToxicFlowCandles(
       ? liveVolumeUsd
       : round(baseVolume * clamp(0.72 + pulse * 0.58 + route.bundle_share * 0.003, 0.5, 2.4) / bucketCount, 0);
 
+    // Cap per-attack contribution: bad token prices (wrong decimals from RPC) can inflate victim_loss_usd by 1000x.
+    // $8K is already a severe Solana MEV attack — anything higher is almost certainly a pricing artifact.
+    const perAttackCap = Math.min(Math.max(avgExtractedPerAttack * 4, 200), 8_000);
     const rawDetectedValueUsd = bucketAttacks.reduce(
-      (sum, a) => sum + (a.victim_loss_usd ?? a.profit_usd ?? avgExtractedPerAttack),
+      (sum, a) => sum + Math.min(
+        Math.abs(a.victim_loss_usd ?? a.profit_usd ?? avgExtractedPerAttack),
+        perAttackCap,
+      ),
       0,
     );
     const cappedAtRisk = (effectiveVolumeUsd * routeMarkoutBps) / 10_000;
     // Attacked bucket: max of (actual profit) vs (fair-share floor) vs (volume-rate)
     const attackFloor = bucketAttacks.length * Math.max(avgExtractedPerAttack * 0.5, 5);
+    // Hard ceiling per candle: 8% of the route's recommended max notional (e.g. $14K for a $180K route).
+    // Prevents whale swap volume or inflated prices from producing $2B "value at risk" readings.
+    const perCandleCap = Math.min(route.recommended_max_notional_usd * 0.08, 20_000);
     const lossAtRiskUsd = bucketAttacks.length > 0
-      ? round(Math.max(rawDetectedValueUsd, attackFloor, cappedAtRisk), 2)
-      : round(cappedAtRisk * (0.06 + (route.toxicity_probability / 100) * 0.10 + ambientSeed * 0.05), 2);
+      ? round(clamp(Math.max(rawDetectedValueUsd, attackFloor, cappedAtRisk), 0, perCandleCap), 2)
+      : round(clamp(cappedAtRisk * (0.06 + (route.toxicity_probability / 100) * 0.10 + ambientSeed * 0.05), 0, perCandleCap * 0.15), 2);
 
     const preventedLossUsd = round(lossAtRiskUsd * terminalActionPreventRate(route.policy_action), 2);
 
@@ -1017,8 +1026,10 @@ function buildToxicFlowSurface(
   const firstClose = candles[0]?.close ?? 0;
   const lastClose = candles[candles.length - 1]?.close ?? firstClose;
   const volume24h = candles.reduce((sum, candle) => sum + candle.volume_usd, 0);
-  const lossAtRisk24h = candles.reduce((sum, candle) => sum + candle.loss_at_risk_usd, 0);
-  const preventedLoss24h = candles.reduce((sum, candle) => sum + candle.prevented_loss_usd, 0);
+  // Surface-level cap: realistic max for a single monitored route surface across the display window.
+  const surfaceLossCap = Math.min(route.recommended_max_notional_usd * 2, 500_000);
+  const lossAtRisk24h = Math.min(candles.reduce((sum, candle) => sum + candle.loss_at_risk_usd, 0), surfaceLossCap);
+  const preventedLoss24h = Math.min(candles.reduce((sum, candle) => sum + candle.prevented_loss_usd, 0), surfaceLossCap);
 
   return {
     route_key: route.route_key,
