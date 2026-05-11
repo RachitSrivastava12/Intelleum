@@ -3591,6 +3591,7 @@ class LiveChainService {
 
     return {
       total_attacks: this.attacks.length,
+      attacks_detected_lifetime: this.attacksDetected,
       attacks_24h: attacks24h.length,
       attacks_1h: attacks1h.length,
       total_extracted_usd: this.sumProfit(this.attacks),

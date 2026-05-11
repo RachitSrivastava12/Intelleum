@@ -896,6 +896,7 @@ function getFallback<T>(path: string, params?: Record<string, string>): T | unde
 
 export interface GlobalStats {
   total_attacks: number;
+  attacks_detected_lifetime?: number;
   attacks_24h: number;
   attacks_1h: number;
   total_extracted_usd: number;

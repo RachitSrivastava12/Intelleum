@@ -64,7 +64,7 @@ function LiveDashboardCTA() {
   }, []);
 
   const detectionCount = stats
-    ? Math.max(stats.total_attacks ?? 0, stats.attacks_24h ?? 0, savings?.users_protected_proxy ?? 0)
+    ? Math.max(stats.attacks_detected_lifetime ?? stats.total_attacks ?? 0, stats.attacks_24h ?? 0, savings?.users_protected_proxy ?? 0)
     : null;
   const moneyProtected = stats
     ? Math.max(stats.total_extracted_usd ?? 0, stats.extracted_24h ?? 0, savings?.estimated_loss_avoided_usd_24h ?? 0)
