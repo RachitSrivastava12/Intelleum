@@ -186,6 +186,13 @@ export async function detectSandwiches(
         }
 
         if (bestVictim) {
+          const attackerProfit = estimateProfit(backrun.flows, backrun.signer);
+          const victimLoss = bestVictim.loss || null;
+          // Tip-to-profit ratio: sophisticated bots pay 5–15% of extracted profit in Jito tips
+          const tipLamports = frontrun.priority_fee;
+          const tipToProfit = attackerProfit && tipLamports && attackerProfit > 0
+            ? tipLamports / (attackerProfit * 6_666_667) // lamports → SOL → USD at ~$150
+            : null;
           attacks.push({
             attack_type: "sandwich",
             slot,
@@ -195,19 +202,21 @@ export async function detectSandwiches(
             victim_wallet: bestVictim.tx.signer,
             pool_address: poolAddress,
             token_mint: bestVictim.mint,
-            profit_usd: estimateProfit(backrun.flows, backrun.signer),
-            victim_loss_usd: bestVictim.loss || null,
+            profit_usd: attackerProfit,
+            victim_loss_usd: victimLoss,
             frontrun_tx: frontrun.tx_sig,
             victim_tx: bestVictim.tx.tx_sig,
             backrun_tx: backrun.tx_sig,
-            tip_lamports: frontrun.priority_fee,
+            tip_lamports: tipLamports,
             confidence: 0.92,
             detector: "raw_delta_sandwich",
             evidence: [
               "same-pool same-signer frontrun/backrun pattern",
               "highest-loss victim selected from bracketed window",
               "token delta confirmed attacker buy then sell",
-            ],
+              victimLoss != null ? `victim loss estimate: $${victimLoss.toFixed(0)}` : null,
+              tipToProfit != null ? `tip-to-profit ratio: ${(tipToProfit * 100).toFixed(1)}%` : null,
+            ].filter((e): e is string => e != null),
           });
         }
       }
@@ -238,10 +247,10 @@ export async function detectArbitrage(
     const balancedInventory = hasBalancedNonStableInventory(signerFlows, tx.signer);
     const bestMint = inferPrimaryProfitMint(signerFlows, tx.signer);
 
-    if (!balancedInventory || netStableProfit < 15 || !bestMint) continue;
+    if (!balancedInventory || netStableProfit < 5 || !bestMint) continue;
 
     const confidence =
-      netStableProfit >= 75 ? 0.92 : netStableProfit >= 30 ? 0.88 : 0.82;
+      netStableProfit >= 75 ? 0.92 : netStableProfit >= 30 ? 0.88 : netStableProfit >= 15 ? 0.82 : 0.74;
 
     attacks.push({
       attack_type: "arbitrage",

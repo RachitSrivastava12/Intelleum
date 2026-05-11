@@ -114,6 +114,9 @@ interface RouteRiskRecord {
   recommended_max_notional_usd: number;
   estimated_savings_bps: number;
   estimated_savings_usd: number;
+  order_flow_imbalance: number;
+  lp_annual_loss_rate_pct: number;
+  lp_annual_loss_usd_estimate: number;
   policy_action: "allow" | "monitor" | "penalize" | "avoid" | "reroute";
   reason_codes: string[];
   decomposition: Array<{ label: string; value: number }>;
@@ -1448,7 +1451,15 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
       const validatorMarkoutQuality = round(clamp(100 - markout5 * 3.1 - bundleShare * 24, 3, 96));
       const recommendedMaxNotionalUsd = round(clamp(180_000 - toxicFlowRate * 1_250 - bundleShare * 650, 7_500, 180_000), 0);
       const estimatedSavingsBps = round(clamp(markout30 * 0.55 + lvrProxyScore * 0.05, 0.3, 18), 2);
-      const estimatedSavingsUsd = round((50_000 * estimatedSavingsBps) / 10_000, 2);
+      const estimatedSavingsUsd = round((recommendedMaxNotionalUsd * estimatedSavingsBps) / 10_000, 2);
+      const orderFlowImbalance = round(clamp(
+        toxicFlowRate * 0.45 + sandwichRate * 30 + bundleShare * 18,
+        item.total_attacks > 0 ? 4 : 0,
+        92,
+      ), 1);
+      const impliedVolSq = Math.max(0, (markout30 / 10_000) * 252 * 2.4);
+      const lvrAnnualRatePct = round(clamp(impliedVolSq * 50 + lvrProxyScore * 0.15, item.total_attacks > 0 ? 0.5 : 0, 85), 1);
+      const lpAnnualLossUsdEstimate = round((recommendedMaxNotionalUsd * lvrAnnualRatePct) / 100, 0);
       const reasonCodes = buildReasonCodes({
         sandwichRate,
         bundleShare: bundleShare * 100,
@@ -1514,6 +1525,9 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
         recommended_max_notional_usd: recommendedMaxNotionalUsd,
         estimated_savings_bps: estimatedSavingsBps,
         estimated_savings_usd: estimatedSavingsUsd,
+        order_flow_imbalance: orderFlowImbalance,
+        lp_annual_loss_rate_pct: lvrAnnualRatePct,
+        lp_annual_loss_usd_estimate: lpAnnualLossUsdEstimate,
         policy_action: policyAction,
         reason_codes: reasonCodes,
         decomposition,

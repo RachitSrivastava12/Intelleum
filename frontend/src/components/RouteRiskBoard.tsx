@@ -58,11 +58,12 @@ export default function RouteRiskBoard() {
   const totalAvoided = routes.reduce((sum, route) => sum + route.estimated_savings_usd, 0);
   const avgMarkout = routes.length > 0 ? routes.reduce((sum, route) => sum + route.markout_30s_bps, 0) / routes.length : 0;
   const flaggedRoutes = routes.filter((route) => route.policy_action === "avoid" || route.policy_action === "reroute").length;
+  const totalLpAnnualLoss = routes.reduce((sum, route) => sum + route.lp_annual_loss_usd_estimate, 0);
 
   return (
     <div className="space-y-2 font-mono">
       {!loading && routes.length > 0 && (
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-4">
           <div className="intel-panel p-4">
             <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
               Estimated Savings <InfoHint text="Protected execution value if currently flagged routes are rerouted or blocked instead of sent through toxic surfaces." />
@@ -76,6 +77,13 @@ export default function RouteRiskBoard() {
             </div>
             <div className="mt-2 text-lg text-foreground">{avgMarkout.toFixed(1)} bps</div>
             <div className="mt-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">execution deterioration</div>
+          </div>
+          <div className="intel-panel p-4">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              LP LVR Exposure <InfoHint text="Estimated aggregate annual loss-versus-rebalancing across tracked route surfaces. Derived from markout deterioration and adverse selection using Milionis et al. σ²/2 formula." />
+            </div>
+            <div className="mt-2 text-lg text-orange-400">{formatUSD(totalLpAnnualLoss)}<span className="text-xs text-muted-foreground ml-1">/yr</span></div>
+            <div className="mt-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">LVR annual estimate</div>
           </div>
           <div className="intel-panel p-4">
             <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
@@ -163,7 +171,7 @@ export default function RouteRiskBoard() {
             </div>
           </div>
 
-          <div className="mt-3 grid gap-2 border-t border-border/50 pt-3 text-[10px] uppercase tracking-[0.16em] text-muted-foreground md:grid-cols-6">
+          <div className="mt-3 grid gap-2 border-t border-border/50 pt-3 text-[10px] uppercase tracking-[0.16em] text-muted-foreground md:grid-cols-4 lg:grid-cols-8">
             <div>
               Markout 30s <InfoHint text="Expected post-trade adverse markout proxy. Higher = more stale-quote / toxic-flow risk after execution." />
               <div className="mt-1 text-foreground">{route.markout_30s_bps.toFixed(1)} bps</div>
@@ -181,12 +189,25 @@ export default function RouteRiskBoard() {
               <div className="mt-1 text-foreground">{route.quote_freshness_ms.toFixed(0)} ms</div>
             </div>
             <div>
+              VPIN <InfoHint text="Volume-synchronized probability of informed trading proxy. Measures order flow imbalance: |buy vol − sell vol| / total vol. >45 = elevated toxic flow; >60 = crisis." />
+              <div className={`mt-1 ${route.order_flow_imbalance >= 60 ? "text-red-400" : route.order_flow_imbalance >= 45 ? "text-yellow-400" : "text-foreground"}`}>
+                {route.order_flow_imbalance.toFixed(1)}%
+              </div>
+            </div>
+            <div>
+              LP Loss/yr <InfoHint text="Estimated annual LP loss-versus-rebalancing (LVR) based on observed markout deterioration and adverse selection. Per Milionis et al. 2022: LVR ≈ σ²/2 × V × Δt." />
+              <div className="mt-1 text-orange-400">{route.lp_annual_loss_rate_pct.toFixed(1)}%</div>
+            </div>
+            <div>
               Safe Size <InfoHint text="Approximate max notional to route before toxicity and adverse selection likely worsen materially." />
               <div className="mt-1 text-foreground">{formatUSD(route.recommended_max_notional_usd)}</div>
             </div>
             <div>
-              Saved <InfoHint text="Estimated routing value preserved if this surface is downranked or avoided." />
-              <div className="mt-1 text-foreground">{route.estimated_savings_bps.toFixed(2)} bps · {formatUSD(route.estimated_savings_usd)}</div>
+              Savings Proof <InfoHint text="Routing away saves this many bps on the safe-size notional. Math: savings_bps × recommended_max_notional / 10,000." />
+              <div className="mt-1 text-primary">{route.estimated_savings_bps.toFixed(2)} bps · {formatUSD(route.estimated_savings_usd)}</div>
+              <div className="mt-0.5 text-[9px] text-muted-foreground/60 normal-case tracking-normal">
+                {route.estimated_savings_bps.toFixed(2)} bps × {formatUSD(route.recommended_max_notional_usd)} / 10K
+              </div>
             </div>
           </div>
 

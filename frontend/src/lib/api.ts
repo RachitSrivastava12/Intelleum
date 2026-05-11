@@ -21,6 +21,33 @@ const rawBase = import.meta.env.VITE_API_URL ?? "http://localhost:8081";
 const BASE = rawBase.replace(/\/$/, "").replace(/\/api$/, "");
 const API_KEY = import.meta.env.VITE_INTELLEUM_API_KEY;
 
+// In-memory cache — deduplicate concurrent requests and serve stale data instantly
+// while fresh data loads in the background. TTL is per-endpoint.
+const _cache = new Map<string, { data: unknown; expires: number; inflight?: Promise<unknown> }>();
+
+function cachedGet<T>(path: string, params: Record<string, string> | undefined, ttlMs: number): Promise<T> {
+  const key = path + JSON.stringify(params ?? {});
+  const now = Date.now();
+  const entry = _cache.get(key);
+
+  // Fresh cache hit — return immediately
+  if (entry && now < entry.expires) return Promise.resolve(entry.data as T);
+
+  // Deduplicate in-flight requests — if one is already running return the same promise
+  if (entry?.inflight) return entry.inflight as Promise<T>;
+
+  const promise = get<T>(path, params).then((data) => {
+    _cache.set(key, { data, expires: now + ttlMs });
+    return data;
+  }).finally(() => {
+    const current = _cache.get(key);
+    if (current) current.inflight = undefined;
+  });
+
+  _cache.set(key, { data: entry?.data, expires: entry?.expires ?? 0, inflight: promise });
+  return promise;
+}
+
 function authHeaders(extra?: HeadersInit): HeadersInit {
   return {
     ...(API_KEY ? { "x-api-key": API_KEY } : {}),
@@ -473,7 +500,10 @@ function getPostFallback<T>(path: string, body: any): T | undefined {
       lvr_proxy_score: route.lvr_proxy_score,
       recommended_max_notional_usd: route.recommended_max_notional_usd,
       estimated_savings_bps: route.estimated_savings_bps,
-      estimated_savings_usd: Number((((body?.notional_usd ?? 25_000) * route.estimated_savings_bps) / 10_000).toFixed(2)),
+      estimated_savings_usd: Number((((body?.notional_usd ?? route.recommended_max_notional_usd) * route.estimated_savings_bps) / 10_000).toFixed(2)),
+      order_flow_imbalance: route.order_flow_imbalance,
+      lp_annual_loss_rate_pct: route.lp_annual_loss_rate_pct,
+      lp_annual_loss_usd_estimate: route.lp_annual_loss_usd_estimate,
       source_hint: route.source_hint,
       reason_codes: route.reason_codes,
       decomposition: route.decomposition,
@@ -616,6 +646,9 @@ function getFallback<T>(path: string, params?: Record<string, string>): T | unde
       toxic_flow_rate: route.toxic_flow_rate,
       estimated_savings_bps: route.estimated_savings_bps,
       estimated_savings_usd: route.estimated_savings_usd,
+      order_flow_imbalance: route.order_flow_imbalance,
+      lp_annual_loss_rate_pct: route.lp_annual_loss_rate_pct,
+      lp_annual_loss_usd_estimate: route.lp_annual_loss_usd_estimate,
       reason_codes: route.reason_codes,
     })) as T;
   }
@@ -1112,6 +1145,9 @@ export interface RouteRisk {
   recommended_max_notional_usd: number;
   estimated_savings_bps: number;
   estimated_savings_usd: number;
+  order_flow_imbalance: number;
+  lp_annual_loss_rate_pct: number;
+  lp_annual_loss_usd_estimate: number;
   policy_action: "allow" | "monitor" | "penalize" | "avoid" | "reroute";
   reason_codes: string[];
   decomposition: Array<{ label: string; value: number }>;
@@ -1501,23 +1537,23 @@ export interface ToxicFlowTerminal {
 // ---- API Functions ----
 
 export const api = {
-  stats: () => get<GlobalStats>("/stats"),
+  stats: () => cachedGet<GlobalStats>("/stats", undefined, 8_000),
 
   attacks: (params?: { type?: string; pool?: string; limit?: string; since?: string }) =>
-    get<Attack[]>("/attacks", params as any),
+    cachedGet<Attack[]>("/attacks", params as any, 4_000),
 
   attackHistory: (limit?: number) => get<Attack[]>("/attacks/history", { limit: String(limit ?? 100) }),
 
   attackDetail: (id: number) => get<AttackDetail>(`/attacks/${id}`),
 
   entities: (params?: { strategy?: string; min_risk?: string; sort?: string; limit?: string }) =>
-    get<Entity[]>("/entities", params as any),
+    cachedGet<Entity[]>("/entities", params as any, 10_000),
 
   entity: (id: string) => get<EntityDetail>(`/entities/${id}`),
 
-  pools: (limit?: number) => get<PoolToxicity[]>("/pools", { limit: String(limit ?? 50) }),
+  pools: (limit?: number) => cachedGet<PoolToxicity[]>("/pools", { limit: String(limit ?? 50) }, 20_000),
 
-  routeRisks: (limit?: number) => get<RouteRisk[]>("/routes/risk", { limit: String(limit ?? 25) }),
+  routeRisks: (limit?: number) => cachedGet<RouteRisk[]>("/routes/risk", { limit: String(limit ?? 25) }, 10_000),
 
   executionQuality: (limit?: number) =>
     get<ExecutionQualitySnapshot[]>("/analytics/execution-quality", { limit: String(limit ?? 20) }),
@@ -1529,7 +1565,7 @@ export const api = {
     get<RoutePolicy[]>("/routes/policies", { limit: String(limit ?? 20), objective: objective ?? "protect_users" }),
 
   toxicFlowTerminal: (limit?: number, interval?: ToxicFlowTerminal["interval"]) =>
-    get<ToxicFlowTerminal>("/terminal/toxic-flow", { limit: String(limit ?? 8), interval: interval ?? "1m" }),
+    cachedGet<ToxicFlowTerminal>("/terminal/toxic-flow", { limit: String(limit ?? 8), interval: interval ?? "1m" }, 12_000),
 
   evaluateRoute: (payload: RouteEvaluationRequest) =>
     post<RouteEvaluation>("/routes/evaluate", payload),
@@ -1547,7 +1583,7 @@ export const api = {
     get<LpProtectionSnapshot[]>("/pools/lp-protection", { limit: String(limit ?? 20) }),
 
   flowSegments: () =>
-    get<{ segments: FlowSegment[]; sources: SourceAttribution[] }>("/flows/segments"),
+    cachedGet<{ segments: FlowSegment[]; sources: SourceAttribution[] }>("/flows/segments", undefined, 15_000),
 
   sourceAttribution: (limit?: number) =>
     get<SourceAttribution[]>("/attribution/sources", { limit: String(limit ?? 8) }),
@@ -1569,9 +1605,9 @@ export const api = {
 
   validators: () => get<ValidatorIntel[]>("/validators"),
 
-  validatorRegimes: (limit?: number) => get<ValidatorIntel[]>("/validators/regimes", { limit: String(limit ?? 10) }),
+  validatorRegimes: (limit?: number) => cachedGet<ValidatorIntel[]>("/validators/regimes", { limit: String(limit ?? 10) }, 10_000),
 
-  savingsSummary: () => get<SavingsSummary>("/savings/summary"),
+  savingsSummary: () => cachedGet<SavingsSummary>("/savings/summary", undefined, 15_000),
 
   liquidationFirewall: (limit?: number) =>
     get<LiquidationFirewallRecord[]>("/liquidations/firewall", { limit: String(limit ?? 8) }),
@@ -1581,7 +1617,7 @@ export const api = {
 
   wallet: (address: string) => get<any>(`/wallet/${address}`),
 
-  systemStatus: () => get<SystemStatus>("/system/status"),
+  systemStatus: () => cachedGet<SystemStatus>("/system/status", undefined, 4_000),
 
   systemHistory: () => get<EngineSnapshot[]>("/system/history"),
 

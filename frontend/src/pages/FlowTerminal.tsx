@@ -239,25 +239,25 @@ export default function FlowTerminal() {
   const viewRangeRef = useRef<ViewRange>(FULL_VIEW_RANGE);
   const panStartRef = useRef<{ x: number; range: ViewRange } | null>(null);
 
-  const loadTerminal = async (silent = false) => {
-    if (!silent) setLoading(true);
+  const loadTerminal = async () => {
+    setLoading(true);
     setError(null);
     try {
       const next = await api.toxicFlowTerminal(TERMINAL_ROUTE_LIMIT, interval);
       setData(next);
       setSelectedKey((current) => current ?? next.surfaces[0]?.route_key ?? null);
     } catch (err) {
-      if (!silent) setError(err instanceof Error ? err.message : "Terminal feed failed");
+      setError(err instanceof Error ? err.message : "Terminal feed failed");
     } finally {
-      if (!silent) setLoading(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    // Only show full loading state on first mount or when data is absent
-    void loadTerminal(data !== null);
+    void loadTerminal();
+    // Background refresh is silent — never clears the chart
     const timer = window.setInterval(() => {
-      void loadTerminal(true);
+      void api.toxicFlowTerminal(TERMINAL_ROUTE_LIMIT, interval).then(setData).catch(() => {});
     }, 30_000);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
