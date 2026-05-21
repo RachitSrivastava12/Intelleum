@@ -184,16 +184,172 @@ router.get("/routes/policies", (req: Request, res: Response) => {
   );
 });
 
-router.get("/terminal/toxic-flow", (req: Request, res: Response) => {
+router.get("/terminal/toxic-flow", async (req: Request, res: Response) => {
   const limit = Number.parseInt((req.query.limit as string) ?? "8", 10) || 8;
   const interval = ((req.query.interval as string) ?? "1m") as "1m" | "5m" | "15m" | "1h";
-  res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
-  res.json(
-    liveChainService.hasLiveData()
-      ? liveChainService.getToxicFlowTerminal(limit, interval)
-      : getToxicFlowTerminal(limit, interval),
-  );
+
+  if (liveChainService.hasLiveData()) {
+    res.setHeader("X-Intelleum-Source", "chain");
+    return res.json(liveChainService.getToxicFlowTerminal(limit, interval));
+  }
+
+  if (hasDatabase()) {
+    try {
+      const dbResult = await buildToxicFlowTerminalFromDB(limit, interval);
+      if (dbResult) {
+        res.setHeader("X-Intelleum-Source", "db");
+        return res.json(dbResult);
+      }
+    } catch (err) {
+      console.error("[toxic-flow] DB query failed, falling back", err);
+    }
+  }
+
+  res.setHeader("X-Intelleum-Source", "fallback");
+  res.json(getToxicFlowTerminal(limit, interval));
 });
+
+async function buildToxicFlowTerminalFromDB(
+  limit: number,
+  interval: "1m" | "5m" | "15m" | "1h",
+) {
+  const bucketSql = interval === "1h" ? "1 hour" : interval === "15m" ? "15 minutes" : interval === "5m" ? "5 minutes" : "1 minute";
+  const windowHours = interval === "1h" ? 120 : interval === "15m" ? 90 : interval === "5m" ? 300 : 60;
+  const bucketCount = interval === "1h" ? 120 : interval === "15m" ? 90 : interval === "5m" ? 60 : 60;
+
+  // Top pools by attack count in last 24h
+  const topPools = await pool!.query<{
+    pool_address: string;
+    total_attacks: string;
+    total_profit: number | null;
+    total_victim_loss: number | null;
+    avg_confidence: number;
+    primary_type: string;
+  }>(
+    `SELECT
+       pool_address,
+       COUNT(*)                                              AS total_attacks,
+       SUM(profit_usd)                                      AS total_profit,
+       SUM(victim_loss_usd)                                 AS total_victim_loss,
+       AVG(confidence)                                      AS avg_confidence,
+       mode() WITHIN GROUP (ORDER BY attack_type)           AS primary_type
+     FROM mev_attacks
+     WHERE block_time > NOW() - INTERVAL '24 hours'
+     GROUP BY pool_address
+     ORDER BY COUNT(*) DESC
+     LIMIT $1`,
+    [limit],
+  );
+
+  if (topPools.rows.length === 0) return null;
+
+  const surfaces = await Promise.all(
+    topPools.rows.map(async (pool_row, idx) => {
+      const candles_res = await pool!.query<{
+        bucket: string;
+        attack_count: string;
+        profit_usd: number | null;
+        victim_loss_usd: number | null;
+        avg_confidence: number;
+        attack_type: string | null;
+      }>(
+        `SELECT
+           date_trunc($1, block_time)                         AS bucket,
+           COUNT(*)                                           AS attack_count,
+           SUM(profit_usd)                                    AS profit_usd,
+           SUM(victim_loss_usd)                               AS victim_loss_usd,
+           AVG(confidence)                                    AS avg_confidence,
+           mode() WITHIN GROUP (ORDER BY attack_type)         AS attack_type
+         FROM mev_attacks
+         WHERE pool_address = $2
+           AND block_time > NOW() - ($3 || ' minutes')::INTERVAL
+         GROUP BY date_trunc($1, block_time)
+         ORDER BY bucket ASC`,
+        [bucketSql, pool_row.pool_address, windowHours],
+      );
+
+      const totalAttacks = parseInt(pool_row.total_attacks) || 0;
+      const avgConf = pool_row.avg_confidence ?? 0.8;
+      const toxicScore = Math.round(Math.min(99, totalAttacks * 3 + avgConf * 30));
+      const lossAtRisk24h = pool_row.total_victim_loss ?? pool_row.total_profit ?? 0;
+
+      // Build full candle array filling gaps with zeros
+      const now = Date.now();
+      const bucketMs = (windowHours / bucketCount) * 60 * 1000;
+      const candleMap = new Map(candles_res.rows.map((r) => [new Date(r.bucket).getTime(), r]));
+
+      const candles = Array.from({ length: bucketCount }, (_, i) => {
+        const ts = new Date(now - (bucketCount - i) * bucketMs).toISOString();
+        const key = Math.round(new Date(ts).getTime() / bucketMs) * bucketMs;
+        const row = candleMap.get(key);
+        const attackCount = parseInt(row?.attack_count ?? "0") || 0;
+        const lossUsd = Math.round((row?.victim_loss_usd ?? row?.profit_usd ?? 0) * 100) / 100;
+        return {
+          timestamp: ts,
+          label: ts,
+          open: 0, high: 0, low: 0, close: 0,
+          volume_usd: 0,
+          toxic_flow_score: attackCount > 0 ? Math.min(99, attackCount * 12 + (row?.avg_confidence ?? 0) * 30) : 0,
+          markout_bps: 0,
+          lvr_bps: 0,
+          loss_at_risk_usd: lossUsd,
+          prevented_loss_usd: 0,
+          attack_count: attackCount,
+          event_type: (row?.attack_type ?? null) as any,
+        };
+      });
+
+      const overlays = candles
+        .filter((c) => c.attack_count > 0)
+        .slice(-5)
+        .map((c) => ({
+          timestamp: c.timestamp,
+          event_type: (c.event_type ?? "arbitrage") as any,
+          severity: (toxicScore >= 82 ? "critical" : toxicScore >= 55 ? "high" : "medium") as any,
+          label: `${(c.event_type ?? "arbitrage").replace(/_/g, " ")} on ${pool_row.pool_address.slice(0, 8)}...`,
+          loss_usd: c.loss_at_risk_usd,
+          confidence: avgConf,
+        }));
+
+      return {
+        route_key: `pool:${pool_row.pool_address}`,
+        label: `Pool ${pool_row.pool_address.slice(0, 8)}...${pool_row.pool_address.slice(-4)}`,
+        protocol: pool_row.primary_type ?? null,
+        pair: pool_row.pool_address.slice(0, 8),
+        action: toxicScore >= 80 ? "avoid" : toxicScore >= 55 ? "reroute" : toxicScore >= 30 ? "monitor" : "allow" as any,
+        risk_score: toxicScore,
+        execution_quality_score: Math.max(2, 100 - toxicScore),
+        toxic_flow_score: toxicScore,
+        price_change_pct: 0,
+        markout_30s_bps: 0,
+        volume_24h_usd: 0,
+        loss_at_risk_24h_usd: lossAtRisk24h,
+        prevented_loss_24h_usd: 0,
+        liquidity_stress: Math.min(99, toxicScore * 0.8),
+        quote_freshness_ms: 0,
+        reason_codes: [pool_row.primary_type ?? "mev_detected"],
+        candles,
+        overlays,
+      };
+    }),
+  );
+
+  const totalLoss = surfaces.reduce((s, x) => s + x.loss_at_risk_24h_usd, 0);
+  return {
+    generated_at: new Date().toISOString(),
+    source: "chain" as const,
+    interval,
+    summary: {
+      surfaces_tracked: surfaces.length,
+      routes_in_block: surfaces.filter((s) => s.action === "avoid" || s.action === "reroute").length,
+      estimated_loss_at_risk_24h_usd: Math.round(totalLoss * 100) / 100,
+      estimated_prevented_loss_24h_usd: 0,
+      highest_toxicity_route: surfaces.sort((a, b) => b.toxic_flow_score - a.toxic_flow_score)[0]?.label ?? null,
+      safest_route: surfaces.sort((a, b) => a.risk_score - b.risk_score)[0]?.label ?? null,
+    },
+    surfaces,
+  };
+}
 
 router.post("/routes/evaluate", (req: Request, res: Response) => {
   const body = req.body ?? {};
