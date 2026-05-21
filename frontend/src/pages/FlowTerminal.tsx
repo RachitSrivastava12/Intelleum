@@ -1,10 +1,9 @@
 import { CSSProperties, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  Bar,
+  Area,
   CartesianGrid,
   ComposedChart,
-  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -571,8 +570,7 @@ export default function FlowTerminal() {
               <span className="text-primary">Observed detections</span>
               <span>Window: {intervalWindowLabel(interval)}</span>
               <span>X axis: time</span>
-              <span className="text-red-300">Red bars: est. value at risk USD</span>
-              <span className="text-primary">Blue line: event count</span>
+              <span className="text-red-300">Red line: est. value at risk USD</span>
               <span className={isQuietWindow ? "text-yellow-300" : "text-primary"}>
                 Event buckets: {visibleEventBucketCount}/{visibleChartData.length}
               </span>
@@ -629,36 +627,18 @@ export default function FlowTerminal() {
                   tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
                   width={52}
                 />
-                <YAxis
-                  yAxisId="events"
-                  orientation="right"
-                  domain={eventCountDomain}
-                  tickFormatter={(value) => `${Number(value).toFixed(0)}`}
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontFamily: "JetBrains Mono" }}
-                  width={34}
-                />
                 <Tooltip content={<ChartTooltip />} cursor={{ stroke: "hsl(var(--primary))", strokeOpacity: 0.16 }} />
-                <Bar
+                <Area
                   yAxisId="value"
+                  type="monotone"
                   dataKey="loss_at_risk_usd"
-                  fill="hsl(0 85% 62%)"
-                  fillOpacity={0.72}
-                  radius={[2, 2, 0, 0]}
-                  isAnimationActive={false}
-                />
-                <Line
-                  yAxisId="events"
-                  type="stepAfter"
-                  dataKey="attack_count"
-                  stroke="hsl(var(--primary))"
-                  strokeOpacity={0.95}
+                  stroke="hsl(0 85% 62%)"
                   strokeWidth={2}
+                  fill="hsl(0 85% 62%)"
+                  fillOpacity={0.15}
                   dot={false}
-                  activeDot={{ r: 4, fill: "hsl(var(--primary))", stroke: "hsl(var(--background))", strokeWidth: 1.5 }}
+                  activeDot={{ r: 4, fill: "hsl(0 85% 62%)", stroke: "hsl(var(--background))", strokeWidth: 1.5 }}
                   isAnimationActive={false}
-                  connectNulls
                 />
               </ComposedChart>
             </ResponsiveContainer>
