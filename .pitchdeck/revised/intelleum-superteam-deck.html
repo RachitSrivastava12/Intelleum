@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Intelleum - Superteam Pitch Deck</title>
+  <style>
+    :root {
+      --bg: #050708;
+      --panel: #0b1114;
+      --panel-2: #071c21;
+      --line: rgba(112, 247, 255, 0.24);
+      --line-soft: rgba(255, 255, 255, 0.08);
+      --text: #e8f0f3;
+      --muted: #8ea1ad;
+      --cyan: #16d8ff;
+      --green: #45f596;
+      --red: #ff6f77;
+      --yellow: #ffd863;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      background: #020303;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      display: grid;
+      place-items: center;
+      gap: 32px;
+      padding: 32px;
+    }
+
+    .deck {
+      width: 1280px;
+      display: grid;
+      gap: 32px;
+    }
+
+    .slide {
+      position: relative;
+      width: 1280px;
+      height: 720px;
+      overflow: hidden;
+      background:
+        linear-gradient(90deg, rgba(22, 216, 255, 0.09), transparent 34%),
+        radial-gradient(circle at 85% 18%, rgba(69, 245, 150, 0.08), transparent 24%),
+        linear-gradient(135deg, #050708 0%, #07090b 56%, #020303 100%);
+      border: 1px solid var(--line-soft);
+      page-break-after: always;
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+      background-size: 48px 48px;
+      opacity: 0.35;
+      pointer-events: none;
+    }
+
+    .content {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      padding: 54px 64px;
+    }
+
+    .topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 42px;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+    }
+
+    .brand {
+      color: var(--cyan);
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: 0.09em;
+    }
+
+    .kicker {
+      color: var(--cyan);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+
+    h1 {
+      max-width: 720px;
+      margin-top: 18px;
+      font-size: 76px;
+      line-height: 0.96;
+      letter-spacing: 0;
+      font-weight: 800;
+    }
+
+    h2 {
+      max-width: 790px;
+      margin-top: 16px;
+      font-size: 54px;
+      line-height: 1;
+      letter-spacing: 0;
+      font-weight: 760;
+    }
+
+    h3 {
+      font-size: 24px;
+      line-height: 1.16;
+      font-weight: 720;
+    }
+
+    .lead {
+      max-width: 620px;
+      margin-top: 24px;
+      color: #c8d5dc;
+      font-size: 24px;
+      line-height: 1.32;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .accent {
+      color: var(--cyan);
+    }
+
+    .green {
+      color: var(--green);
+    }
+
+    .red {
+      color: var(--red);
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 435px 1fr;
+      gap: 48px;
+      align-items: center;
+      height: calc(100% - 72px);
+    }
+
+    .product-frame {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: #020303;
+      box-shadow: 0 24px 90px rgba(0, 0, 0, 0.38);
+    }
+
+    .product-frame img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .hero-shot {
+      height: 430px;
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 34px;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      padding: 12px 14px;
+      color: var(--cyan);
+      background: rgba(22, 216, 255, 0.08);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .three {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 22px;
+      margin-top: 54px;
+    }
+
+    .card {
+      min-height: 210px;
+      padding: 26px;
+      border: 1px solid var(--line-soft);
+      background: rgba(7, 11, 13, 0.76);
+    }
+
+    .card .num {
+      margin-bottom: 28px;
+      color: var(--cyan);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 16px;
+    }
+
+    .card p {
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 19px;
+      line-height: 1.34;
+    }
+
+    .diagram {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-top: 48px;
+    }
+
+    .step {
+      min-height: 170px;
+      padding: 24px;
+      border: 1px solid var(--line);
+      background: rgba(22, 216, 255, 0.06);
+    }
+
+    .step h3 {
+      color: var(--cyan);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 18px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .step p {
+      margin-top: 18px;
+      color: #c5d2d9;
+      font-size: 20px;
+      line-height: 1.28;
+    }
+
+    .full-product {
+      display: grid;
+      grid-template-columns: 1fr 355px;
+      gap: 26px;
+      height: calc(100% - 92px);
+      align-items: stretch;
+    }
+
+    .screen-shot {
+      height: 100%;
+    }
+
+    .callouts {
+      display: grid;
+      align-content: start;
+      gap: 14px;
+    }
+
+    .callout {
+      padding: 22px;
+      border-left: 3px solid var(--cyan);
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .callout strong {
+      display: block;
+      color: var(--text);
+      font-size: 21px;
+      line-height: 1.1;
+    }
+
+    .callout span {
+      display: block;
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.28;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      margin-top: 44px;
+    }
+
+    .metric {
+      padding: 26px;
+      border: 1px solid var(--line);
+      background: rgba(22, 216, 255, 0.065);
+    }
+
+    .metric .value {
+      color: var(--cyan);
+      font-size: 44px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .metric .label {
+      margin-top: 12px;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      margin-top: 40px;
+    }
+
+    .panel {
+      padding: 30px;
+      border: 1px solid var(--line-soft);
+      background: rgba(7, 11, 13, 0.76);
+    }
+
+    .panel h3 {
+      color: var(--cyan);
+      font-size: 25px;
+    }
+
+    .bullets {
+      display: grid;
+      gap: 18px;
+      margin-top: 24px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .bullets li {
+      position: relative;
+      padding-left: 22px;
+      color: #c9d5dc;
+      font-size: 21px;
+      line-height: 1.28;
+    }
+
+    .bullets li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 12px;
+      width: 8px;
+      height: 8px;
+      background: var(--cyan);
+    }
+
+    .source {
+      position: absolute;
+      left: 64px;
+      bottom: 34px;
+      color: #6e7d86;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+    }
+
+    .roadmap {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      margin-top: 48px;
+    }
+
+    .road {
+      padding: 26px;
+      border: 1px solid var(--line-soft);
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .road .tag {
+      color: var(--green);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+
+    .road h3 {
+      margin-top: 20px;
+      min-height: 58px;
+    }
+
+    .road p {
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.35;
+    }
+
+    .team-grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 34px;
+      margin-top: 38px;
+      align-items: stretch;
+    }
+
+    .founder-card {
+      display: grid;
+      align-content: center;
+      min-height: 380px;
+      padding: 34px;
+      border: 1px solid var(--line);
+      background:
+        radial-gradient(circle at 52% 36%, rgba(22, 216, 255, 0.18), transparent 30%),
+        rgba(7, 11, 13, 0.88);
+      text-align: center;
+    }
+
+    .avatar-mark {
+      display: grid;
+      place-items: center;
+      width: 150px;
+      height: 150px;
+      margin: 0 auto 26px;
+      border: 1px solid var(--line);
+      color: var(--cyan);
+      font-size: 54px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      background: rgba(22, 216, 255, 0.08);
+    }
+
+    .founder-card h3 {
+      font-size: 31px;
+    }
+
+    .founder-card p {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.3;
+    }
+
+    .ask {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .ask .panel {
+      min-height: 180px;
+    }
+
+    .slide-number {
+      position: absolute;
+      right: 64px;
+      bottom: 34px;
+      color: #60717a;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    @media print {
+      @page {
+        size: 1280px 720px;
+        margin: 0;
+      }
+
+      html, body {
+        width: 1280px;
+        margin: 0;
+        padding: 0;
+        background: #050708;
+      }
+
+      body {
+        display: block;
+      }
+
+      .deck {
+        width: 1280px;
+        gap: 0;
+      }
+
+      .slide {
+        width: 1280px;
+        height: 720px;
+        border: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck">
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="brand">INTELLEUM</div>
+          <div>Superteam India Review Pass</div>
+        </div>
+        <div class="hero-grid">
+          <div>
+            <div class="kicker">MEV intelligence for Solana</div>
+            <h1>Real-time toxic-flow firewall.</h1>
+            <p class="lead">Detect, decide, enforce, and prove savings before execution leaks value.</p>
+            <div class="chip-row">
+              <div class="chip">Block</div>
+              <div class="chip">Reroute</div>
+              <div class="chip">Cap size</div>
+              <div class="chip">Prove savings</div>
+            </div>
+          </div>
+          <div class="product-frame hero-shot">
+            <img src="../screenshots/home.png" alt="Intelleum product homepage" />
+          </div>
+        </div>
+      </div>
+      <div class="slide-number">01</div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="brand">INTELLEUM</div>
+          <div>Problem</div>
+        </div>
+        <div class="kicker">The leak happens before the chart</div>
+        <h2>Solana execution teams still route into toxic flow blind.</h2>
+        <div class="three">
+          <div class="card">
+            <div class="num">01</div>
+            <h3>Quoted output misses route toxicity.</h3>
+            <p>A route can look optimal and still carry sandwich, JIT, liquidation, or bundle-lane pressure.</p>
+          </div>
+          <div class="card">
+            <div class="num">02</div>
+            <h3>Manual slippage is a blunt tool.</h3>
+            <p>Users and routers need policy: block, reroute, cap, or private-send based on live risk.</p>
+          </div>
+          <div class="card">
+            <div class="num">03</div>
+            <h3>Dashboards explain damage after it lands.</h3>
+            <p>The buyer cares about money saved, not another post-mortem chart.</p>
+          </div>
+        </div>
+      </div>
+      <div class="slide-number">02</div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="brand">INTELLEUM</div>
+          <div>Solution</div>
+        </div>
+        <div class="kicker">Pre-trade enforcement layer</div>
+        <h2>One guardrail for wallets, routers, LP desks, and protocols.</h2>
+        <div class="diagram">
+          <div class="step">
+            <h3>Detect</h3>
+            <p>Stream route, pool, entity, and validator-side toxic-flow signals.</p>
+          </div>
+          <div class="step">
+            <h3>Decide</h3>
+            <p>Score every route before it reaches execution.</p>
+          </div>
+          <div class="step">
+            <h3>Enforce</h3>
+            <p>Block, reroute, penalize, monitor, or allow.</p>
+          </div>
+          <div class="step">
+            <h3>Prove</h3>
+            <p>Return dollars, bps, safe size, and counterfactual savings.</p>
+          </div>
+        </div>
+        <p class="lead">Intelleum is not only a dashboard. It is the policy layer that turns detection into protected execution.</p>
+      </div>
+      <div class="slide-number">03</div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="brand">INTELLEUM</div>
+          <div>Product Screenshot</div>
+        </div>
+        <div class="full-product">
+          <div class="product-frame screen-shot">
+            <img src="../screenshots/dashboard.png" alt="Live Intelleum dashboard" />
+          </div>
+          <div class="callouts">
+            <div class="kicker">Live dashboard</div>
+            <h2 style="font-size: 42px;">Execution intelligence in one surface.</h2>
+            <div class="callout">
+              <strong>Live detector hits</strong>
+              <span>Sandwich, arbitrage, JIT, liquidation, and launch-snipe signals.</span>
+            </div>
+            <div class="callout">
+              <strong>Savings strip</strong>
+              <span>Shows protected value and bps preserved, not just attack count.</span>
+            </div>
+            <div class="callout">
+              <strong>Policy-ready</strong>
+              <span>Designed for wallets, routers, LP venues, and infra teams.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="slide-number">04</div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="brand">INTELLEUM</div>
+          <div>Product Screenshot</div>
+        </div>
+        <div class="full-product">
+          <div class="product-frame screen-shot">
+            <img src="../screenshots/protection.png" alt="Intelleum protection guard" />
+          </div>
+          <div class="callouts">
+            <div class="kicker">Protection guard</div>
+            <h2 style="font-size: 42px;">Route in. Decision out.</h2>
+            <div class="callout">
+              <strong>Fail closed when toxic</strong>
+              <span>Block or reroute before the transaction is sent.</span>
+            </div>
+            <div class="callout">
+              <strong>Savings receipt</strong>
+              <span>Expected loss, prevented value, monthly savings, bps saved, safe size.</span>
+            </div>
+            <div class="callout">
+              <strong>SDK-first</strong>
+              <span>Drop-in guard for Jupiter-style routes and custom execution stacks.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="slide-number">05</div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="brand">INTELLEUM</div>
+          <div>Product Screenshot</div>
+        </div>
+        <div class="full-product">
+          <div class="product-frame screen-shot">
+            <img src="../screenshots/flow-terminal.png" alt="Intelleum toxic flow terminal" />
+          </div>
+          <div class="callouts">
+            <div class="kicker">Toxic Flow Terminal</div>
+            <h2 style="font-size: 42px;">Dexscreener-style risk for routes.</h2>
+            <div class="callout">
+              <strong>Route candles</strong>
+              <span>Risk over time, not a static warning badge.</span>
+            </div>
+            <div class="callout">
+              <strong>Preventable loss</strong>
+              <span>Value-at-risk and preventable loss are visible per route.</span>
+            </div>
+            <div class="callout">
+              <strong>Evidence layer</strong>
+              <span>Signals explain why a route should be blocked, capped, or watched.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="slide-number">06</div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="brand">INTELLEUM</div>
+          <div>Why Now</div>
+        </div>
+        <div class="kicker">Solana execution is now too large for guesswork</div>
+        <h2>High-throughput DeFi needs pre-trade risk controls.</h2>
+        <div class="metric-grid">
+          <div class="metric">
+            <div class="value">~$5.8B</div>
+            <div class="label">Solana TVL</div>
+          </div>
+          <div class="metric">
+            <div class="value">~$1.8B</div>
+            <div class="label">24h Solana DEX volume</div>
+          </div>
+          <div class="metric">
+            <div class="value">80M+</div>
+            <div class="label">24h chain transactions</div>
+          </div>
+        </div>
+        <div class="split">
+          <div class="panel">
+            <h3>Execution is getting more complex.</h3>
+            <ul class="bullets">
+              <li>More venues, private lanes, routers, bundles, and liquidation surfaces.</li>
+              <li>Slippage settings do not capture live adverse selection.</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>The primitive exists. The policy layer is missing.</h3>
+            <ul class="bullets">
+              <li>Jito/DontFront helps with submission mechanics.</li>
+              <li>Intelleum decides when and why protection should trigger.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="source">Sources: DefiLlama Solana chain metrics, Solana MEV protection developer guide. Checked May 12, 2026.</div>
+      </div>
+      <div class="slide-number">07</div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="brand">INTELLEUM</div>
+          <div>Wedge</div>
+        </div>
+        <div class="kicker">Go to market</div>
+        <h2>Start where every protected trade already has a route.</h2>
+        <div class="split">
+          <div class="panel">
+            <h3>First users</h3>
+            <ul class="bullets">
+              <li>Wallets and swap frontends</li>
+              <li>Routers and trading terminals</li>
+              <li>AMMs, LP desks, lending, and perps teams</li>
+              <li>RPC and protected-send infrastructure</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>First workflow</h3>
+            <ul class="bullets">
+              <li>Integrator sends candidate route set to Intelleum.</li>
+              <li>Intelleum returns action, safe size, lane, and proof.</li>
+              <li>Customer sees value protected in a savings ledger.</li>
+              <li>Pricing can map to protected volume or API usage.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="slide-number">08</div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="brand">INTELLEUM</div>
+          <div>Moat</div>
+        </div>
+        <div class="kicker">From dashboard to enforcement network</div>
+        <h2>The moat is cross-venue intelligence plus provable savings.</h2>
+        <div class="roadmap">
+          <div class="road">
+            <div class="tag">Now</div>
+            <h3>Protection SDK + route guard</h3>
+            <p>Block, reroute, penalize, monitor, or allow before execution.</p>
+          </div>
+          <div class="road">
+            <div class="tag">Next</div>
+            <h3>Replay savings lab</h3>
+            <p>Upload past fills and show what should have been protected.</p>
+          </div>
+          <div class="road">
+            <div class="tag">Moat</div>
+            <h3>Toxic-flow index</h3>
+            <p>Benchmark route, pool, entity, and validator-lane quality across Solana.</p>
+          </div>
+        </div>
+        <div class="three" style="margin-top: 26px;">
+          <div class="card" style="min-height: 126px;">
+            <h3>Data</h3>
+            <p>Streaming signals across routes, pools, entities, and venues.</p>
+          </div>
+          <div class="card" style="min-height: 126px;">
+            <h3>Policy</h3>
+            <p>Customer-specific guardrails for wallets, LPs, routers, and desks.</p>
+          </div>
+          <div class="card" style="min-height: 126px;">
+            <h3>Proof</h3>
+            <p>Counterfactual savings receipts and signed decisions.</p>
+          </div>
+        </div>
+      </div>
+      <div class="slide-number">09</div>
+    </section>
+
+    <section class="slide">
+      <div class="content">
+        <div class="topline">
+          <div class="brand">INTELLEUM</div>
+          <div>Team + Ask</div>
+        </div>
+        <div class="kicker">Founder-problem fit</div>
+        <h2>Built by a founder who already shipped the product, not just the deck.</h2>
+        <div class="team-grid">
+          <div class="founder-card">
+            <div class="avatar-mark">RS</div>
+            <h3>Rachit Srivastava</h3>
+            <p>Founder and full-stack Solana builder.</p>
+            <p>Built the detector pipeline, dashboard, route terminal, protection API, and TypeScript SDK.</p>
+          </div>
+          <div class="ask">
+            <div class="panel">
+              <h3>Why Rachit</h3>
+              <ul class="bullets">
+                <li>Moved from MEV visibility to pre-trade enforcement.</li>
+                <li>Shipped live product surfaces and integrator SDK quickly.</li>
+                <li>Understands the buyer: teams pay for value saved.</li>
+              </ul>
+            </div>
+            <div class="panel">
+              <h3>What we need</h3>
+              <ul class="bullets">
+                <li>2-3 wallet, router, or LP design partners.</li>
+                <li>Superteam support to reach Solana execution teams.</li>
+                <li>4 weeks to ship replay lab and signed guard receipts.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="slide-number">10</div>
+    </section>
+  </main>
+</body>
+</html>

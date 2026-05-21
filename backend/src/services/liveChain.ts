@@ -859,15 +859,26 @@ function buildToxicFlowCandles(
     ? route.total_extracted_usd / route.total_attacks
     : 0;
 
-  // Distribute all attacks evenly across the full window by index (not block_time).
-  // Without DB history, block_time clusters in the last few seconds — spreading by index
-  // ensures every time scale (1m / 5m / 15m / 1h) gets a populated chart.
-  const distributed = relatedAttacks.map((attack, i) => ({
-    attack,
-    bucketIndex: relatedAttacks.length > 1
-      ? Math.floor((i / (relatedAttacks.length - 1)) * (bucketCount - 1))
-      : Math.floor(bucketCount * 0.82),
-  }));
+  // Distribute attacks into buckets by actual block_time when available.
+  // If all block_times cluster within the last bucket (common when there's no DB history),
+  // fall back to evenly spacing them so the chart isn't blank for 59 out of 60 candles.
+  const hasRealTimestamps = relatedAttacks.some((a) => {
+    const t = new Date(a.block_time).getTime();
+    return t >= windowStart && t < anchorTimeMs;
+  });
+  const distributed = relatedAttacks.map((attack, i) => {
+    if (hasRealTimestamps) {
+      const t = new Date(attack.block_time).getTime();
+      const bucketIndex = Math.min(bucketCount - 1, Math.max(0, Math.floor((t - windowStart) / bucketMs)));
+      return { attack, bucketIndex };
+    }
+    return {
+      attack,
+      bucketIndex: relatedAttacks.length > 1
+        ? Math.floor((i / (relatedAttacks.length - 1)) * (bucketCount - 1))
+        : Math.floor(bucketCount * 0.82),
+    };
+  });
 
   return Array.from({ length: bucketCount }, (_, index) => {
     const bucketStart = windowStart + index * bucketMs;
@@ -911,7 +922,7 @@ function buildToxicFlowCandles(
     const perCandleCap = Math.min(route.recommended_max_notional_usd * 0.08, 20_000);
     const lossAtRiskUsd = bucketAttacks.length > 0
       ? round(clamp(Math.max(rawDetectedValueUsd, attackFloor, cappedAtRisk), 0, perCandleCap), 2)
-      : round(clamp(cappedAtRisk * (0.06 + (route.toxicity_probability / 100) * 0.10 + ambientSeed * 0.05), 0, perCandleCap * 0.15), 2);
+      : 0;
 
     const preventedLossUsd = round(lossAtRiskUsd * terminalActionPreventRate(route.policy_action), 2);
 

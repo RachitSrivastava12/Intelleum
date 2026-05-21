@@ -904,42 +904,49 @@ function buildToxicFlowCandles(
   );
   let close = basePriceForRoute(route, routeIndex);
 
+  // Distribute attacks by index evenly across the window — realistic spacing
+  const distributed = relatedAttacks.map((attack, i) => ({
+    attack,
+    bucketIndex: relatedAttacks.length > 1
+      ? Math.floor((i / (relatedAttacks.length - 1)) * (bucketCount - 1))
+      : Math.floor(bucketCount * 0.82),
+  }));
+
   return Array.from({ length: bucketCount }, (_, index) => {
     const timestamp = new Date(Date.now() - windowMs + index * bucketMs).toISOString();
-    const wave = Math.sin((index + seed) * 0.42);
-    const pulse = Math.max(0, Math.sin((index + seed) * 0.17));
-    const incidentBoost = relatedAttacks.length > 0 && index % Math.max(9, 16 - Math.min(7, relatedAttacks.length)) === 0
-      ? route.avg_confidence * 0.08
-      : 0;
-    const toxicScore = round(clamp(route.toxicity_probability + wave * 7 + pulse * 13 + incidentBoost, 2, 99));
-    const markoutBps = round(clamp(route.markout_30s_bps * (0.72 + pulse * 0.54 + wave * 0.08), 0.2, 48), 2);
+    const bucketAttacks = distributed.filter(d => d.bucketIndex === index).map(d => d.attack);
+    const hasAttacks = bucketAttacks.length > 0;
+
+    const markoutBps = round(clamp(route.markout_30s_bps, 0.2, 48), 2);
     const lvrBps = round(clamp(route.lvr_proxy_score * 0.08 + markoutBps * 0.42, 0.1, 36), 2);
-    const volumeUsd = round(baseVolume * clamp(0.72 + pulse * 0.58 + route.bundle_share * 0.003, 0.5, 2.4), 0);
     const perCandleCap = Math.min(route.recommended_max_notional_usd * 0.08, 20_000);
-    const lossAtRiskUsd = round(clamp((volumeUsd * Math.max(markoutBps, lvrBps)) / 10_000, 0, perCandleCap), 2);
+    const avgExtracted = route.total_attacks > 0 ? route.total_extracted_usd / route.total_attacks : 0;
+    const lossAtRiskUsd = hasAttacks
+      ? round(clamp(bucketAttacks.reduce((s, a) => s + (a.victim_loss_usd ?? a.profit_usd ?? avgExtracted), 0), 0, perCandleCap), 2)
+      : 0;
     const preventedLossUsd = round(lossAtRiskUsd * terminalActionPreventRate(route.policy_action), 2);
-    const driftBps = (wave * 1.7) - markoutBps * 0.045 + (route.execution_quality_score - 50) * 0.002;
+    const toxicScore = hasAttacks
+      ? round(clamp(route.toxicity_probability + bucketAttacks.length * 8, 2, 99))
+      : round(clamp(route.toxicity_probability * 0.15, 0, 30), 2);
     const open = close;
-    close = round(open * (1 + driftBps / 10_000), 6);
-    const spread = Math.abs(open - close) + open * clamp((toxicScore + markoutBps) / 100_000, 0.0006, 0.012);
-    const attackIndex = relatedAttacks.length ? (index + seed) % relatedAttacks.length : -1;
-    const hasEvent = relatedAttacks.length > 0 && index % Math.max(10, 18 - Math.min(8, relatedAttacks.length)) === 0;
+    close = open;
+    const eventAttack = bucketAttacks[0] ?? null;
 
     return {
       timestamp,
       label: terminalBucketLabel(timestamp, interval),
       open: round(open, 6),
-      high: round(Math.max(open, close) + spread * 0.58, 6),
-      low: round(Math.max(0.000001, Math.min(open, close) - spread * 0.42), 6),
+      high: round(open, 6),
+      low: round(open, 6),
       close,
-      volume_usd: volumeUsd,
+      volume_usd: 0,
       toxic_flow_score: toxicScore,
-      markout_bps: markoutBps,
-      lvr_bps: lvrBps,
+      markout_bps: hasAttacks ? markoutBps : 0,
+      lvr_bps: hasAttacks ? lvrBps : 0,
       loss_at_risk_usd: lossAtRiskUsd,
       prevented_loss_usd: preventedLossUsd,
-      attack_count: hasEvent ? Math.max(1, Math.ceil(route.total_attacks / Math.max(1, relatedAttacks.length))) : 0,
-      event_type: hasEvent && attackIndex >= 0 ? relatedAttacks[attackIndex].attack_type : null,
+      attack_count: bucketAttacks.length,
+      event_type: eventAttack?.attack_type ?? null,
     };
   });
 }
