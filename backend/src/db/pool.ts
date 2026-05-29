@@ -23,9 +23,9 @@ const createdPool = connectionString
   ? new Pool({
       connectionString,
       ssl: shouldUseSsl(connectionString) ? { rejectUnauthorized: false } : false,
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      max: 5,
+      idleTimeoutMillis: 60000,
+      connectionTimeoutMillis: 20000,
     })
   : null;
 
