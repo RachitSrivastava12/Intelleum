@@ -1,82 +1,55 @@
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-const teams = [
-  { name: "Jupiter", domain: "jup.ag", type: "aggregator" },
-  { name: "Orca", domain: "orca.so", type: "dex" },
-  { name: "Kamino", domain: "kamino.finance", type: "protocol" },
-  { name: "Helius", domain: "helius.dev", type: "infra" },
-  { name: "Sanctum", domain: "sanctum.so", type: "staking infra" },
-  { name: "Jito", domain: "jito.network", type: "validator infra" },
-  { name: "Keyrock", domain: "keyrock.com", type: "market maker" },
-  { name: "Triton One", domain: "triton.one", type: "rpc infra" },
+const capabilities = [
+  { label: "Pre-Trade Guard",    stat: "18.7 bps",  desc: "Score routes before execution. Block or reroute away from toxic surfaces." },
+  { label: "Pool Toxicity",      stat: "$83K/day",  desc: "Rank every pool by sandwich rate, stale quote pressure, and LP drag." },
+  { label: "Live MEV Alerts",    stat: "<400ms",    desc: "Sandwich, JIT, and sniper detections streamed as they land on-chain." },
+  { label: "LP Protection",      stat: "84% saved", desc: "Per-pool adverse selection scores with fee segmentation recommendations." },
 ];
-
-function faviconUrl(domain: string) {
-  return `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
-}
 
 export default function BuyerLogoStrip() {
   return (
-    <section className="relative overflow-hidden px-6 py-12">
+    <section className="relative overflow-hidden px-6 py-14">
       <div className="absolute inset-0 grid-overlay-subtle opacity-10" />
-      <div className="relative mx-auto max-w-6xl">
-        <div className="text-center">
-          <div className="font-mono text-[10px] uppercase tracking-[0.26em] text-primary">// relevant buyers</div>
-          <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-            Example target organizations that could benefit from toxic-flow reduction, route risk, and live execution intelligence.
-          </p>
-        </div>
+      <div className="relative mx-auto max-w-[1100px]">
 
-        <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4">
-          {teams.map((team, index) => (
-            <Tooltip key={team.name}>
-              <TooltipTrigger asChild>
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  whileHover={{
-                    y: -4,
-                    borderColor: "rgba(6,214,247,0.26)",
-                    backgroundColor: "rgba(14,20,27,0.7)",
-                  }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.35, delay: index * 0.03 }}
-                  className="group flex h-28 cursor-default flex-col items-center justify-center border border-border/70 bg-surface/40 px-4 text-center"
-                >
-                  <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-sm border border-border/70 bg-background/50 p-2">
-                    <img
-                      src={faviconUrl(team.domain)}
-                      alt={team.name}
-                      className="max-h-full max-w-full object-contain opacity-95 transition-opacity group-hover:opacity-100"
-                      loading="lazy"
-                    />
-                  </div>
-                  <div className="mt-4 font-mono text-xs uppercase tracking-[0.18em] text-foreground">
-                    {team.name}
-                  </div>
-                  <div className="mt-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                    {team.type}
-                  </div>
-                </motion.div>
-              </TooltipTrigger>
-              <TooltipContent className="text-xs">{team.name}</TooltipContent>
-            </Tooltip>
-          ))}
-        </div>
-
-        <p className="mt-5 text-center text-xs leading-6 text-muted-foreground">
-          These are target buyer profiles, not claims of current commercial relationships.
-        </p>
-
-        <div className="mt-8 text-center">
+        <motion.div
+          className="mb-10 flex flex-col gap-4 md:flex-row md:items-end md:justify-between"
+          initial={{ opacity: 0, y: 12 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.4 }}
+        >
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.26em] text-primary">// Intelleum API</div>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">
+              Plug MEV intelligence into your stack.
+            </h2>
+          </div>
           <Link
             to="/intel-api"
-            className="inline-block bg-primary px-10 py-4 font-mono text-sm font-bold tracking-wider text-background transition-colors hover:bg-primary/90"
+            className="shrink-0 border border-primary/50 px-6 py-2.5 font-mono text-[11px] uppercase tracking-[0.18em] text-primary transition-colors hover:bg-primary/10"
           >
-            SEE API PRODUCTS →
+            See all endpoints →
           </Link>
+        </motion.div>
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {capabilities.map((cap, i) => (
+            <motion.div
+              key={cap.label}
+              initial={{ opacity: 0, y: 10 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.35, delay: i * 0.06 }}
+              className="border border-border/60 bg-card/40 p-5"
+            >
+              <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground">{cap.label}</div>
+              <div className="mt-2 font-mono text-2xl font-bold text-primary">{cap.stat}</div>
+              <p className="mt-2 text-[12px] leading-5 text-muted-foreground">{cap.desc}</p>
+            </motion.div>
+          ))}
         </div>
       </div>
     </section>

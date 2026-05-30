@@ -1,5 +1,6 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
+import { ArrowRight, LockKeyhole } from "lucide-react";
 import Hero from "@/components/Hero";
 import IntelligenceSignals from "@/components/IntelligenceSignals";
 import BuyerLogoStrip from "@/components/BuyerLogoStrip";
@@ -27,6 +28,8 @@ const Index = () => {
       <div className="glow-line" />
       <IntelligenceSignals />
       <div className="glow-line" />
+      <DexProtectionSection />
+      <div className="glow-line" />
       <BuyerLogoStrip />
       <div className="glow-line" />
 
@@ -41,6 +44,98 @@ const Index = () => {
     </main>
   );
 };
+
+const DEX_LIST = [
+  { name: "Raydium", favicon: "https://raydium.io/favicon.ico",   live: true  },
+  { name: "Orca",    favicon: "https://orca.so/favicon.ico",       live: false },
+  { name: "Meteora", favicon: "https://meteora.ag/favicon.ico",    live: false },
+  { name: "Jupiter", favicon: "https://jup.ag/favicon.ico",        live: false },
+  { name: "Phoenix", favicon: "https://phoenix.trade/favicon.ico", live: false },
+  { name: "PumpSwap",favicon: "https://pump.fun/favicon.ico",      live: false },
+];
+
+function DexFavicon({ favicon, name, live }: { favicon: string; name: string; live: boolean }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div className={`flex h-9 w-9 items-center justify-center border font-mono text-xs font-bold ${live ? "border-primary/50 bg-primary/10 text-primary" : "border-border/40 text-muted-foreground"}`}>
+        {name.slice(0, 2).toUpperCase()}
+      </div>
+    );
+  }
+  return <img src={favicon} alt={name} width={36} height={36} className="h-9 w-9 object-contain" onError={() => setFailed(true)} />;
+}
+
+function DexProtectionSection() {
+  return (
+    <section className="relative overflow-hidden px-6 py-16">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom,rgba(6,214,247,0.05),transparent_60%)]" />
+      <div className="relative mx-auto max-w-[1100px]">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.45 }}
+          className="mb-10 text-center"
+        >
+          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">// DEX Intelligence</p>
+          <h2 className="mt-2 text-[1.9rem] font-semibold tracking-tight text-foreground md:text-[2.4rem]">
+            MEV intelligence, per DEX, per pool.
+          </h2>
+          <p className="mt-3 text-[14px] leading-6 text-muted-foreground">
+            Pool-level sandwich detection, JIT monitoring, and LP protection scores — starting with Raydium.
+          </p>
+        </motion.div>
+
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {DEX_LIST.map((dex, i) => (
+            <motion.div
+              key={dex.name}
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.35, delay: i * 0.06 }}
+            >
+              {dex.live ? (
+                <Link
+                  to="/dex-intelligence/raydium"
+                  className="group flex flex-col items-center gap-3 border border-primary/45 bg-primary/5 p-5 text-center transition-all hover:bg-primary/10"
+                >
+                  <DexFavicon favicon={dex.favicon} name={dex.name} live={true} />
+                  <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground">{dex.name}</div>
+                  <span className="border border-primary/50 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.16em] text-primary">Live</span>
+                </Link>
+              ) : (
+                <div className="flex flex-col items-center gap-3 border border-border/40 bg-card/30 p-5 text-center opacity-60">
+                  <DexFavicon favicon={dex.favicon} name={dex.name} live={false} />
+                  <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground">{dex.name}</div>
+                  <span className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground">
+                    <LockKeyhole className="h-3 w-3" /> Soon
+                  </span>
+                </div>
+              )}
+            </motion.div>
+          ))}
+        </div>
+
+        <motion.div
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.4, delay: 0.4 }}
+          className="mt-8 flex justify-center"
+        >
+          <Link
+            to="/dex-intelligence"
+            className="flex items-center gap-2 border border-primary/40 px-8 py-3 font-mono text-[11px] uppercase tracking-[0.18em] text-primary transition-all hover:bg-primary/10"
+          >
+            Explore DEX Intelligence <ArrowRight className="h-4 w-4" />
+          </Link>
+        </motion.div>
+      </div>
+    </section>
+  );
+}
 
 function LiveDashboardCTA() {
   const navigate = useNavigate();
@@ -119,8 +214,16 @@ function LiveDashboardCTA() {
             OPEN LIVE DASHBOARD →
           </motion.button>
           <motion.button
-            onClick={() => navigate("/protection")}
+            onClick={() => navigate("/dex-intelligence/raydium")}
             className="border border-primary/50 px-10 py-4 text-primary font-mono font-bold text-sm tracking-wider hover:bg-primary/10 transition-colors"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            RAYDIUM INTEL →
+          </motion.button>
+          <motion.button
+            onClick={() => navigate("/protection")}
+            className="border border-border/70 px-10 py-4 text-foreground font-mono font-bold text-sm tracking-wider hover:border-primary/50 hover:text-primary transition-colors"
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
           >

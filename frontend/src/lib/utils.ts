@@ -11,9 +11,28 @@ const TOKEN_SYMBOLS: Record<string, string> = {
   Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: "USDT",
 };
 
+const PROTOCOL_LABELS: Record<string, string> = {
+  raydium: "Raydium",
+  raydium_amm: "Raydium AMM",
+  raydium_amm_v4: "Raydium AMM v4",
+  raydium_cpmm: "Raydium CPMM",
+  raydium_clmm: "Raydium CLMM",
+  raydium_launchlab: "Raydium LaunchLab",
+  raydium_launchpad: "Raydium LaunchLab",
+  raydium_router: "Raydium Router",
+  raydium_stable_amm: "Raydium Stable AMM",
+  orca_whirlpool: "Orca Whirlpool",
+  meteora_dlmm: "Meteora DLMM",
+};
+
 export function truncateAddress(addr: string, start = 8, end = 4) {
   if (!addr) return "—";
   return `${addr.slice(0, start)}...${addr.slice(-end)}`;
+}
+
+export function protocolLabel(protocol?: string | null) {
+  if (!protocol) return "Unknown";
+  return PROTOCOL_LABELS[protocol] ?? protocol.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 export function tokenLabel(mint?: string | null) {
@@ -38,12 +57,12 @@ export function formatPoolLabel(pool?: string | null) {
   if (pool.startsWith("route:")) {
     const [, source, pair] = pool.split(":");
     const prettyPair = pair?.split("->").map(tokenLabel).join(" / ");
-    return prettyPair ? `${source?.toUpperCase()} route • ${prettyPair}` : `${source?.toUpperCase()} route`;
+    return prettyPair ? `${protocolLabel(source)} route • ${prettyPair}` : `${protocolLabel(source)} route`;
   }
   if (pool.startsWith("venue:")) {
     const [, venue, pair] = pool.split(":");
     const prettyPair = pair?.split("->").map(tokenLabel).join(" / ");
-    return prettyPair ? `${venue} venue • ${prettyPair}` : `${venue} venue`;
+    return prettyPair ? `${protocolLabel(venue)} venue • ${prettyPair}` : `${protocolLabel(venue)} venue`;
   }
   if (pool.startsWith("pair:")) {
     const [, pair] = pool.split(":");
@@ -53,10 +72,10 @@ export function formatPoolLabel(pool?: string | null) {
 }
 
 export function surfaceProtocolLabel(pool?: string | null, fallbackProtocol?: string | null) {
-  if (fallbackProtocol) return fallbackProtocol.toUpperCase();
+  if (fallbackProtocol) return protocolLabel(fallbackProtocol);
   if (!pool) return "—";
   if (pool.startsWith("route:") || pool.startsWith("venue:")) {
-    return pool.split(":")[1]?.toUpperCase() ?? "—";
+    return protocolLabel(pool.split(":")[1]);
   }
   if (pool.startsWith("pair:")) return "PAIR";
   return "POOL";

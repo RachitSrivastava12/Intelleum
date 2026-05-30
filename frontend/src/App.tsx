@@ -15,6 +15,9 @@ const History = lazy(() => import("./pages/History"));
 const IntelApi = lazy(() => import("./pages/IntelApi"));
 const FlowTerminal = lazy(() => import("./pages/FlowTerminal"));
 const Protection = lazy(() => import("./pages/Protection"));
+const DexIntelligence = lazy(() => import("./pages/DexIntelligence"));
+const DexGateway = lazy(() => import("./pages/DexGateway"));
+const RaydiumDeepDive = lazy(() => import("./pages/RaydiumDeepDive"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -44,6 +47,15 @@ function AppRoutes() {
         <Route path="/dashboard"      element={<Dashboard />} />
         <Route path="/protection"     element={<Protection />} />
         <Route path="/flow-terminal"  element={<FlowTerminal />} />
+        <Route path="/dex-intelligence" element={<DexGateway />} />
+        <Route path="/dex-intelligence/raydium" element={<DexIntelligence />} />
+        <Route path="/dex-intelligence/raydium/pools"      element={<RaydiumDeepDive section="pools" />} />
+        <Route path="/dex-intelligence/raydium/jit"        element={<RaydiumDeepDive section="jit" />} />
+        <Route path="/dex-intelligence/raydium/launchlab"  element={<RaydiumDeepDive section="launchlab" />} />
+        <Route path="/dex-intelligence/raydium/lp"         element={<RaydiumDeepDive section="lp" />} />
+        <Route path="/dex-intelligence/raydium/detections" element={<RaydiumDeepDive section="detections" />} />
+        <Route path="/dex-intelligence/raydium/savings"    element={<RaydiumDeepDive section="savings" />} />
+        <Route path="/dex-intelligence/raydium/extraction" element={<RaydiumDeepDive section="extraction" />} />
         <Route path="/intel-api"      element={<IntelApi />} />
         <Route path="/history"        element={<History />} />
         <Route path="/entities"       element={<EntityExplorer />} />

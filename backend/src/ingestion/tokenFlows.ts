@@ -56,7 +56,11 @@ function preferredPoolPositions(programLabel: string | null): number[] {
   switch (programLabel) {
     case "raydium_amm":
     case "raydium_amm_v3":
+    case "raydium_amm_v4":
+    case "raydium_cpmm":
+    case "raydium_stable_amm":
     case "raydium_clmm":
+    case "raydium_launchlab":
       return [1, 2, 3, 4, 5, 6];
     case "orca_v1":
     case "orca_v2":

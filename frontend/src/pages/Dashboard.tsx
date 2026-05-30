@@ -121,6 +121,12 @@ export default function Dashboard() {
             >
               PROTECTION
             </Link>
+            <Link
+              to="/dex-intelligence/raydium"
+              className="mr-4 border border-primary/20 px-3 py-1 text-primary hover:bg-primary/10 transition-colors"
+            >
+              DEX INTEL
+            </Link>
             {dataMode === "chain" ? (
               <div className="flex items-center gap-1.5 border border-green-500/40 bg-green-500/10 px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-green-400">
                 <motion.div

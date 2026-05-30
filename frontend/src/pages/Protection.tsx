@@ -344,6 +344,9 @@ function PageNav() {
         <Link to="/dashboard" className="min-h-10 border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           Dashboard
         </Link>
+        <Link to="/dex-intelligence/raydium" className="min-h-10 border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          DEX Intel
+        </Link>
         <Link to="/intel-api" className="min-h-10 border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           API
         </Link>
