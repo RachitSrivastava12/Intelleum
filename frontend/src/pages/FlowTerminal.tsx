@@ -1,4 +1,4 @@
-import { CSSProperties, type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Area,
@@ -309,10 +309,6 @@ export default function FlowTerminal() {
     const max = Math.max(1, ...visibleChartData.map((candle) => candle.loss_at_risk_usd));
     return [0, Number((max * 1.18).toFixed(2))];
   }, [visibleChartData]);
-  const eventCountDomain = useMemo<[number, number]>(() => {
-    const max = Math.max(1, ...visibleChartData.map((candle) => candle.attack_count));
-    return [0, max + 1];
-  }, [visibleChartData]);
   const visibleEventBucketCount = useMemo(
     () => visibleChartData.filter((candle) => candle.attack_count > 0).length,
     [visibleChartData],
@@ -410,13 +406,13 @@ export default function FlowTerminal() {
     setViewRange(clampViewRange({ start: baseRange.start + delta, end: baseRange.end + delta }, minViewSpan));
   }, [chartData.length, minViewSpan]);
 
-  const handleChartPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+  const handleChartPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || chartData.length <= MIN_VISIBLE_POINTS) return;
     panStartRef.current = { x: event.clientX, range: viewRangeRef.current };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const handleChartPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+  const handleChartPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!panStartRef.current) return;
     panChartByPixels(panStartRef.current.x - event.clientX, panStartRef.current.range);
   };
@@ -587,7 +583,7 @@ export default function FlowTerminal() {
               </button>
             )}
             <span className="ml-auto hidden font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground md:block">
-              Source: {data.source === "chain" ? "QuickNode / chain" : "fallback demo"}
+              Source: {data.source === "chain" ? "QuickNode / chain" : "API fallback"}
             </span>
           </div>
 

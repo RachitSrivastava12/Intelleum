@@ -39,24 +39,28 @@ export default function OrderflowWorkbench() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [nextExecution, nextLp, nextFlow, nextPolicies, nextGuard, nextValidators, nextPrediction, nextSavings, routeRisks] =
+        const [nextExecution, nextLp, nextFlow, nextPolicies, nextValidators, nextPrediction, nextSavings, routeRisks] =
           await Promise.all([
             api.executionQuality(6),
             api.lpProtection(6),
             api.flowSegments(),
             api.routePolicies(6, "protect_users"),
-            api.preventionGuard({
-              input_mint: "So11111111111111111111111111111111111111112",
-              output_mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-              notional_usd: 50_000,
-              slippage_bps: 30,
-              objective: "protect_users",
-            }),
             api.validatorRegimes(4),
             api.predictionMarketExecution(4),
             api.savingsSummary(),
             api.routeRisks(6),
           ]);
+        const guardRoute = routeRisks[0];
+        const nextGuard = guardRoute
+          ? await api.preventionGuard({
+              route_key: guardRoute.route_key,
+              route_label: guardRoute.label,
+              protocol: guardRoute.protocol,
+              notional_usd: guardRoute.recommended_max_notional_usd || null,
+              slippage_bps: guardRoute.realized_slippage_bps || null,
+              objective: "protect_users",
+            }).catch(() => null)
+          : null;
 
         setExecution(nextExecution);
         setLpProtection(nextLp);
@@ -97,7 +101,7 @@ export default function OrderflowWorkbench() {
 
       <div className="grid gap-4 xl:grid-cols-4">
         {savings && [
-          { label: "Loss Avoided 24H", value: formatUSD(savings.estimated_loss_avoided_usd_24h), hint: "Estimated dollar loss Intelleum could help avoid across flagged routes in the current 24h-style sample." },
+          { label: "Loss Avoided 24H", value: formatUSD(savings.estimated_loss_avoided_usd_24h), hint: "Estimated dollar loss Intelleum could help avoid across routes currently flagged by the API." },
           { label: "Avg Bps Saved", value: `${savings.estimated_bps_saved_avg.toFixed(2)} bps`, hint: "Average estimated basis points saved by rerouting away from the most toxic routes." },
           { label: "Routes Flagged", value: String(savings.routes_flagged), hint: "Number of routes that currently look bad enough to reroute or avoid." },
           { label: "Pools Protected", value: String(savings.pools_protected), hint: "Pools with meaningful LVR / adverse-selection pressure that Intelleum is flagging right now." },
@@ -146,7 +150,7 @@ export default function OrderflowWorkbench() {
           <div className="mb-3 text-[10px] uppercase tracking-[0.24em] text-muted-foreground">
             Prevention Guard <InfoHint text="This is the decision layer buyers actually pay for: what to do before sending more user flow into a hostile surface." />
           </div>
-          {guard && (
+          {guard ? (
             <div className="space-y-3">
               <div>
                 <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Action</div>
@@ -159,6 +163,10 @@ export default function OrderflowWorkbench() {
                 <div>max safe size <span className="text-primary">{formatUSD(guard.recommended_max_notional_usd)}</span></div>
                 <div>route <span className="text-primary">{guard.selected_label}</span></div>
               </div>
+            </div>
+          ) : (
+            <div className="border border-dashed border-border/70 p-3 text-xs text-muted-foreground">
+              Waiting for route-risk data to evaluate a live protected-send policy.
             </div>
           )}
         </div>

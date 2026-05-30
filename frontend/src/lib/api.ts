@@ -20,6 +20,7 @@ import {
 const rawBase = import.meta.env.VITE_API_URL ?? "http://localhost:8081";
 const BASE = rawBase.replace(/\/$/, "").replace(/\/api$/, "");
 const API_KEY = import.meta.env.VITE_INTELLEUM_API_KEY;
+const ENABLE_DEMO_FALLBACK = import.meta.env.VITE_ENABLE_DEMO_FALLBACK === "true";
 
 // In-memory cache — deduplicate concurrent requests and serve stale data instantly
 // while fresh data loads in the background. TTL is per-endpoint.
@@ -75,10 +76,12 @@ async function get<T>(path: string, params?: Record<string, string>): Promise<T>
     if (!res.ok) throw new Error(`API error: ${res.status} for ${url.pathname}`);
     return res.json();
   } catch (error) {
-    const fallback = getFallback<T>(path, params);
-    if (fallback !== undefined) {
-      console.warn("[api:fallback]", path, error);
-      return fallback;
+    if (ENABLE_DEMO_FALLBACK) {
+      const fallback = getFallback<T>(path, params);
+      if (fallback !== undefined) {
+        console.warn("[api:fallback]", path, error);
+        return fallback;
+      }
     }
     throw error;
   }
@@ -111,10 +114,12 @@ async function post<T>(path: string, body: any): Promise<T> {
     }
     return res.json();
   } catch (error) {
-    const fallback = getPostFallback<T>(path, body);
-    if (fallback !== undefined) {
-      console.warn("[api:post:fallback]", path, error);
-      return fallback;
+    if (ENABLE_DEMO_FALLBACK) {
+      const fallback = getPostFallback<T>(path, body);
+      if (fallback !== undefined) {
+        console.warn("[api:post:fallback]", path, error);
+        return fallback;
+      }
     }
     throw error;
   }
@@ -1062,26 +1067,27 @@ export interface Entity {
   mev_market_share_pct?: number;
 }
 
-export interface EntityDetail extends Entity {
+export interface EntityDetail {
+  entity: Entity;
   wallets: Array<{ wallet: string; role: string; tx_count: number; operator_label: string | null }>;
   recent_attacks: Attack[];
   targeted_pools: Array<{ pool_address: string; attack_count: number; total_profit: number }>;
   validator_correlation: Array<{
     validator: string;
     attacks: number;
-    exposure_share: number;
-    validator_risk: number;
-    observed_sandwich_rate: number;
-    stake_centralization_risk: number;
-    recommended_action: "reroute" | "monitor" | "observe";
+    exposure_share?: number;
+    validator_risk?: number;
+    observed_sandwich_rate?: number;
+    stake_centralization_risk?: number;
+    recommended_action?: "reroute" | "monitor" | "observe";
   }>;
-  cluster_evidence: {
+  cluster_evidence?: {
     shared_surface_count: number;
     shared_validator_count: number;
     shared_strategy_count: number;
     coordinated_window_count: number;
   };
-  related_surfaces: Array<{ surface: string; wallet_count: number; attacks: number; total_profit: number }>;
+  related_surfaces?: Array<{ surface: string; wallet_count: number; attacks: number; total_profit: number }>;
   profit_timeline: Array<{ day: string; profit: number; attacks: number }>;
 }
 

@@ -62,7 +62,26 @@ export default function EntityDetail() {
 
   const { entity, wallets, recent_attacks, targeted_pools, validator_correlation, profit_timeline } = data;
   const maxProfit = Math.max(...profit_timeline.map(d => d.profit), 1);
+  const timelineStart = profit_timeline[0]?.day;
+  const timelineEnd = profit_timeline[profit_timeline.length - 1]?.day;
+  const timelineLabel = timelineStart && timelineEnd
+    ? timelineStart === timelineEnd
+      ? formatCalendarDate(timelineStart)
+      : `${formatCalendarDate(timelineStart)} to ${formatCalendarDate(timelineEnd)}`
+    : "No timeline data";
   const maxTargetedPoolAttacks = Math.max(...targeted_pools.map((pool) => pool.attack_count), 1);
+  const clusterEvidence = data.cluster_evidence ?? {
+    shared_surface_count: targeted_pools.length,
+    shared_validator_count: validator_correlation.length,
+    shared_strategy_count: entity.strategies_used.length,
+    coordinated_window_count: Math.max(0, recent_attacks.length),
+  };
+  const relatedSurfaces = data.related_surfaces ?? targeted_pools.map((pool) => ({
+    surface: pool.pool_address,
+    wallet_count: entity.wallet_count,
+    attacks: pool.attack_count,
+    total_profit: pool.total_profit,
+  }));
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -169,10 +188,10 @@ export default function EntityDetail() {
           {/* Left column: 2/3 width */}
           <div className="col-span-2 space-y-6">
 
-            {/* Profit timeline (7 days) */}
+            {/* Profit timeline */}
             {profit_timeline.length > 0 && (
               <div className="intel-panel p-5">
-                <p className="text-xs font-mono text-muted-foreground mb-4">// Profit Timeline (7 days)</p>
+                <p className="text-xs font-mono text-muted-foreground mb-4">// Profit Timeline ({timelineLabel})</p>
                 <div className="flex items-end gap-1 h-24">
                   {profit_timeline.map((d, i) => (
                     <div key={i} className="flex-1 flex flex-col items-center gap-1">
@@ -280,28 +299,28 @@ export default function EntityDetail() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="border border-border/70 p-3">
                   <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Shared Surfaces</div>
-                  <div className="mt-2 text-lg text-foreground">{data.cluster_evidence.shared_surface_count}</div>
+                  <div className="mt-2 text-lg text-foreground">{clusterEvidence.shared_surface_count}</div>
                 </div>
                 <div className="border border-border/70 p-3">
                   <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Shared Validators</div>
-                  <div className="mt-2 text-lg text-foreground">{data.cluster_evidence.shared_validator_count}</div>
+                  <div className="mt-2 text-lg text-foreground">{clusterEvidence.shared_validator_count}</div>
                 </div>
                 <div className="border border-border/70 p-3">
                   <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Shared Strategies</div>
-                  <div className="mt-2 text-lg text-foreground">{data.cluster_evidence.shared_strategy_count}</div>
+                  <div className="mt-2 text-lg text-foreground">{clusterEvidence.shared_strategy_count}</div>
                 </div>
                 <div className="border border-border/70 p-3">
                   <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Tight Windows</div>
-                  <div className="mt-2 text-lg text-foreground">{data.cluster_evidence.coordinated_window_count}</div>
+                  <div className="mt-2 text-lg text-foreground">{clusterEvidence.coordinated_window_count}</div>
                 </div>
               </div>
             </div>
 
-            {data.related_surfaces.length > 0 && (
+            {relatedSurfaces.length > 0 && (
               <div className="intel-panel p-5">
                 <p className="text-xs font-mono text-muted-foreground mb-4">// Shared Surfaces</p>
                 <div className="space-y-3">
-                  {data.related_surfaces.map((surface) => (
+                  {relatedSurfaces.map((surface) => (
                     <div key={surface.surface} className="border border-border/70 p-3">
                       <div className="flex items-start justify-between gap-3">
                         <CopyableValue
@@ -363,27 +382,29 @@ export default function EntityDetail() {
               <div className="intel-panel p-5">
                 <p className="text-xs font-mono text-muted-foreground mb-4">// Validator Correlation</p>
                 <div className="space-y-2">
-                  {validator_correlation.map(v => (
-                    <div key={v.validator} className="border border-border/70 p-3">
-                      <div className="flex items-start justify-between gap-3 text-xs font-mono">
-                        <CopyableValue
-                          value={v.validator}
-                          display={truncate(v.validator)}
-                          className="text-foreground"
-                        />
-                        <span className="text-primary">{v.attacks} attacks</span>
+                  {validator_correlation.map(v => {
+                    return (
+                      <div key={v.validator} className="border border-border/70 p-3">
+                        <div className="flex items-start justify-between gap-3 text-xs font-mono">
+                          <CopyableValue
+                            value={v.validator}
+                            display={truncate(v.validator)}
+                            className="text-foreground"
+                          />
+                          <span className="text-primary">{v.attacks} attacks</span>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                          <div>share {v.exposure_share != null ? `${v.exposure_share.toFixed(1)}%` : "--"}</div>
+                          <div>risk {v.validator_risk != null ? `${(v.validator_risk * 100).toFixed(0)}%` : "--"}</div>
+                          <div>sandwich {v.observed_sandwich_rate != null ? `${v.observed_sandwich_rate.toFixed(1)}%` : "--"}</div>
+                          <div>centralize {v.stake_centralization_risk != null ? v.stake_centralization_risk.toFixed(0) : "--"}</div>
+                        </div>
+                        <div className="mt-2 text-[10px] uppercase tracking-[0.2em] text-primary">
+                          action: {v.recommended_action ?? "--"}
+                        </div>
                       </div>
-                      <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                        <div>share {v.exposure_share.toFixed(1)}%</div>
-                        <div>risk {(v.validator_risk * 100).toFixed(0)}%</div>
-                        <div>sandwich {v.observed_sandwich_rate.toFixed(1)}%</div>
-                        <div>centralize {v.stake_centralization_risk.toFixed(0)}</div>
-                      </div>
-                      <div className="mt-2 text-[10px] uppercase tracking-[0.2em] text-primary">
-                        action: {v.recommended_action}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

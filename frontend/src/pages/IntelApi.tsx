@@ -1592,7 +1592,7 @@ export default function IntelApi() {
                       <code className="text-foreground">X-Intelleum-Source</code>
                     </div>
                     <div className="mt-1 font-mono text-[11px] text-muted-foreground">
-                      chain = live data · fallback = demo
+                      chain = live data · fallback = backend fallback
                     </div>
                   </div>
                   <div className="border border-border/70 bg-background/50 p-5">

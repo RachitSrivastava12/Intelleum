@@ -46,12 +46,12 @@ const Index = () => {
 };
 
 const DEX_LIST = [
-  { name: "Raydium", favicon: "https://raydium.io/favicon.ico",   live: true  },
-  { name: "Orca",    favicon: "https://orca.so/favicon.ico",       live: false },
-  { name: "Meteora", favicon: "https://meteora.ag/favicon.ico",    live: false },
-  { name: "Jupiter", favicon: "https://jup.ag/favicon.ico",        live: false },
-  { name: "Phoenix", favicon: "https://phoenix.trade/favicon.ico", live: false },
-  { name: "PumpSwap",favicon: "https://pump.fun/favicon.ico",      live: false },
+  { name: "Raydium", favicon: "https://www.google.com/s2/favicons?domain=raydium.io&sz=64",  live: true  },
+  { name: "Orca",    favicon: "https://www.google.com/s2/favicons?domain=orca.so&sz=64",     live: false },
+  { name: "Meteora", favicon: "https://www.google.com/s2/favicons?domain=meteora.ag&sz=64",  live: false },
+  { name: "Jupiter", favicon: "https://www.google.com/s2/favicons?domain=jup.ag&sz=64",      live: false },
+  { name: "Phoenix", favicon: "https://www.google.com/s2/favicons?domain=phoenix.trade&sz=64", live: false },
+  { name: "PumpSwap",favicon: "https://www.google.com/s2/favicons?domain=pump.fun&sz=64",    live: false },
 ];
 
 function DexFavicon({ favicon, name, live }: { favicon: string; name: string; live: boolean }) {

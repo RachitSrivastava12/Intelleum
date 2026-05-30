@@ -18,7 +18,7 @@ const DEXES: Dex[] = [
     name: "Raydium",
     slug: "raydium",
     live: true,
-    favicon: "https://raydium.io/favicon.ico",
+    favicon: "https://www.google.com/s2/favicons?domain=raydium.io&sz=64",
     surfaces: "CPMM · AMM v4 · CLMM · LaunchLab",
     detail: "Sandwich detection, JIT liquidity monitor, LaunchLab sniper feed, and LP protection scores across all Raydium programs.",
     accent: "border-primary/60 bg-primary/5 hover:bg-primary/10",
@@ -27,7 +27,7 @@ const DEXES: Dex[] = [
     name: "Orca",
     slug: "orca",
     live: false,
-    favicon: "https://orca.so/favicon.ico",
+    favicon: "https://www.google.com/s2/favicons?domain=orca.so&sz=64",
     surfaces: "Whirlpool · CLMM",
     detail: "Concentrated liquidity JIT and tick-range adverse selection.",
     accent: "border-border/50 bg-card/40",
@@ -36,7 +36,7 @@ const DEXES: Dex[] = [
     name: "Meteora",
     slug: "meteora",
     live: false,
-    favicon: "https://meteora.ag/favicon.ico",
+    favicon: "https://www.google.com/s2/favicons?domain=meteora.ag&sz=64",
     surfaces: "DLMM · DAMM",
     detail: "Dynamic liquidity distribution and volatile pool extraction.",
     accent: "border-border/50 bg-card/40",
@@ -45,7 +45,7 @@ const DEXES: Dex[] = [
     name: "Jupiter",
     slug: "jupiter",
     live: false,
-    favicon: "https://jup.ag/favicon.ico",
+    favicon: "https://www.google.com/s2/favicons?domain=jup.ag&sz=64",
     surfaces: "Aggregator route layer",
     detail: "Cross-venue route toxicity and routing policy output.",
     accent: "border-border/50 bg-card/40",
@@ -54,7 +54,7 @@ const DEXES: Dex[] = [
     name: "Phoenix",
     slug: "phoenix",
     live: false,
-    favicon: "https://phoenix.trade/favicon.ico",
+    favicon: "https://www.google.com/s2/favicons?domain=phoenix.trade&sz=64",
     surfaces: "CLOB",
     detail: "Order book execution surface and front-running detection.",
     accent: "border-border/50 bg-card/40",
@@ -63,7 +63,7 @@ const DEXES: Dex[] = [
     name: "PumpSwap",
     slug: "pumpswap",
     live: false,
-    favicon: "https://pump.fun/favicon.ico",
+    favicon: "https://www.google.com/s2/favicons?domain=pump.fun&sz=64",
     surfaces: "Bonding curve · AMM",
     detail: "Launch curve sniper detection and migration front-running.",
     accent: "border-border/50 bg-card/40",
@@ -140,7 +140,7 @@ export default function DexGateway() {
 
             <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
               <div className="flex items-start gap-5">
-                <DexLogo favicon="https://raydium.io/favicon.ico" name="Raydium" live={true} />
+                <DexLogo favicon="https://www.google.com/s2/favicons?domain=raydium.io&sz=64" name="Raydium" live={true} />
                 <div>
                   <div className="flex items-center gap-3">
                     <h2 className="text-2xl font-semibold text-foreground">Raydium</h2>

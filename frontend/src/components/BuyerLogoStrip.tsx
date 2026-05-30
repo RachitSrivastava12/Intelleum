@@ -2,10 +2,10 @@ import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 
 const capabilities = [
-  { label: "Pre-Trade Guard",    stat: "18.7 bps",  desc: "Score routes before execution. Block or reroute away from toxic surfaces." },
-  { label: "Pool Toxicity",      stat: "$83K/day",  desc: "Rank every pool by sandwich rate, stale quote pressure, and LP drag." },
-  { label: "Live MEV Alerts",    stat: "<400ms",    desc: "Sandwich, JIT, and sniper detections streamed as they land on-chain." },
-  { label: "LP Protection",      stat: "84% saved", desc: "Per-pool adverse selection scores with fee segmentation recommendations." },
+  { label: "Pre-Trade Guard",    stat: "Route score", desc: "Score routes before execution. Block or reroute away from toxic surfaces." },
+  { label: "Pool Toxicity",      stat: "Pool ranks",  desc: "Rank every pool by sandwich rate, stale quote pressure, and LP drag." },
+  { label: "Live MEV Alerts",    stat: "Live stream", desc: "Sandwich, JIT, and sniper detections streamed as they land on-chain." },
+  { label: "LP Protection",      stat: "LP policy",   desc: "Per-pool adverse selection scores with fee segmentation recommendations." },
 ];
 
 export default function BuyerLogoStrip() {

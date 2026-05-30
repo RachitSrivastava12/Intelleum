@@ -59,7 +59,7 @@ export default function Dashboard() {
   const [dataMode, setDataMode] = useState<"chain" | "fallback" | null>(null);
   const [savings, setSavings] = useState<SavingsSummary | null>(null);
 
-  // Single poll: systemStatus drives the live/demo badge; savings drives the strip.
+  // Single poll: systemStatus drives the data-source badge; savings drives the strip.
   // EngineStatusPanel independently polls systemStatus every 5s — no need to duplicate here.
   useEffect(() => {
     const load = () => {
@@ -139,7 +139,7 @@ export default function Dashboard() {
             ) : dataMode === "fallback" ? (
               <div className="flex items-center gap-1.5 border border-yellow-500/40 bg-yellow-500/10 px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-yellow-400">
                 <div className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
-                DEMO MODE
+                API FALLBACK
               </div>
             ) : null}
           </div>
