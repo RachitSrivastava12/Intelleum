@@ -731,7 +731,7 @@ export function getDemoLiveAlerts(limit = 20): LiveAlert[] {
   return [...liveAlerts].slice(0, limit);
 }
 
-// ─── Raydium demo data for DexIntelligence (shown when chain feed is offline) ─
+// ─── Raydium local demo data (shown when chain feed is offline) ──────────────
 
 const SOL  = "So11111111111111111111111111111111111111112";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -768,7 +768,7 @@ const raydiumAttacks: Attack[] = [
     confidence: 0.96,
     detector: "parsed_swap_sandwich",
     execution_lane: "jito-aligned",
-    bundle_likelihood: 84,
+    bundle_likelihood: 0.84,
     evidence: [
       "frontrun and backrun share the same signer across slot boundaries",
       "victim swap sandwiched between two opposite-direction swaps",
@@ -799,7 +799,7 @@ const raydiumAttacks: Attack[] = [
     confidence: 0.94,
     detector: "parsed_swap_sandwich",
     execution_lane: "jito-aligned",
-    bundle_likelihood: 81,
+    bundle_likelihood: 0.81,
     evidence: [
       "double-sided sandwich confirmed via block ordering",
       "tip matches typical B91 operator fee pattern",
@@ -830,7 +830,7 @@ const raydiumAttacks: Attack[] = [
     confidence: 0.91,
     detector: "parsed_swap_sandwich",
     execution_lane: "priority-fee",
-    bundle_likelihood: 52,
+    bundle_likelihood: 0.52,
     evidence: [
       "AMM v4 pool sandwiched within a 3-slot window",
       "stale quote picked up before execution",
@@ -861,7 +861,7 @@ const raydiumAttacks: Attack[] = [
     confidence: 0.89,
     detector: "raw_delta_jit",
     execution_lane: "jito-aligned",
-    bundle_likelihood: 77,
+    bundle_likelihood: 0.77,
     evidence: [
       "in-slot add_liquidity followed by large victim swap then remove_liquidity",
       "tight tick range [129.2, 131.8] targeted specifically around execution price",
@@ -892,7 +892,7 @@ const raydiumAttacks: Attack[] = [
     confidence: 0.87,
     detector: "raw_delta_jit",
     execution_lane: "jito-aligned",
-    bundle_likelihood: 74,
+    bundle_likelihood: 0.74,
     evidence: [
       "JIT liquidity add detected within 2 slots before victim swap",
       "concentrated position around execution range removed immediately after fill",
@@ -923,7 +923,7 @@ const raydiumAttacks: Attack[] = [
     confidence: 0.92,
     detector: "launch_liquidity_snipe",
     execution_lane: "jito-aligned",
-    bundle_likelihood: 89,
+    bundle_likelihood: 0.89,
     evidence: [
       "first buy landed in the same slot as pool initialization",
       "sniper wallet acquired 8.4% of initial supply at curve floor",
@@ -954,7 +954,7 @@ const raydiumAttacks: Attack[] = [
     confidence: 0.90,
     detector: "launch_liquidity_snipe",
     execution_lane: "jito-aligned",
-    bundle_likelihood: 86,
+    bundle_likelihood: 0.86,
     evidence: [
       "sniper captured first-fill within 400ms of curve go-live",
       "token acquired at 0% curve progress — maximum discount",
@@ -985,7 +985,7 @@ const raydiumAttacks: Attack[] = [
     confidence: 0.83,
     detector: "parsed_swap_arbitrage",
     execution_lane: "standard",
-    bundle_likelihood: 18,
+    bundle_likelihood: 0.18,
     evidence: [
       "cross-venue price imbalance exploited between Raydium and Orca stable pools",
       "same signer executed both legs within 1 slot",
@@ -1033,7 +1033,7 @@ const raydiumRoutes: RouteRisk[] = [
     source_hint: "aggregator-routed",
     recommended_max_notional_usd: 11000,
     estimated_savings_bps: 13.6,
-    estimated_savings_usd: 19.04,
+    estimated_savings_usd: 184200,
     order_flow_imbalance: 64.2,
     lp_annual_loss_rate_pct: 31.4,
     lp_annual_loss_usd_estimate: 4812,
@@ -1082,7 +1082,7 @@ const raydiumRoutes: RouteRisk[] = [
     source_hint: "aggregator-routed",
     recommended_max_notional_usd: 18000,
     estimated_savings_bps: 10.4,
-    estimated_savings_usd: 18.72,
+    estimated_savings_usd: 112400,
     order_flow_imbalance: 51.8,
     lp_annual_loss_rate_pct: 24.7,
     lp_annual_loss_usd_estimate: 3941,
@@ -1131,7 +1131,7 @@ const raydiumRoutes: RouteRisk[] = [
     source_hint: "bundle-lane",
     recommended_max_notional_usd: 38000,
     estimated_savings_bps: 7.9,
-    estimated_savings_usd: 30.02,
+    estimated_savings_usd: 74600,
     order_flow_imbalance: 38.6,
     lp_annual_loss_rate_pct: 18.9,
     lp_annual_loss_usd_estimate: 6741,
@@ -1180,7 +1180,7 @@ const raydiumRoutes: RouteRisk[] = [
     source_hint: "bundle-lane",
     recommended_max_notional_usd: 54000,
     estimated_savings_bps: 5.6,
-    estimated_savings_usd: 30.24,
+    estimated_savings_usd: 51200,
     order_flow_imbalance: 29.4,
     lp_annual_loss_rate_pct: 14.2,
     lp_annual_loss_usd_estimate: 4986,
@@ -1210,7 +1210,7 @@ const raydiumRoutes: RouteRisk[] = [
     avg_confidence: 90,
     bundle_share: 88,
     risk_score: 71,
-    recommendation: "reroute",
+    recommendation: "penalize",
     execution_quality_score: 32,
     toxic_flow_rate: 71,
     realized_slippage_bps: 9.8,
@@ -1229,7 +1229,7 @@ const raydiumRoutes: RouteRisk[] = [
     source_hint: "bundle-lane",
     recommended_max_notional_usd: 6000,
     estimated_savings_bps: 9.2,
-    estimated_savings_usd: 5.52,
+    estimated_savings_usd: 28600,
     order_flow_imbalance: 48.1,
     lp_annual_loss_rate_pct: 9.4,
     lp_annual_loss_usd_estimate: 1882,
@@ -1259,7 +1259,7 @@ const raydiumRoutes: RouteRisk[] = [
     avg_confidence: 76,
     bundle_share: 22,
     risk_score: 34,
-    recommendation: "allow",
+    recommendation: "monitor",
     execution_quality_score: 72,
     toxic_flow_rate: 28,
     realized_slippage_bps: 1.4,
@@ -1278,7 +1278,7 @@ const raydiumRoutes: RouteRisk[] = [
     source_hint: "aggregator-routed",
     recommended_max_notional_usd: 180000,
     estimated_savings_bps: 1.4,
-    estimated_savings_usd: 2.52,
+    estimated_savings_usd: 7400,
     order_flow_imbalance: 12.3,
     lp_annual_loss_rate_pct: 3.8,
     lp_annual_loss_usd_estimate: 912,

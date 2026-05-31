@@ -30,13 +30,14 @@ import {
   SystemStatus,
   ToxicFlowTerminal,
 } from "@/lib/api";
-import { formatPoolLabel, formatRelativeTime, truncateAddress } from "@/lib/utils";
 import {
+  demoSystemStatus,
   getDemoRaydiumAttacks,
-  getDemoRaydiumRoutes,
-  getDemoRaydiumPools,
   getDemoRaydiumLpProtection,
+  getDemoRaydiumPools,
+  getDemoRaydiumRoutes,
 } from "@/lib/demoData";
+import { formatPoolLabel, formatRelativeTime, truncateAddress } from "@/lib/utils";
 
 type MarketReference = {
   tvlUsd: number | null;
@@ -117,6 +118,58 @@ const EMPTY_MARKET_REFERENCE: MarketReference = {
   source: "unavailable",
 };
 
+const ENABLE_LOCAL_RAYDIUM_DEMO =
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_RAYDIUM_DEMO === "true";
+
+function buildRaydiumDemoStatus(base?: SystemStatus | null): SystemStatus {
+  const attacks = getDemoRaydiumAttacks();
+  const routes = getDemoRaydiumRoutes();
+  const previous = base ?? demoSystemStatus;
+
+  return {
+    ...previous,
+    mode: "fallback",
+    started: true,
+    syncing: false,
+    attacksDetected: attacks.length,
+    lastError: "Local Raydium demo scenario. Chain feed is offline.",
+    recentMetrics: {
+      ...previous.recentMetrics,
+      candidateRows: routes.reduce((sum, route) => sum + route.total_attacks, 0),
+      detectedAttacks: attacks.length,
+      parsedTransactions: Math.max(previous.recentMetrics.parsedTransactions, 148),
+      parsedSwaps: Math.max(previous.recentMetrics.parsedSwaps, 86),
+      rawSlotTxs: Math.max(previous.recentMetrics.rawSlotTxs, 420),
+      sandwichCandidates: attacks.filter((attack) => attack.attack_type === "sandwich").length,
+      arbitrageCandidates: attacks.filter((attack) => attack.attack_type === "arbitrage").length,
+      jitCandidates: attacks.filter((attack) => attack.attack_type === "jit").length,
+      liquiditySnipeCandidates: attacks.filter((attack) => attack.attack_type === "liquidity_snipe").length,
+      liquidityDrainCandidates: attacks.filter((attack) => attack.attack_type === "liquidity_drain").length,
+      backrunCandidates: routes.reduce((sum, route) => sum + route.backrun_count, 0),
+      suspiciousCandidates: attacks.length,
+    },
+    recentAttackPreview: attacks.slice(0, 8).map((attack) => ({
+      attack_type: attack.attack_type,
+      detector: attack.detector ?? "raydium_local_demo",
+      confidence: attack.confidence,
+      slot: attack.slot,
+    })),
+  };
+}
+
+function buildRaydiumDemoState(previous?: RaydiumIntelState | null, status?: SystemStatus | null): RaydiumIntelState {
+  return {
+    status: buildRaydiumDemoStatus(status),
+    routes: getDemoRaydiumRoutes(),
+    attacks: getDemoRaydiumAttacks(),
+    pools: getDemoRaydiumPools(),
+    lpProtection: getDemoRaydiumLpProtection(),
+    terminal: previous?.terminal ?? null,
+    market: previous?.market ?? EMPTY_MARKET_REFERENCE,
+    guard: previous?.guard ?? null,
+  };
+}
+
 function formatUsd(value: number | null | undefined) {
   if (value == null || !Number.isFinite(value)) return "--";
   if (Math.abs(value) >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(2)}B`;
@@ -145,6 +198,33 @@ function isRaydiumAttack(attack: Attack) {
 
 function isRaydiumPool(pool: PoolToxicity | LpProtectionSnapshot) {
   return isRaydiumText(pool.protocol) || isRaydiumText(pool.pool_address);
+}
+
+function hasRaydiumSurface(
+  routes: RouteRisk[],
+  attacks: Attack[],
+  pools: PoolToxicity[],
+  lpProtection: LpProtectionSnapshot[],
+) {
+  return (
+    routes.some(isRaydiumRoute) ||
+    attacks.some(isRaydiumAttack) ||
+    pools.some(isRaydiumPool) ||
+    lpProtection.some(isRaydiumPool)
+  );
+}
+
+function shouldUseLocalRaydiumDemo(
+  status: SystemStatus,
+  routes: RouteRisk[],
+  attacks: Attack[],
+  pools: PoolToxicity[],
+  lpProtection: LpProtectionSnapshot[],
+) {
+  return (
+    ENABLE_LOCAL_RAYDIUM_DEMO &&
+    (status.mode !== "chain" || !hasRaydiumSurface(routes, attacks, pools, lpProtection))
+  );
 }
 
 function actionTone(action: string) {
@@ -197,23 +277,37 @@ function sortByRisk<T extends { id: string }>(rows: T[]) {
   });
 }
 
-async function loadRaydiumMarketReference(): Promise<MarketReference> {
-  try {
-    const [protocolRes, dexRes, feesRes] = await Promise.all([
-      fetch("https://api.llama.fi/protocol/raydium"),
-      fetch("https://api.llama.fi/overview/dexs/solana?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true&dataType=dailyVolume"),
-      fetch("https://api.llama.fi/overview/fees/solana?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true&dataType=dailyFees"),
-    ]);
-    if (!protocolRes.ok || !dexRes.ok || !feesRes.ok) throw new Error("market reference unavailable");
+let raydiumMarketReferenceCache: { data: MarketReference; expires: number } | null = null;
 
-    const protocol = await protocolRes.json();
-    const dex = await dexRes.json();
-    const fees = await feesRes.json();
+async function fetchJsonWithTimeout(url: string, timeoutMs = 2_500) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function loadRaydiumMarketReference(): Promise<MarketReference> {
+  const now = Date.now();
+  if (raydiumMarketReferenceCache && now < raydiumMarketReferenceCache.expires) {
+    return raydiumMarketReferenceCache.data;
+  }
+
+  try {
+    const [protocol, dex, fees] = await Promise.all([
+      fetchJsonWithTimeout("https://api.llama.fi/protocol/raydium"),
+      fetchJsonWithTimeout("https://api.llama.fi/overview/dexs/solana?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true&dataType=dailyVolume"),
+      fetchJsonWithTimeout("https://api.llama.fi/overview/fees/solana?excludeTotalDataChart=true&excludeTotalDataChartBreakdown=true&dataType=dailyFees"),
+    ]);
     const tvlRow = Array.isArray(protocol?.tvl) ? protocol.tvl[protocol.tvl.length - 1] : null;
     const raydiumDex = dex?.protocols?.find((item: any) => item?.name === "Raydium AMM");
     const raydiumFees = fees?.protocols?.find((item: any) => item?.name === "Raydium AMM");
 
-    return {
+    const data: MarketReference = {
       tvlUsd: tvlRow?.totalLiquidityUSD ?? null,
       volume24hUsd: raydiumDex?.total24h ?? null,
       volume7dUsd: raydiumDex?.total7d ?? null,
@@ -222,7 +316,10 @@ async function loadRaydiumMarketReference(): Promise<MarketReference> {
       updatedAt: tvlRow?.date ? new Date(tvlRow.date * 1000).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
       source: "defillama",
     };
+    raydiumMarketReferenceCache = { data, expires: now + 10 * 60_000 };
+    return data;
   } catch {
+    if (raydiumMarketReferenceCache) return raydiumMarketReferenceCache.data;
     return EMPTY_MARKET_REFERENCE;
   }
 }
@@ -438,6 +535,7 @@ function SectionShell({
   );
 }
 
+
 export default function DexIntelligence() {
   const [state, setState] = useState<RaydiumIntelState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -448,45 +546,78 @@ export default function DexIntelligence() {
   const [attackDetailError, setAttackDetailError] = useState<string | null>(null);
   const [attackDetailLoading, setAttackDetailLoading] = useState(false);
 
+  // Critical path: only the data needed to render the page immediately.
+  // Market reference (3 DefiLlama fetches) and guard plan (sequential POST) are
+  // loaded in background after first paint so they don't block the UI.
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
     else setLoading(true);
     setError(null);
     try {
-      const [status, routes, attacks, pools, lpProtection, terminal, market] = await Promise.all([
+      const [status, routes, attacks, pools, lpProtection, terminal] = await Promise.all([
         api.systemStatus(),
-        api.routeRisks(80),
-        api.attacks({ limit: "160" }),
-        api.pools(80),
-        api.lpProtection(80),
-        api.toxicFlowTerminal(24, "1m"),
-        loadRaydiumMarketReference(),
+        api.routeRisks(40),
+        api.attacks({ limit: "80" }),
+        api.pools(40),
+        api.lpProtection(40),
+        api.toxicFlowTerminal(8, "1m"),
       ]);
-      const guardTarget = buildGuardTarget(routes);
-      const guard = guardTarget
-        ? await api.protectedSendPlan({
-            route_key: guardTarget.route_key,
-            route_label: guardTarget.label,
-            protocol: guardTarget.protocol,
-            notional_usd: Math.max(25_000, guardTarget.recommended_max_notional_usd * 2),
-            slippage_bps: 50,
-            objective: "protect_users",
-            candidates: routes.filter(isRaydiumRoute).slice(0, 6).map((route) => ({
-              route_key: route.route_key,
-              label: route.label,
-              protocol: route.protocol,
-            })),
-          })
-        : null;
-
-      setState({ status, routes, attacks, pools, lpProtection, terminal, market, guard });
+      setState((prev) => ({
+        ...(shouldUseLocalRaydiumDemo(status, routes, attacks, pools, lpProtection)
+          ? buildRaydiumDemoState(prev, status)
+          : {
+              status,
+              routes,
+              attacks,
+              pools,
+              lpProtection,
+              market: prev?.market ?? EMPTY_MARKET_REFERENCE,
+              guard: prev?.guard ?? null,
+            }),
+        terminal,
+      }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Raydium intelligence failed");
+      if (ENABLE_LOCAL_RAYDIUM_DEMO) {
+        setState((prev) => buildRaydiumDemoState(prev));
+        setError(null);
+      } else {
+        setError(err instanceof Error ? err.message : "Raydium intelligence failed");
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
+
+  // Load market reference in background — doesn't block the page
+  useEffect(() => {
+    loadRaydiumMarketReference().then((market) =>
+      setState((prev) => prev ? { ...prev, market } : prev)
+    ).catch(() => {});
+  }, []);
+
+  // Load guard plan in background after routes are ready
+  useEffect(() => {
+    const routes = state?.routes;
+    if (!routes || routes.length === 0) return;
+    const guardTarget = buildGuardTarget(routes);
+    if (!guardTarget) return;
+    api.protectedSendPlan({
+      route_key: guardTarget.route_key,
+      route_label: guardTarget.label,
+      protocol: guardTarget.protocol,
+      notional_usd: Math.max(25_000, guardTarget.recommended_max_notional_usd * 2),
+      slippage_bps: 50,
+      objective: "protect_users",
+      candidates: routes.filter(isRaydiumRoute).slice(0, 6).map((r) => ({
+        route_key: r.route_key,
+        label: r.label,
+        protocol: r.protocol,
+      })),
+    }).then((guard) =>
+      setState((prev) => prev ? { ...prev, guard } : prev)
+    ).catch(() => {});
+  }, [state?.routes]);
 
   useEffect(() => {
     void load();
@@ -514,10 +645,14 @@ export default function DexIntelligence() {
         setAttackDetails((prev) => ({ ...prev, [detail.id]: detail }));
       })
       .catch((err) => {
+        if (ENABLE_LOCAL_RAYDIUM_DEMO && state?.status?.mode !== "chain") {
+          setAttackDetails((prev) => ({ ...prev, [selectedAttack.id]: selectedAttack as AttackDetail }));
+          return;
+        }
         setAttackDetailError(err instanceof Error ? err.message : "Failed to load attack details");
       })
       .finally(() => setAttackDetailLoading(false));
-  }, [selectedAttack, attackDetails]);
+  }, [selectedAttack, attackDetails, state?.status?.mode]);
 
   const [selectedDetail, setSelectedDetail] = useState<
     | { type: "pool"; row: SandwichRow }
@@ -528,22 +663,24 @@ export default function DexIntelligence() {
   >(null);
 
   const isLiveChain = state?.status?.mode === "chain";
+  const isLocalDemo = !!state && !isLiveChain && ENABLE_LOCAL_RAYDIUM_DEMO;
   const dataMode = state?.status?.mode ?? "fallback";
+  const sourceText = isLocalDemo ? "local demo scenario" : "current API detections";
   const routeSource = useMemo(
-    () => (isLiveChain ? state?.routes ?? [] : getDemoRaydiumRoutes()),
-    [isLiveChain, state?.routes],
+    () => ((isLiveChain || isLocalDemo) ? state?.routes ?? [] : []),
+    [isLiveChain, isLocalDemo, state?.routes],
   );
   const attackSource = useMemo(
-    () => (isLiveChain ? state?.attacks ?? [] : getDemoRaydiumAttacks()),
-    [isLiveChain, state?.attacks],
+    () => ((isLiveChain || isLocalDemo) ? state?.attacks ?? [] : []),
+    [isLiveChain, isLocalDemo, state?.attacks],
   );
   const poolSource = useMemo(
-    () => (isLiveChain ? state?.pools ?? [] : getDemoRaydiumPools()),
-    [isLiveChain, state?.pools],
+    () => ((isLiveChain || isLocalDemo) ? state?.pools ?? [] : []),
+    [isLiveChain, isLocalDemo, state?.pools],
   );
   const lpProtectionSource = useMemo(
-    () => (isLiveChain ? state?.lpProtection ?? [] : getDemoRaydiumLpProtection()),
-    [isLiveChain, state?.lpProtection],
+    () => ((isLiveChain || isLocalDemo) ? state?.lpProtection ?? [] : []),
+    [isLiveChain, isLocalDemo, state?.lpProtection],
   );
   const raydiumRoutes = useMemo(() => routeSource.filter(isRaydiumRoute), [routeSource]);
   const raydiumAttacks = useMemo(() => attackSource.filter(isRaydiumAttack), [attackSource]);
@@ -554,9 +691,18 @@ export default function DexIntelligence() {
 
   const totals = useMemo(() => {
     const routeSavings = raydiumRoutes.reduce((sum, route) => sum + route.estimated_savings_usd, 0);
+    // Use profit_usd per attack (the searcher's net gain). Victim loss is a separate metric and
+    // adding both would double-count the same event. Fall back to victim_loss only when profit_usd
+    // is absent (e.g. liquidity_snipe attacks where profit is realized later).
+    const attackExtracted = raydiumAttacks.reduce((sum, attack) => {
+      const value = attack.profit_usd != null
+        ? attack.profit_usd
+        : (attack.victim_loss_usd ?? 0);
+      return sum + value;
+    }, 0);
     const extracted = Math.max(
       raydiumRoutes.reduce((sum, route) => sum + route.total_extracted_usd, 0),
-      raydiumAttacks.reduce((sum, attack) => sum + (attack.profit_usd ?? 0) + (attack.victim_loss_usd ?? 0), 0),
+      attackExtracted,
       0,
     );
     const observedVolume = state?.terminal?.surfaces
@@ -590,17 +736,18 @@ export default function DexIntelligence() {
       const endMs = validCandles[validCandles.length - 1].ts;
       const spanMs = Math.max(1, endMs - startMs);
       const bucketMs = Math.max(1, spanMs / bucketCount);
-      const seedMap = new Map<number, { sandwich: number; jit: number; sniper: number }>();
+      const seedMap = new Map<number, { sandwich: number; jit: number; sniper: number; other: number }>();
 
       for (const candle of validCandles) {
         const idx = Math.max(0, Math.min(bucketCount - 1, Math.floor((candle.ts - startMs) / bucketMs)));
-        const prev = seedMap.get(idx) ?? { sandwich: 0, jit: 0, sniper: 0 };
+        const prev = seedMap.get(idx) ?? { sandwich: 0, jit: 0, sniper: 0, other: 0 };
         const eventType = candle.event_type ?? null;
         const value = candle.loss_at_risk_usd ?? 0;
 
         if (eventType === "sandwich") prev.sandwich += value;
         else if (eventType === "jit") prev.jit += value;
-        else if (eventType === "liquidity_snipe" || eventType === "liquidity_drain" || eventType === "arbitrage") prev.sniper += value;
+        else if (eventType === "liquidity_snipe" || eventType === "liquidity_drain") prev.sniper += value;
+        else prev.other += value;
 
         seedMap.set(idx, prev);
       }
@@ -608,16 +755,20 @@ export default function DexIntelligence() {
       return Array.from({ length: bucketCount }, (_, i) => {
         const bucketStart = startMs + i * bucketMs;
         const label = new Date(bucketStart).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-        const b = seedMap.get(i) ?? { sandwich: 0, jit: 0, sniper: 0 };
-        return { day: label, sandwich: b.sandwich, jit: b.jit, sniper: b.sniper };
-      }).filter((bucket) => bucket.sandwich + bucket.jit + bucket.sniper > 0);
+        const b = seedMap.get(i) ?? { sandwich: 0, jit: 0, sniper: 0, other: 0 };
+        return { day: label, sandwich: b.sandwich, jit: b.jit, sniper: b.sniper, other: b.other };
+      }).filter((bucket) => bucket.sandwich + bucket.jit + bucket.sniper + bucket.other > 0);
     }
 
     return raydiumAttacks
       .map((attack) => {
         const ts = new Date(attack.block_time).getTime();
-        const value = (attack.profit_usd ?? 0) + (attack.victim_loss_usd ?? 0);
-        const kind = attack.attack_type === "jit" ? "jit" : attack.attack_type === "sandwich" ? "sandwich" : "sniper";
+        // Use profit only — don't add victim_loss (same event, different perspective)
+        const value = attack.profit_usd != null ? attack.profit_usd : (attack.victim_loss_usd ?? 0);
+        const kind = attack.attack_type === "jit" ? "jit"
+          : attack.attack_type === "sandwich" ? "sandwich"
+          : (attack.attack_type === "liquidity_snipe" || attack.attack_type === "liquidity_drain") ? "sniper"
+          : "other";
         return { ts, value, kind };
       })
       .filter((attack) => Number.isFinite(attack.ts) && attack.value > 0)
@@ -627,6 +778,7 @@ export default function DexIntelligence() {
         sandwich: attack.kind === "sandwich" ? attack.value : 0,
         jit: attack.kind === "jit" ? attack.value : 0,
         sniper: attack.kind === "sniper" ? attack.value : 0,
+        other: attack.kind === "other" ? attack.value : 0,
       }));
   }, [isLiveChain, raydiumAttacks, state?.terminal]);
 
@@ -639,25 +791,30 @@ export default function DexIntelligence() {
   }));
 
   const attackTypeCounts = useMemo(() => {
-    const counts = { sandwich: 0, jit: 0, sniper: 0 };
+    const counts = { sandwich: 0, jit: 0, backrun: 0, arbitrage: 0, sniper: 0, liquidation: 0 };
     raydiumAttacks.forEach((attack) => {
       if (attack.attack_type === "sandwich") counts.sandwich += 1;
       else if (attack.attack_type === "jit") counts.jit += 1;
-      else counts.sniper += 1;
+      else if (attack.attack_type === "backrun") counts.backrun += 1;
+      else if (attack.attack_type === "arbitrage") counts.arbitrage += 1;
+      else if (attack.attack_type === "liquidity_snipe" || attack.attack_type === "liquidity_drain") counts.sniper += 1;
+      else if (attack.attack_type === "liquidation") counts.liquidation += 1;
     });
     return counts;
   }, [raydiumAttacks]);
 
   const attackPieData = useMemo(() => {
-    const total = attackTypeCounts.sandwich + attackTypeCounts.jit + attackTypeCounts.sniper;
-    if (total === 0) {
-      return [];
-    }
-    return [
-      { name: "Sandwich", value: Math.round((attackTypeCounts.sandwich / total) * 100), color: "hsl(0 85% 62%)" },
-      { name: "JIT",      value: Math.round((attackTypeCounts.jit / total) * 100), color: "hsl(var(--primary))" },
-      { name: "Sniper",   value: Math.round((attackTypeCounts.sniper / total) * 100), color: "hsl(48 96% 53%)" },
-    ];
+    const entries = [
+      { name: "Sandwich",   value: attackTypeCounts.sandwich,   color: "hsl(0 85% 62%)" },
+      { name: "JIT",        value: attackTypeCounts.jit,        color: "hsl(var(--primary))" },
+      { name: "Backrun",    value: attackTypeCounts.backrun,     color: "hsl(28 90% 60%)" },
+      { name: "Arb",        value: attackTypeCounts.arbitrage,   color: "hsl(210 80% 65%)" },
+      { name: "Sniper",     value: attackTypeCounts.sniper,      color: "hsl(48 96% 53%)" },
+      { name: "Liquidation",value: attackTypeCounts.liquidation, color: "hsl(270 70% 60%)" },
+    ].filter((e) => e.value > 0);
+    const total = entries.reduce((sum, e) => sum + e.value, 0);
+    if (total === 0) return [];
+    return entries.map((e) => ({ ...e, value: Math.round((e.value / total) * 100) }));
   }, [attackTypeCounts]);
 
   const dailyExtracted = totals.extracted;
@@ -710,16 +867,16 @@ export default function DexIntelligence() {
         {/* Nav */}
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-4">
           <div className="flex flex-wrap gap-2 font-mono text-[11px] tracking-[0.16em] text-muted-foreground">
-            <Link to="/" className="border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary">Home</Link>
-            <Link to="/dex-intelligence" className="border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary">DEX Intelligence</Link>
-            <Link to="/dashboard" className="border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary">Dashboard</Link>
+            <Link to="/" className="border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Home</Link>
+            <Link to="/dex-intelligence" className="border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">DEX Intelligence</Link>
+            <Link to="/dashboard" className="border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Dashboard</Link>
           </div>
           <div className="flex items-center gap-2">
             <span className={`border px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] ${dataMode === "chain" ? "border-green-500/40 bg-green-500/10 text-green-300" : "border-yellow-500/40 bg-yellow-500/10 text-yellow-200"}`}>
-              {dataMode === "chain" ? "Live chain" : "Waiting for chain"}
+              {dataMode === "chain" ? "Live chain" : isLocalDemo ? "Local demo" : "Waiting for chain"}
             </span>
             <button type="button" onClick={() => void load(true)} disabled={refreshing}
-              className="inline-flex min-h-9 items-center gap-2 border border-primary/40 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-primary transition-colors hover:bg-primary/10 disabled:opacity-60">
+              className="inline-flex min-h-10 items-center gap-2 border border-primary/40 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60">
               <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
               Refresh
             </button>
@@ -732,12 +889,14 @@ export default function DexIntelligence() {
           <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">Raydium protection surface.</h1>
         </div>
 
-        {/* Demo mode notice */}
+        {/* Live-data notice */}
         {!isLiveChain && (
           <div className="flex items-center gap-3 border border-yellow-500/30 bg-yellow-500/5 px-4 py-2.5">
             <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 shrink-0" />
             <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-yellow-200">
-              Demo data — chain feed offline. Showing representative Raydium intelligence.
+              {isLocalDemo
+                ? "Local Raydium demo scenario. Live chain data replaces this automatically when the API returns Raydium rows."
+                : "Waiting for chain feed. Raydium rows stay empty until the API returns live data."}
             </p>
           </div>
         )}
@@ -750,7 +909,7 @@ export default function DexIntelligence() {
           <div className="col-span-2 sm:col-span-2 xl:col-span-1 border border-red-500/40 bg-red-500/5 p-5">
             <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground">Observed Raydium extraction</div>
             <div className="mt-2 text-4xl font-bold text-red-300">{formatUsd(dailyExtracted)}</div>
-            <div className="mt-1 text-xs text-muted-foreground">from current API detections</div>
+            <div className="mt-1 text-xs text-muted-foreground">from {sourceText}</div>
           </div>
           <div className="border border-primary/40 bg-primary/5 p-5">
             <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground">Savings potential / 24h</div>
@@ -848,6 +1007,7 @@ export default function DexIntelligence() {
                   <Area type="monotone" dataKey="sandwich" stackId="1" stroke="hsl(0 85% 62%)" fill="hsl(0 85% 62%)" fillOpacity={0.3} strokeWidth={1.5} />
                   <Area type="monotone" dataKey="jit"      stackId="1" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.3} strokeWidth={1.5} />
                   <Area type="monotone" dataKey="sniper"   stackId="1" stroke="hsl(48 96% 53%)" fill="hsl(48 96% 53%)" fillOpacity={0.3} strokeWidth={1.5} />
+                  <Area type="monotone" dataKey="other"    stackId="1" stroke="hsl(28 90% 60%)" fill="hsl(28 90% 60%)" fillOpacity={0.3} strokeWidth={1.5} />
                 </AreaChart>
               </ResponsiveContainer>
             ) : (

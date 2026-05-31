@@ -21,31 +21,104 @@ const rawBase = import.meta.env.VITE_API_URL ?? "http://localhost:8081";
 const BASE = rawBase.replace(/\/$/, "").replace(/\/api$/, "");
 const API_KEY = import.meta.env.VITE_INTELLEUM_API_KEY;
 const ENABLE_DEMO_FALLBACK = import.meta.env.VITE_ENABLE_DEMO_FALLBACK === "true";
+const API_GET_TIMEOUT_MS = Number(import.meta.env.VITE_API_GET_TIMEOUT_MS ?? 4_500);
+const API_POST_TIMEOUT_MS = Number(import.meta.env.VITE_API_POST_TIMEOUT_MS ?? 5_500);
+const API_STALE_MS = Number(import.meta.env.VITE_API_STALE_MS ?? 120_000);
+const API_DEBUG = import.meta.env.VITE_API_DEBUG === "true";
 
 // In-memory cache — deduplicate concurrent requests and serve stale data instantly
 // while fresh data loads in the background. TTL is per-endpoint.
-const _cache = new Map<string, { data: unknown; expires: number; inflight?: Promise<unknown> }>();
+const _cache = new Map<string, { data?: unknown; expires: number; staleUntil: number; inflight?: Promise<unknown> }>();
 
-function cachedGet<T>(path: string, params: Record<string, string> | undefined, ttlMs: number): Promise<T> {
-  const key = path + JSON.stringify(params ?? {});
+function cacheKey(path: string, params: unknown) {
+  return `${path}:${stableSerialize(params ?? {})}`;
+}
+
+function stableSerialize(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null) return "null";
+  if (typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
+  return `{${Object.keys(value as Record<string, unknown>)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableSerialize((value as Record<string, unknown>)[key])}`)
+    .join(",")}}`;
+}
+
+function hasCachedData(entry: { data?: unknown } | undefined) {
+  return entry?.data !== undefined;
+}
+
+function cachedGet<T>(path: string, params: Record<string, string> | undefined, ttlMs: number, staleMs = API_STALE_MS): Promise<T> {
+  const key = cacheKey(path, params);
+  return cachedRequest<T>(key, ttlMs, staleMs, () => get<T>(path, params));
+}
+
+function cachedPost<T>(path: string, body: unknown, ttlMs: number, staleMs = 30_000): Promise<T> {
+  const key = cacheKey(`POST:${path}`, body);
+  return cachedRequest<T>(key, ttlMs, staleMs, () => post<T>(path, body));
+}
+
+function cachedRequest<T>(key: string, ttlMs: number, staleMs: number, loader: () => Promise<T>): Promise<T> {
   const now = Date.now();
   const entry = _cache.get(key);
 
-  // Fresh cache hit — return immediately
-  if (entry && now < entry.expires) return Promise.resolve(entry.data as T);
+  if (hasCachedData(entry) && now < entry!.expires) {
+    return Promise.resolve(entry!.data as T);
+  }
 
-  // Deduplicate in-flight requests — if one is already running return the same promise
+  if (hasCachedData(entry) && now < entry!.staleUntil) {
+    if (!entry!.inflight) {
+      const refresh = loader()
+        .then((data) => {
+          const refreshedAt = Date.now();
+          _cache.set(key, {
+            data,
+            expires: refreshedAt + ttlMs,
+            staleUntil: refreshedAt + ttlMs + staleMs,
+          });
+          return data;
+        })
+        .catch((error) => {
+          if (API_DEBUG) console.warn("[api:cache-refresh]", key, error);
+          return entry!.data as T;
+        })
+        .finally(() => {
+          const current = _cache.get(key);
+          if (current) current.inflight = undefined;
+        });
+      _cache.set(key, { ...entry!, inflight: refresh });
+    }
+    return Promise.resolve(entry!.data as T);
+  }
+
   if (entry?.inflight) return entry.inflight as Promise<T>;
 
-  const promise = get<T>(path, params).then((data) => {
-    _cache.set(key, { data, expires: now + ttlMs });
-    return data;
-  }).finally(() => {
-    const current = _cache.get(key);
-    if (current) current.inflight = undefined;
-  });
+  const promise = loader()
+    .then((data) => {
+      const refreshedAt = Date.now();
+      _cache.set(key, {
+        data,
+        expires: refreshedAt + ttlMs,
+        staleUntil: refreshedAt + ttlMs + staleMs,
+      });
+      return data;
+    })
+    .catch((error) => {
+      if (hasCachedData(entry)) return entry!.data as T;
+      throw error;
+    })
+    .finally(() => {
+      const current = _cache.get(key);
+      if (current) current.inflight = undefined;
+    });
 
-  _cache.set(key, { data: entry?.data, expires: entry?.expires ?? 0, inflight: promise });
+  _cache.set(key, {
+    data: entry?.data,
+    expires: entry?.expires ?? 0,
+    staleUntil: entry?.staleUntil ?? 0,
+    inflight: promise,
+  });
   return promise;
 }
 
@@ -64,13 +137,11 @@ async function get<T>(path: string, params?: Record<string, string>): Promise<T>
       url.searchParams.set(k, v);
     });
   }
-  console.info("[api:get]", url.toString());
+  if (API_DEBUG) console.info("[api:get]", url.toString());
   try {
-    const res = await fetch(url.toString(), {
-      cache: "no-store",
+    const res = await fetchWithTimeout(url.toString(), API_GET_TIMEOUT_MS, {
       headers: authHeaders({
-        "Cache-Control": "no-cache",
-        Pragma: "no-cache",
+        Accept: "application/json",
       }),
     });
     if (!res.ok) throw new Error(`API error: ${res.status} for ${url.pathname}`);
@@ -89,9 +160,9 @@ async function get<T>(path: string, params?: Record<string, string>): Promise<T>
 
 async function post<T>(path: string, body: any): Promise<T> {
   const url = `${BASE}/api${path}`;
-  console.info("[api:post]", url);
+  if (API_DEBUG) console.info("[api:post]", url);
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, API_POST_TIMEOUT_MS, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(body),
@@ -122,6 +193,19 @@ async function post<T>(path: string, body: any): Promise<T> {
       }
     }
     throw error;
+  }
+}
+
+async function fetchWithTimeout(url: string, timeoutMs: number, init?: RequestInit) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timer);
   }
 }
 
@@ -1549,84 +1633,85 @@ export const api = {
   attacks: (params?: { type?: string; pool?: string; limit?: string; since?: string }) =>
     cachedGet<Attack[]>("/attacks", params as any, 4_000),
 
-  attackHistory: (limit?: number) => get<Attack[]>("/attacks/history", { limit: String(limit ?? 100) }),
+  attackHistory: (limit?: number) =>
+    cachedGet<Attack[]>("/attacks/history", { limit: String(limit ?? 100) }, 12_000),
 
-  attackDetail: (id: number) => get<AttackDetail>(`/attacks/${id}`),
+  attackDetail: (id: number) => cachedGet<AttackDetail>(`/attacks/${id}`, undefined, 60_000, 300_000),
 
   entities: (params?: { strategy?: string; min_risk?: string; sort?: string; limit?: string }) =>
     cachedGet<Entity[]>("/entities", params as any, 10_000),
 
-  entity: (id: string) => get<EntityDetail>(`/entities/${id}`),
+  entity: (id: string) => cachedGet<EntityDetail>(`/entities/${id}`, undefined, 30_000, 180_000),
 
   pools: (limit?: number) => cachedGet<PoolToxicity[]>("/pools", { limit: String(limit ?? 50) }, 20_000),
 
   routeRisks: (limit?: number) => cachedGet<RouteRisk[]>("/routes/risk", { limit: String(limit ?? 25) }, 10_000),
 
   executionQuality: (limit?: number) =>
-    get<ExecutionQualitySnapshot[]>("/analytics/execution-quality", { limit: String(limit ?? 20) }),
+    cachedGet<ExecutionQualitySnapshot[]>("/analytics/execution-quality", { limit: String(limit ?? 20) }, 12_000),
 
   routeRecommendations: (limit?: number) =>
-    get<RouteRecommendation[]>("/routes/recommendations", { limit: String(limit ?? 12) }),
+    cachedGet<RouteRecommendation[]>("/routes/recommendations", { limit: String(limit ?? 12) }, 15_000),
 
   routePolicies: (limit?: number, objective?: string) =>
-    get<RoutePolicy[]>("/routes/policies", { limit: String(limit ?? 20), objective: objective ?? "protect_users" }),
+    cachedGet<RoutePolicy[]>("/routes/policies", { limit: String(limit ?? 20), objective: objective ?? "protect_users" }, 15_000),
 
   toxicFlowTerminal: (limit?: number, interval?: ToxicFlowTerminal["interval"]) =>
     cachedGet<ToxicFlowTerminal>("/terminal/toxic-flow", { limit: String(limit ?? 8), interval: interval ?? "1m" }, 12_000),
 
   evaluateRoute: (payload: RouteEvaluationRequest) =>
-    post<RouteEvaluation>("/routes/evaluate", payload),
+    cachedPost<RouteEvaluation>("/routes/evaluate", payload, 8_000),
 
   rankRoutes: (payload: RouteRankingRequest) =>
-    post<RouteRanking>("/routes/rank", payload),
+    cachedPost<RouteRanking>("/routes/rank", payload, 8_000),
 
   preventionGuard: (payload: RouteEvaluationRequest & { candidates?: RouteRankingRequest["candidates"] }) =>
-    post<PreventionGuard>("/prevention/guard", payload),
+    cachedPost<PreventionGuard>("/prevention/guard", payload, 8_000),
 
   protectedSendPlan: (payload: RouteEvaluationRequest & { candidates?: RouteRankingRequest["candidates"] }) =>
-    post<PreventionGuard>("/prevention/protected-send", payload),
+    cachedPost<PreventionGuard>("/prevention/protected-send", payload, 8_000),
 
   lpProtection: (limit?: number) =>
-    get<LpProtectionSnapshot[]>("/pools/lp-protection", { limit: String(limit ?? 20) }),
+    cachedGet<LpProtectionSnapshot[]>("/pools/lp-protection", { limit: String(limit ?? 20) }, 20_000),
 
   flowSegments: () =>
     cachedGet<{ segments: FlowSegment[]; sources: SourceAttribution[] }>("/flows/segments", undefined, 15_000),
 
   sourceAttribution: (limit?: number) =>
-    get<SourceAttribution[]>("/attribution/sources", { limit: String(limit ?? 8) }),
+    cachedGet<SourceAttribution[]>("/attribution/sources", { limit: String(limit ?? 8) }, 20_000),
 
   liveAlerts: (limit?: number) =>
-    get<LiveAlert[]>("/integrations/live-alerts", { limit: String(limit ?? 20) }),
+    cachedGet<LiveAlert[]>("/integrations/live-alerts", { limit: String(limit ?? 20) }, 5_000),
 
   integrationFeeds: (limit?: number) =>
-    get<{
+    cachedGet<{
       live_alerts: LiveAlert[];
       route_risk: RouteRisk[];
       pool_toxicity: PoolToxicity[];
       route_recommendations: RouteRecommendation[];
       liquidation_firewall?: LiquidationFirewallRecord[];
       toxic_flow_terminal?: ToxicFlowTerminal;
-    }>("/integrations/feeds", { limit: String(limit ?? 20) }),
+    }>("/integrations/feeds", { limit: String(limit ?? 20) }, 12_000),
 
-  pool: (address: string) => get<any>(`/pools/${address}`),
+  pool: (address: string) => cachedGet<any>(`/pools/${address}`, undefined, 30_000, 180_000),
 
-  validators: () => get<ValidatorIntel[]>("/validators"),
+  validators: () => cachedGet<ValidatorIntel[]>("/validators", undefined, 15_000),
 
   validatorRegimes: (limit?: number) => cachedGet<ValidatorIntel[]>("/validators/regimes", { limit: String(limit ?? 10) }, 10_000),
 
   savingsSummary: () => cachedGet<SavingsSummary>("/savings/summary", undefined, 15_000),
 
   liquidationFirewall: (limit?: number) =>
-    get<LiquidationFirewallRecord[]>("/liquidations/firewall", { limit: String(limit ?? 8) }),
+    cachedGet<LiquidationFirewallRecord[]>("/liquidations/firewall", { limit: String(limit ?? 8) }, 15_000),
 
   predictionMarketExecution: (limit?: number) =>
-    get<PredictionMarketExecution[]>("/prediction-markets/execution", { limit: String(limit ?? 6) }),
+    cachedGet<PredictionMarketExecution[]>("/prediction-markets/execution", { limit: String(limit ?? 6) }, 20_000),
 
-  wallet: (address: string) => get<any>(`/wallet/${address}`),
+  wallet: (address: string) => cachedGet<any>(`/wallet/${address}`, undefined, 20_000),
 
   systemStatus: () => cachedGet<SystemStatus>("/system/status", undefined, 4_000),
 
-  systemHistory: () => get<EngineSnapshot[]>("/system/history"),
+  systemHistory: () => cachedGet<EngineSnapshot[]>("/system/history", undefined, 30_000),
 
   submitAccess: (data: { name: string; email: string; organization: string; useCase: string; message?: string }) =>
     post<{ success: boolean }>("/access/request", data),

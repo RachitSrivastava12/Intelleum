@@ -21,17 +21,15 @@ const RaydiumDeepDive = lazy(() => import("./pages/RaydiumDeepDive"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
-const ROUTE_LOADER_MS = 900;
+const ROUTE_FALLBACK_DELAY_MS = 180;
 
-function RouteTransitionLoader() {
-  const location = useLocation();
-  const [visible, setVisible] = useState(true);
+function DelayedRouteFallback() {
+  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    setVisible(true);
-    const timer = window.setTimeout(() => setVisible(false), ROUTE_LOADER_MS);
+    const timer = window.setTimeout(() => setVisible(true), ROUTE_FALLBACK_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [location.pathname, location.search]);
+  }, []);
 
   return visible ? <IntelleumPageLoader /> : null;
 }
@@ -41,7 +39,7 @@ function AppRoutes() {
   const routeKey = `${location.pathname}${location.search}`;
 
   return (
-    <Suspense fallback={<IntelleumPageLoader key={`route-fallback-${routeKey}`} />}>
+    <Suspense fallback={<DelayedRouteFallback key={`route-fallback-${routeKey}`} />}>
       <Routes>
         <Route path="/"               element={<Index />} />
         <Route path="/dashboard"      element={<Dashboard />} />
@@ -73,7 +71,6 @@ const App = () => (
       <Sonner />
       <Analytics />
       <BrowserRouter>
-        <RouteTransitionLoader />
         <AppRoutes />
       </BrowserRouter>
     </TooltipProvider>

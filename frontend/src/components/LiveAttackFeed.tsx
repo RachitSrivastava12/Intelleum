@@ -117,10 +117,6 @@ export default function LiveAttackFeed({ filterType, maxItems = 50, compact = fa
       const data = response.filter(
         (attack) => attack.detector !== "suspicious_orderflow_candidate",
       );
-      console.info("[feed] fetched attacks", data.length, {
-        filter: activeFilter || "all",
-        since: lastFetchRef.current,
-      });
       setError(null);
 
       if (data.length > 0) {

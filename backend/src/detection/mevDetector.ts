@@ -1,7 +1,17 @@
 // ============================================================
 // MEV DETECTION ENGINE
 // Pure in-memory detection over token flows for a given slot.
+// Raydium-specific: CPMM (CPMMoo8), AMM v4 (675kPX9), CLMM (CAMMCzo5), LaunchLab (LanMV9)
 // ============================================================
+
+import {
+  MAX_PROFIT_USD,
+  MAX_VICTIM_LOSS_USD,
+  RaydiumProgramMeta,
+  getRaydiumProgramMeta,
+  getRaydiumProgramMetaById,
+  isRaydiumConstantProduct,
+} from "../ingestion/programs";
 
 export interface TxFlow {
   tx_sig: string;
@@ -121,6 +131,38 @@ function hasRemoveLiquidityText(tx: TxFlow) {
   );
 }
 
+function raydiumMetaForTx(...txs: TxFlow[]): RaydiumProgramMeta | null {
+  for (const tx of txs) {
+    for (const flow of tx.flows) {
+      const byId = getRaydiumProgramMetaById(flow.program_id);
+      if (byId) return byId;
+    }
+    for (const label of tx.program_labels ?? []) {
+      const byLabel = getRaydiumProgramMeta(label);
+      if (byLabel) return byLabel;
+    }
+  }
+  return null;
+}
+
+function executionFeeSignal(lamports?: number | null) {
+  if (!lamports || lamports <= 0) return null;
+  if (lamports >= 120_000) return "high priority-fee / bundle-lane signal";
+  if (lamports >= 25_000) return "elevated priority-fee signal";
+  return "low priority-fee signal";
+}
+
+function raydiumEvidence(meta: RaydiumProgramMeta | null) {
+  if (!meta) return null;
+  if (meta.protocol === "raydium_cpmm" || meta.protocol === "raydium_clmm") {
+    return `${meta.label} confirmed; fee and tick/config fields should be read from ${meta.configEndpoint}`;
+  }
+  if (meta.protocol === "raydium_launchlab") {
+    return `${meta.label} confirmed; launch curve and graduation state should be read from LaunchState`;
+  }
+  return `${meta.label} confirmed; classify risk using the underlying pool state, not a hardcoded fee tier`;
+}
+
 export async function detectSandwiches(
   slotTxs: TxFlow[],
   slot: number,
@@ -188,11 +230,15 @@ export async function detectSandwiches(
         if (bestVictim) {
           const attackerProfit = estimateProfit(backrun.flows, backrun.signer);
           const victimLoss = bestVictim.loss || null;
-          // Tip-to-profit ratio: sophisticated bots pay 5–15% of extracted profit in Jito tips
           const tipLamports = frontrun.priority_fee;
-          const tipToProfit = attackerProfit && tipLamports && attackerProfit > 0
-            ? tipLamports / (attackerProfit * 6_666_667) // lamports → SOL → USD at ~$150
-            : null;
+          const raydiumMeta = raydiumMetaForTx(frontrun, bestVictim.tx, backrun);
+          const isRaydiumSandwichSurface = isRaydiumConstantProduct(raydiumMeta?.protocol);
+          const baseConfidence = isRaydiumSandwichSurface ? 0.94 : raydiumMeta ? 0.91 : 0.92;
+          const jitoBoost = tipLamports && tipLamports >= 10_000 ? 0.02 : 0;
+          const programBoost = raydiumMeta ? Math.min(0.03, (raydiumMeta.riskWeight - 1) * 0.18) : 0;
+          const confidence = Math.min(0.97, baseConfidence + jitoBoost);
+          const feeSignal = executionFeeSignal(tipLamports);
+
           attacks.push({
             attack_type: "sandwich",
             slot,
@@ -208,14 +254,14 @@ export async function detectSandwiches(
             victim_tx: bestVictim.tx.tx_sig,
             backrun_tx: backrun.tx_sig,
             tip_lamports: tipLamports,
-            confidence: 0.92,
-            detector: "raw_delta_sandwich",
+            confidence: Number(Math.min(0.97, confidence + programBoost).toFixed(2)),
+            detector: raydiumMeta ? `raw_delta_sandwich_${raydiumMeta.protocol}` : "raw_delta_sandwich",
             evidence: [
-              "same-pool same-signer frontrun/backrun pattern",
+              raydiumEvidence(raydiumMeta) ?? "same-pool same-signer frontrun/backrun pattern",
               "highest-loss victim selected from bracketed window",
               "token delta confirmed attacker buy then sell",
               victimLoss != null ? `victim loss estimate: $${victimLoss.toFixed(0)}` : null,
-              tipToProfit != null ? `tip-to-profit ratio: ${(tipToProfit * 100).toFixed(1)}%` : null,
+              feeSignal ? `${feeSignal}: ${tipLamports?.toLocaleString()} lamports` : null,
             ].filter((e): e is string => e != null),
           });
         }
@@ -325,6 +371,10 @@ export async function detectJIT(
     );
     if (!victimTx) continue;
 
+    const raydiumMeta = raydiumMetaForTx(add.tx, victimTx, remove.tx);
+    const isRaydiumClmm = raydiumMeta?.protocol === "raydium_clmm";
+    const priorityFee = Math.max(add.tx.priority_fee ?? 0, remove.tx.priority_fee ?? 0);
+
     attacks.push({
       attack_type: "jit",
       slot,
@@ -339,14 +389,17 @@ export async function detectJIT(
       frontrun_tx: add.tx.tx_sig,
       victim_tx: victimTx.tx_sig,
       backrun_tx: remove.tx.tx_sig,
-      tip_lamports: add.tx.priority_fee,
-      confidence: 0.88,
-      detector: "raw_delta_jit",
+      tip_lamports: priorityFee > 0 ? priorityFee : add.tx.priority_fee,
+      confidence: Number(Math.min(0.96, 0.88 + (isRaydiumClmm ? 0.05 : 0) + (priorityFee >= 25_000 ? 0.02 : 0)).toFixed(2)),
+      detector: raydiumMeta ? `raw_delta_jit_${raydiumMeta.protocol}` : "raw_delta_jit",
       evidence: [
+        raydiumEvidence(raydiumMeta),
         "same signer added and removed liquidity in-slot",
         "victim swap observed between LP legs",
         "profit leg detected on liquidity removal",
-      ],
+        isRaydiumClmm ? "CLMM JIT check: add/swap/remove ordering maps to concentrated range fee capture" : null,
+        executionFeeSignal(priorityFee),
+      ].filter((entry): entry is string => entry != null),
     });
   }
 
@@ -427,12 +480,14 @@ export async function detectWideSandwiches(
         }
 
         const priorityFee = Math.max(frontrun.priority_fee ?? 0, backrun.priority_fee ?? 0);
+        const raydiumMeta = raydiumMetaForTx(frontrun, bestVictim.tx, backrun);
         const confidence = Math.min(
           0.97,
           0.84 +
             (slotSpan >= 4 ? 0.03 : 0.01) +
             (priorityFee >= 20_000 ? 0.03 : 0) +
-            (validatorAligned ? 0.03 : 0),
+            (validatorAligned ? 0.03 : 0) +
+            (raydiumMeta ? Math.min(0.03, (raydiumMeta.riskWeight - 1) * 0.18) : 0),
         );
 
         attacks.push({
@@ -451,15 +506,16 @@ export async function detectWideSandwiches(
           backrun_tx: backrun.tx_sig,
           tip_lamports: priorityFee || null,
           confidence: Number(confidence.toFixed(2)),
-          detector: "wide_raw_sandwich",
+          detector: raydiumMeta ? `wide_raw_sandwich_${raydiumMeta.protocol}` : "wide_raw_sandwich",
           evidence: [
+            raydiumEvidence(raydiumMeta),
             "same-pool same-signer bracket persisted across multiple slots",
             `bracket spanned ${slotSpan + 1} slot(s) before attacker exit`,
             "highest-loss victim selected from cross-slot bracket window",
             validatorAligned
               ? "attacker legs and victim aligned under one validator context"
               : "elevated priority-fee legs supported cross-slot bracket attribution",
-          ],
+          ].filter((entry): entry is string => entry != null),
         });
       }
     }
@@ -475,7 +531,9 @@ function estimateProfit(flows: TxFlow["flows"], signer: string): number | null {
     if (flow.delta_usd !== null) profit += flow.delta_usd;
   }
 
-  return profit > 0 ? profit : null;
+  if (profit <= 0) return null;
+  // Cap at research-validated maximum — values above this are decimal/price artifacts
+  return Math.min(profit, MAX_PROFIT_USD);
 }
 
 function estimateNetStableProfit(flows: TxFlow["flows"], signer: string): number {
@@ -521,8 +579,12 @@ function estimateVictimLoss(flows: TxFlow["flows"], victim: string): number | nu
 
   for (const flow of flows) {
     if (flow.wallet !== victim || flow.delta_raw >= 0n || flow.delta_usd === null) continue;
+    // Only count stable/major tokens as losses — prevents inflated SOL fee accounting
+    if (!STABLE_AND_MAJOR_MINTS.has(flow.mint)) continue;
     loss += Math.abs(flow.delta_usd);
   }
 
-  return loss > 0 ? loss : null;
+  if (loss <= 0) return null;
+  // Cap at research-validated maximum — values above this are decimal/price artifacts
+  return Math.min(loss, MAX_VICTIM_LOSS_USD);
 }

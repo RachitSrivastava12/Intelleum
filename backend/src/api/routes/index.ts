@@ -31,6 +31,85 @@ import { liveChainService } from "../../services/liveChain";
 import { quickNodeStreamService } from "../../services/quickNodeStream";
 
 const router = express.Router();
+const responseCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    statusCode: number;
+    body: unknown;
+    source?: string;
+  }
+>();
+
+function cacheTtlForPath(path: string) {
+  if (path.startsWith("/streams") || path.startsWith("/access")) return 0;
+  if (path === "/system/status") return 1_500;
+  if (path === "/system/history") return 30_000;
+  if (path === "/stats" || path === "/savings/summary") return 8_000;
+  if (path.startsWith("/attacks")) return path.includes("/history") ? 12_000 : 4_000;
+  if (
+    path.startsWith("/routes") ||
+    path.startsWith("/pools") ||
+    path.startsWith("/validators") ||
+    path.startsWith("/flows") ||
+    path.startsWith("/attribution") ||
+    path.startsWith("/integrations") ||
+    path.startsWith("/analytics") ||
+    path.startsWith("/terminal") ||
+    path.startsWith("/liquidations") ||
+    path.startsWith("/prediction-markets") ||
+    path.startsWith("/wallet")
+  ) {
+    return 10_000;
+  }
+  return 0;
+}
+
+router.use((req, res, next) => {
+  if (req.method !== "GET") {
+    next();
+    return;
+  }
+
+  const ttlMs = cacheTtlForPath(req.path);
+  if (ttlMs <= 0) {
+    next();
+    return;
+  }
+
+  const key = req.originalUrl;
+  const cached = responseCache.get(key);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    if (cached.source) res.setHeader("X-Intelleum-Source", cached.source);
+    res.setHeader("X-Intelleum-Cache", "HIT");
+    res.setHeader("Cache-Control", `private, max-age=${Math.max(1, Math.floor((cached.expiresAt - now) / 1000))}`);
+    res.status(cached.statusCode).json(cached.body);
+    return;
+  }
+
+  const originalJson = res.json.bind(res);
+  (res as Response & { json: Response["json"] }).json = ((body?: unknown) => {
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      responseCache.set(key, {
+        expiresAt: Date.now() + ttlMs,
+        statusCode: res.statusCode,
+        body,
+        source: String(res.getHeader("X-Intelleum-Source") ?? ""),
+      });
+
+      if (responseCache.size > 200) {
+        const oldest = responseCache.keys().next().value;
+        if (oldest) responseCache.delete(oldest);
+      }
+    }
+
+    res.setHeader("X-Intelleum-Cache", "MISS");
+    res.setHeader("Cache-Control", `private, max-age=${Math.max(1, Math.floor(ttlMs / 1000))}`);
+    return originalJson(body);
+  }) as Response["json"];
+  next();
+});
 
 router.get("/streams/quicknode", (_req: Request, res: Response) => {
   res.json({

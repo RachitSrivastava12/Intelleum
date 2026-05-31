@@ -7,7 +7,17 @@ import {
   detectSandwiches,
   detectWideSandwiches,
 } from "../detection/mevDetector";
-import { getProgramLabel, isDex, isLending } from "../ingestion/programs";
+import {
+  getProgramLabel,
+  isDex,
+  isLending,
+  getKnownBotInfo,
+  MAX_VICTIM_LOSS_USD,
+  MAX_PROFIT_USD,
+  RAYDIUM_AMM_V4_SWAP_OPCODES,
+  getRaydiumProgramMeta,
+  raydiumGuardReasonCodes,
+} from "../ingestion/programs";
 import { extractTokenFlows } from "../ingestion/tokenFlows";
 
 
@@ -607,6 +617,11 @@ const MAX_WALLET_VALUE_EDGES = 4000;
 const COMPUTE_BUDGET_PROGRAM = "ComputeBudget111111111111111111111111111111";
 const PARSE_BATCH_SIZE = 100;
 const MAX_PARSE_CANDIDATES_PER_SLOT = 240;
+const CHAIN_SYNC_DELAY_MS = Number(process.env.CHAIN_SYNC_DELAY_MS ?? 1500);
+const DERIVED_CACHE_TTL_MS = Number(process.env.CHAIN_DERIVED_CACHE_TTL_MS ?? 5000);
+const PRICE_CACHE_TTL_MS = Number(process.env.CHAIN_PRICE_CACHE_TTL_MS ?? 30000);
+const PRICE_FETCH_TIMEOUT_MS = Number(process.env.CHAIN_PRICE_FETCH_TIMEOUT_MS ?? 1800);
+const PARSE_FETCH_TIMEOUT_MS = Number(process.env.CHAIN_PARSE_FETCH_TIMEOUT_MS ?? 5000);
 const STABLE_AND_MAJOR_MINTS = new Set([
   "So11111111111111111111111111111111111111112",
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -645,6 +660,19 @@ const TOKEN_MINTS_BY_SYMBOL = Object.fromEntries(
 function tokenLabel(mint?: string | null) {
   if (!mint) return "UNKNOWN";
   return TOKEN_SYMBOLS[mint] ?? `${mint.slice(0, 4)}...${mint.slice(-4)}`;
+}
+
+async function fetchWithTimeout(url: string, timeoutMs: number, init?: RequestInit) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function parseSurface(poolAddress: string) {
@@ -1211,6 +1239,9 @@ class LiveChainService {
   private recentWalletValueEdges: WalletValueEdge[] = [];
   private recentSlotTxs: TxFlow[] = [];
   private lastSnapshotPersistAt = 0;
+  private dataVersion = 0;
+  private derivedCache = new Map<string, { version: number; expiresAt: number; value: unknown }>();
+  private priceCache: { key: string; expiresAt: number; prices: Map<string, number> } | null = null;
   private recentMetrics: DetectionMetrics = {
     candidateRows: 0,
     parsedTransactions: 0,
@@ -1239,6 +1270,27 @@ class LiveChainService {
     this.heliusRpcUrl = rpcUrl;
     this.heliusKey = this.extractApiKey(rpcUrl);
     return true;
+  }
+
+  private clearDerivedCache() {
+    this.dataVersion += 1;
+    this.derivedCache.clear();
+  }
+
+  private cachedDerived<T>(key: string, ttlMs: number, build: () => T): T {
+    const now = Date.now();
+    const cached = this.derivedCache.get(key);
+    if (cached && cached.version === this.dataVersion && cached.expiresAt > now) {
+      return cached.value as T;
+    }
+
+    const value = build();
+    this.derivedCache.set(key, {
+      version: this.dataVersion,
+      expiresAt: now + ttlMs,
+      value,
+    });
+    return value;
   }
 
   start() {
@@ -1301,7 +1353,7 @@ class LiveChainService {
       this.lastSyncAt = new Date().toISOString();
       this.lastError = null;
       void this.persistSnapshot();
-      this.scheduleNextSync(900);
+      this.scheduleNextSync(CHAIN_SYNC_DELAY_MS);
     } finally {
       this.syncing = false;
     }
@@ -1652,6 +1704,7 @@ class LiveChainService {
       ? this.lastBlockProcessingMs
       : Math.round(this.avgBlockProcessingMs * 0.85 + this.lastBlockProcessingMs * 0.15);
     this.blocksProcessed += 1;
+    this.clearDerivedCache();
 
     if (detected.length === 0) {
       console.log(
@@ -1704,8 +1757,9 @@ class LiveChainService {
       const batch = signatures.slice(i, i + PARSE_BATCH_SIZE);
 
       try {
-        const response = await fetch(
+        const response = await fetchWithTimeout(
           `https://api-mainnet.helius-rpc.com/v0/transactions?api-key=${this.heliusKey}`,
+          PARSE_FETCH_TIMEOUT_MS,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -2192,10 +2246,14 @@ class LiveChainService {
     return poolAddress;
   }
 
-  private sanitizeMoney(value: number | null | undefined, minimum = 1) {
+  private sanitizeMoney(value: number | null | undefined, minimum = 1, max?: number) {
     if (value == null || !Number.isFinite(value)) return null;
     const rounded = Number(value.toFixed(2));
-    return Math.abs(rounded) >= minimum ? rounded : null;
+    if (Math.abs(rounded) < minimum) return null;
+    // Cap to prevent pricing artifacts (wrong decimals from RPC can inflate values 1000x).
+    // Research: largest documented single MEV events on Solana are $50K victim / $100K profit.
+    if (max != null && Math.abs(rounded) > max) return null;
+    return rounded;
   }
 
   private inferAttackQuality(attack: DetectedAttack): AttackQuality {
@@ -2386,6 +2444,18 @@ class LiveChainService {
   }
 
   private buildEntityContext(attacks = this.attacks): EntityGroupContext {
+    if (attacks === this.attacks) {
+      return this.cachedDerived(
+        "entityContext",
+        DERIVED_CACHE_TTL_MS,
+        () => this.computeEntityContext(attacks),
+      );
+    }
+
+    return this.computeEntityContext(attacks);
+  }
+
+  private computeEntityContext(attacks = this.attacks): EntityGroupContext {
     const wallets = [...new Set(attacks.map((attack) => attack.attacker_wallet))];
     const parent = new Map<string, string>();
 
@@ -2866,17 +2936,22 @@ class LiveChainService {
       const type = (parsed?.type ?? "").toUpperCase();
       const source = (parsed?.source ?? "").toUpperCase();
       const description = (parsed?.description ?? "").toLowerCase();
+      // Check for LaunchLab program ID directly — highest-confidence signal
+      const touchesLaunchLab = row.touchedPrograms.includes("LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj");
       const looksLikePoolCreate =
+        touchesLaunchLab ||  // LaunchLab initialize_v2 is always a launch event
         type.includes("CREATE_POOL") ||
         type.includes("INITIALIZE_POOL") ||
         type.includes("CREATE_MARKET") ||
-        type.includes("INITIALIZE") && description.includes("pool") ||
+        (type.includes("INITIALIZE") && description.includes("pool")) ||
         type.includes("ADD_LIQUIDITY") ||
         type.includes("BOOTSTRAP_LIQUIDITY") ||
         description.includes("create pool") ||
         description.includes("initialize pool") ||
-        description.includes("initial liquidity");
+        description.includes("initial liquidity") ||
+        description.includes("initialize_v2");
       const onSupportedLaunchSurface =
+        touchesLaunchLab ||  // explicit program check bypasses source label check
         ["RAYDIUM", "PUMPFUN", "METEORA", "ORCA"].some((label) => source.includes(label));
 
       if (!looksLikePoolCreate || !onSupportedLaunchSurface) continue;
@@ -2907,10 +2982,19 @@ class LiveChainService {
       if (!firstSwap) continue;
 
       const selfSnipe = firstSwap.signer === row.signer;
+      // LaunchLab-specific confidence: explicit program ID check gives +4% vs source-label match
       let confidence = firstSwap.slot === slot ? 0.86 : 0.82;
+      if (touchesLaunchLab) confidence += 0.04; // confirmed LaunchLab program
       if ((firstSwap.priority_fee ?? 0) >= 10_000) confidence += 0.02;
       if (selfSnipe) confidence += 0.01;
-      confidence = Math.min(0.92, Number(confidence.toFixed(2)));
+      confidence = Math.min(0.96, Number(confidence.toFixed(2)));
+
+      // Pool address enrichment: if LaunchLab, force venue: prefix with the program label
+      const enrichedPoolAddress = touchesLaunchLab && firstSwap.pool_address
+        ? firstSwap.pool_address.startsWith("venue:") || firstSwap.pool_address.startsWith("route:")
+          ? firstSwap.pool_address
+          : `venue:raydium_launchlab:${firstSwap.pool_address}`
+        : firstSwap.pool_address ?? poolAddress;
 
       attacks.push({
         attack_type: "liquidity_snipe",
@@ -2919,7 +3003,7 @@ class LiveChainService {
         validator: firstSwap.validator ?? validator,
         attacker_wallet: firstSwap.signer,
         victim_wallet: selfSnipe ? null : row.signer,
-        pool_address: firstSwap.pool_address ?? poolAddress,
+        pool_address: enrichedPoolAddress,
         token_mint: firstSwap.output_mint ?? firstSwap.input_mint,
         profit_usd: null,
         victim_loss_usd: null,
@@ -2928,12 +3012,16 @@ class LiveChainService {
         backrun_tx: null,
         tip_lamports: firstSwap.priority_fee ?? row.priority_fee,
         confidence,
-        detector: selfSnipe ? "launch_liquidity_self_snipe" : "launch_liquidity_snipe",
+        detector: touchesLaunchLab
+          ? (selfSnipe ? "launchlab_self_snipe" : "launchlab_snipe")
+          : (selfSnipe ? "launch_liquidity_self_snipe" : "launch_liquidity_snipe"),
         evidence: [
-          "new pool / initial liquidity surface was created on a launch-sensitive venue",
+          touchesLaunchLab
+            ? "Raydium LaunchLab program (LanMV9...) confirmed in transaction accounts"
+            : "new pool / initial liquidity surface was created on a launch-sensitive venue",
           firstSwap.slot === slot
-            ? "first buy landed in the same slot as pool initialization"
-            : "first buy landed one slot after pool initialization",
+            ? "first buy landed in the same slot as pool initialization (same-slot snipe)"
+            : "first buy landed one slot after pool initialization (+1 slot snipe)",
           selfSnipe
             ? "deployer and first buyer were the same wallet"
             : "distinct wallet captured the first post-launch swap",
@@ -3213,14 +3301,21 @@ class LiveChainService {
       if (mintOverlap < 1) continue;
 
       const priorityFee = Math.max(addLeg.priority_fee ?? 0, removeLeg.priority_fee ?? 0);
+      // Check if this is specifically Raydium CLMM — research shows CLMM JIT is highest-confidence
+      // because bots must call increase_liquidity_v2 then decrease_liquidity_v2 on same position
+      const isClmm =
+        (addLeg.source ?? "").toLowerCase().includes("raydium_clmm") ||
+        (addLeg.pool_address ?? "").toLowerCase().includes("raydium_clmm") ||
+        (addLeg.source ?? "").toLowerCase().includes("clmm");
       let confidence = 0.76;
+      if (isClmm) confidence += 0.06; // CLMM program confirmed — JIT is the primary attack vector
       if (addLeg.parsedLiquiditySignal === "add") confidence += 0.03;
       if (removeLeg.parsedLiquiditySignal === "remove") confidence += 0.03;
-      if (addLeg.slot === removeLeg.slot) confidence += 0.04;
-      if (priorityFee >= 10_000) confidence += 0.03;
+      if (addLeg.slot === removeLeg.slot) confidence += 0.04; // same-slot = max JIT certainty
+      if (priorityFee >= 10_000) confidence += 0.03; // Jito bundle signal
       if (victim.price_impact_hint && victim.price_impact_hint >= 0.003) confidence += 0.03;
       if (addLeg.validator === removeLeg.validator) confidence += 0.02;
-      if (removeLeg.slot - addLeg.slot <= 3) confidence += 0.03;
+      if (removeLeg.slot - addLeg.slot <= 3) confidence += 0.03; // tight window
       if (addLeg.source && removeLeg.source && addLeg.source === removeLeg.source) confidence += 0.02;
       if ((removeLeg.stableValueDelta > 0) || (addLeg.stableValueDelta + removeLeg.stableValueDelta > 0)) confidence += 0.03;
 
@@ -3387,9 +3482,14 @@ class LiveChainService {
     ]);
     if (mints.length === 0) return fallbackPrices;
 
+    const ids = [...new Set(mints.slice(0, 100))].sort().join(",");
+    if (this.priceCache && this.priceCache.key === ids && this.priceCache.expiresAt > Date.now()) {
+      return new Map([...fallbackPrices, ...this.priceCache.prices]);
+    }
+
     try {
-      const ids = mints.slice(0, 100).join(",");
-      const response = await fetch(`https://api.jup.ag/price/v3?ids=${ids}`);
+      const response = await fetchWithTimeout(`https://api.jup.ag/price/v3?ids=${ids}`, PRICE_FETCH_TIMEOUT_MS);
+      if (!response.ok) throw new Error(`Jupiter price fetch failed with ${response.status}`);
       const payload: any = await response.json();
       const priceMap = new Map(fallbackPrices);
 
@@ -3401,9 +3501,17 @@ class LiveChainService {
         if (price > 0) priceMap.set(mint, price);
       }
 
+      this.priceCache = {
+        key: ids,
+        expiresAt: Date.now() + PRICE_CACHE_TTL_MS,
+        prices: priceMap,
+      };
       return priceMap;
     } catch (error) {
       console.warn("[chain] price fetch failed, using fallback majors", error instanceof Error ? error.message : error);
+      if (this.priceCache && this.priceCache.key === ids) {
+        return new Map([...fallbackPrices, ...this.priceCache.prices]);
+      }
       return fallbackPrices;
     }
   }
@@ -3412,14 +3520,20 @@ class LiveChainService {
     const key = this.attackFamilyKey(attack);
     const attackQuality = this.inferAttackQuality(attack);
     const campaignId = `camp:${attack.attack_type}:${attack.attacker_wallet}:${attack.pool_address}`;
-    const sanitizedProfit = this.sanitizeMoney(attack.profit_usd, 1);
-    const sanitizedVictimLoss = this.sanitizeMoney(attack.victim_loss_usd, 1);
+    // Cap at research-validated maximums to prevent RPC decimal/pricing artifacts
+    const sanitizedProfit = this.sanitizeMoney(attack.profit_usd, 1, MAX_PROFIT_USD);
+    const sanitizedVictimLoss = this.sanitizeMoney(attack.victim_loss_usd, 1, MAX_VICTIM_LOSS_USD);
     const sanitizedPriorityFee =
       attack.tip_lamports && attack.tip_lamports > 0 ? attack.tip_lamports : null;
     const surface = parseSurface(attack.pool_address);
     const executionLane = this.inferExecutionLane(attack);
     const precision = surfacePrecision(attack.pool_address);
     const detectionBasis = this.inferDetectionBasis(attack);
+
+    // Known bot lookup — enriches entity label and risk score
+    const botInfo = getKnownBotInfo(attack.attacker_wallet);
+    const entityLabel = botInfo?.label ?? `ENT-${attack.attacker_wallet.slice(0, 6).toUpperCase()}`;
+    const entityRisk = botInfo ? Math.max(this.estimateRisk(attack), botInfo.riskScore) : this.estimateRisk(attack);
 
     const persistedAttack = {
       id: this.nextId++,
@@ -3429,8 +3543,8 @@ class LiveChainService {
       validator: attack.validator,
       attacker_wallet: attack.attacker_wallet,
       entity_id: attack.attacker_wallet,
-      entity_label: `ENT-${attack.attacker_wallet.slice(0, 6).toUpperCase()}`,
-      entity_risk: this.estimateRisk(attack),
+      entity_label: entityLabel,
+      entity_risk: entityRisk,
       victim_wallet: attack.victim_wallet,
       victim_loss_usd: sanitizedVictimLoss,
       pool_address: attack.pool_address,
@@ -3590,6 +3704,10 @@ class LiveChainService {
   }
 
   getStats() {
+    return this.cachedDerived("stats", DERIVED_CACHE_TTL_MS, () => this.buildStats());
+  }
+
+  private buildStats() {
     const entityContext = this.buildEntityContext();
     const last24h = Date.now() - 24 * 60 * 60 * 1000;
     const last1h = Date.now() - 60 * 60 * 1000;
@@ -3625,6 +3743,20 @@ class LiveChainService {
     offset?: string;
     since?: string;
   }) {
+    return this.cachedDerived(
+      `attacks:${JSON.stringify(params)}`,
+      DERIVED_CACHE_TTL_MS,
+      () => this.buildAttacks(params),
+    );
+  }
+
+  private buildAttacks(params: {
+    type?: string;
+    pool?: string;
+    limit?: string;
+    offset?: string;
+    since?: string;
+  }) {
     const entityContext = this.buildEntityContext();
     let results = [...this.attacks];
 
@@ -3650,6 +3782,20 @@ class LiveChainService {
   }
 
   getEntities(params: {
+    strategy?: string;
+    min_risk?: string;
+    sort?: string;
+    limit?: string;
+    offset?: string;
+  }): ApiEntity[] {
+    return this.cachedDerived<ApiEntity[]>(
+      `entities:${JSON.stringify(params)}`,
+      DERIVED_CACHE_TTL_MS,
+      () => this.buildEntities(params),
+    );
+  }
+
+  private buildEntities(params: {
     strategy?: string;
     min_risk?: string;
     sort?: string;
@@ -3919,6 +4065,14 @@ class LiveChainService {
   }
 
   getPools(limit = 50): ApiPool[] {
+    return this.cachedDerived<ApiPool[]>(
+      "pools:all",
+      DERIVED_CACHE_TTL_MS,
+      () => this.buildPools(),
+    ).slice(0, limit);
+  }
+
+  private buildPools(): ApiPool[] {
     const routeRiskBySurface = new Map(this.getRouteRisks(MAX_ATTACKS).map((route) => [route.route_key, route]));
     const entityContext = this.buildEntityContext();
     const map = new Map<string, ApiPool>();
@@ -4020,7 +4174,7 @@ class LiveChainService {
         }),
       }))
       .sort((a, b) => b.toxicity_score - a.toxicity_score)
-      .slice(0, limit);
+      .slice(0, MAX_ATTACKS);
   }
 
   private normalizedPairKey(inputMint: string | null, outputMint: string | null) {
@@ -4108,6 +4262,14 @@ class LiveChainService {
   }
 
   private buildSwapAnalyticsBySurface() {
+    return this.cachedDerived(
+      "swapAnalyticsBySurface",
+      DERIVED_CACHE_TTL_MS,
+      () => this.computeSwapAnalyticsBySurface(),
+    );
+  }
+
+  private computeSwapAnalyticsBySurface() {
     const grouped = new Map<
       string,
       {
@@ -4172,6 +4334,14 @@ class LiveChainService {
   }
 
   getRouteRisks(limit = 25): ApiRouteRisk[] {
+    return this.cachedDerived<ApiRouteRisk[]>(
+      "routeRisks:all",
+      DERIVED_CACHE_TTL_MS,
+      () => this.buildRouteRisks(),
+    ).slice(0, limit);
+  }
+
+  private buildRouteRisks(): ApiRouteRisk[] {
     const swapAnalytics = this.buildSwapAnalyticsBySurface();
     const grouped = new Map<string, ApiRouteRiskAccumulator>();
 
@@ -4224,6 +4394,8 @@ class LiveChainService {
         const backrunRate = item.total_attacks > 0 ? item.backrun_count / item.total_attacks : 0;
         const arbitrageRate = item.total_attacks > 0 ? item.arbitrage_count / item.total_attacks : 0;
         const jitRate = item.total_attacks > 0 ? item.jit_count / item.total_attacks : 0;
+        const raydiumMeta = getRaydiumProgramMeta(item.protocol);
+        const raydiumRiskBias = raydiumMeta ? Math.max(0, (raydiumMeta.riskWeight - 1) * 18) : 0;
         const liquidityRiskRate =
           item.total_attacks > 0 ? (item.liquidity_snipe_count + item.liquidity_drain_count) / item.total_attacks : 0;
         const riskScore = Math.min(
@@ -4240,7 +4412,8 @@ class LiveChainService {
               item.total_extracted_usd / 90 +
               item.attackers.size * 2 +
               avgConfidence * 10 +
-              bundleShare * 8
+              bundleShare * 8 +
+              raydiumRiskBias
             ).toFixed(1),
           ),
         );
@@ -4326,7 +4499,10 @@ class LiveChainService {
         const priorityFeePressure = round(clamp(bundleShare * 0.68 + avgConfidence * 12, 2, 98));
         const validatorMarkoutQuality = round(clamp(100 - markout5 * 3.1 - bundleShare * 24, 3, 96));
         const recommendedMaxNotionalUsd = round(clamp(180_000 - toxicFlowRate * 1_250 - bundleShare * 650, 7_500, 180_000), 0);
-        const estimatedSavingsBps = round(clamp(markout30 * 0.55 + lvrProxyScore * 0.05, hasSignal ? 0.2 : 0, 18), 2);
+        const estimatedSavingsBps = round(
+          clamp(markout30 * 0.55 + lvrProxyScore * 0.05 + (raydiumMeta ? raydiumRiskBias * 0.08 : 0), hasSignal ? 0.2 : 0, 18),
+          2,
+        );
         // Savings = bps saved × actual route notional (not a hardcoded $50K)
         const estimatedSavingsUsd = round((recommendedMaxNotionalUsd * estimatedSavingsBps) / 10_000, 2);
         // VPIN proxy: order flow imbalance |buy - sell| / total (Easley-López de Prado 2012).
@@ -4347,14 +4523,17 @@ class LiveChainService {
         const lvrAnnualRatePct = round(clamp(impliedVolSq * 50 + lvrProxyScore * 0.15, hasSignal ? 0.5 : 0, 85), 1);
         // Dollar estimate: apply LVR rate to the expected daily flow on this route
         const lpAnnualLossUsdEstimate = round((recommendedMaxNotionalUsd * lvrAnnualRatePct) / 100, 0);
-        const reasonCodes = buildReasonCodes({
-          sandwichRate,
-          bundleShare: bundleShare * 100,
-          staleQuotePickupRate,
-          markout30,
-          lvrProxyScore,
-          toxicFlowRate,
-        });
+        const reasonCodes = [...new Set([
+          ...buildReasonCodes({
+            sandwichRate,
+            bundleShare: bundleShare * 100,
+            staleQuotePickupRate,
+            markout30,
+            lvrProxyScore,
+            toxicFlowRate,
+          }),
+          ...raydiumGuardReasonCodes(item.protocol),
+        ])];
         const policyAction =
           riskScore >= 86 || toxicityProbability >= 82
             ? "avoid"
@@ -4428,7 +4607,7 @@ class LiveChainService {
         } satisfies ApiRouteRisk;
       })
       .sort((a, b) => b.risk_score - a.risk_score || b.total_extracted_usd - a.total_extracted_usd)
-      .slice(0, limit);
+      .slice(0, MAX_ATTACKS);
   }
 
   private estimateBpsAtRisk(
@@ -4559,6 +4738,7 @@ class LiveChainService {
       estimated_bps_saved: Number(Math.max(0, estimatedBpsAtRisk - this.estimateBpsAtRisk(route, objective)).toFixed(2)),
     }));
     const decision = this.classifyRouteDecision(selected, objective, estimatedBpsAtRisk, saferAlternatives.length);
+    const raydiumMeta = getRaydiumProgramMeta(selected.protocol);
 
     return {
       route_key: selected.route_key,
@@ -4575,12 +4755,18 @@ class LiveChainService {
       safer_alternatives: saferAlternatives,
       rationale: [
         `matched against ${matched_on.replace("_", " ")} intel for ${selected.label}`,
+        raydiumMeta
+          ? `${raydiumMeta.label} guardrails: ${raydiumMeta.guardrails.slice(0, 2).join("; ")}`
+          : null,
         `${selected.total_attacks} detections and ${selected.unique_attackers} unique operators are attached to this surface`,
         `bundle-heavy share is ${selected.bundle_share.toFixed(0)}% and average detector confidence is ${selected.avg_confidence.toFixed(0)}%`,
         `30s markout is ${selected.markout_30s_bps.toFixed(1)} bps and stale quote pickup rate is ${selected.stale_quote_pickup_rate.toFixed(0)}%`,
         `estimated LVR proxy score is ${selected.lvr_proxy_score.toFixed(0)} with flow quality ${selected.flow_quality_score.toFixed(0)}`,
-      ],
+      ].filter((entry): entry is string => entry != null),
       integration_actions: [
+        raydiumMeta?.configEndpoint
+          ? `refresh Raydium config from ${raydiumMeta.configEndpoint} before using fee or tick assumptions`
+          : null,
         decision === "reroute" || decision === "avoid"
           ? "prefer the safer alternative or remove this venue from the active route set"
           : decision === "penalize"
@@ -4591,7 +4777,7 @@ class LiveChainService {
           ? "trigger a high-severity ops alert for repeated toxic execution on this pair"
           : "keep this surface under live alert monitoring",
         `cap order size near $${selected.recommended_max_notional_usd.toLocaleString()} unless the venue state improves`,
-      ],
+      ].filter((entry): entry is string => entry != null),
       execution_quality_score: selected.execution_quality_score,
       toxic_flow_rate: selected.toxic_flow_rate,
       realized_slippage_bps: selected.realized_slippage_bps,
@@ -5116,12 +5302,14 @@ class LiveChainService {
         route_action: action,
         implementation_steps: [
           "switch to the top safer alternative returned by the guard",
-          "submit through a protected/private lane with dont-front semantics when available",
+          "when using Jito, add a read-only jitodontfront account and keep the protected transaction first in the bundle",
+          "set compute-unit price and limit from a current priority-fee estimate instead of overpaying unused CU",
           "cap notional at the recommended max until toxicity drops",
         ],
         rationale: [
           "a cleaner candidate exists for this pair",
-          "private submission reduces public mempool exposure while the route is replaced",
+          "Jito bundle ordering only protects the marked transaction when it is first in the bundle",
+          "Solana priority fees are charged on requested compute limit, so capped CU avoids waste",
         ],
       };
     }
@@ -5139,6 +5327,7 @@ class LiveChainService {
         implementation_steps: [
           "downrank this candidate inside the router score",
           "tighten slippage and cap size for the current quote",
+          "prefer private submission for large orders and only add Jito tip when the next leader path can use it",
           "emit the reason codes into execution analytics",
         ],
         rationale: [
@@ -5161,6 +5350,7 @@ class LiveChainService {
         implementation_steps: [
           "submit normally or through a private RPC if trade size is elevated",
           "attach the guard response to logs for post-trade markout review",
+          "track compute-unit limit and priority fee paid so overpayment can be detected",
           "rescore the route if quote age or slippage changes",
         ],
         rationale: [
@@ -5269,6 +5459,10 @@ class LiveChainService {
   }
 
   getSavingsSummary(): SavingsSummaryRecord {
+    return this.cachedDerived("savingsSummary", DERIVED_CACHE_TTL_MS, () => this.buildSavingsSummary());
+  }
+
+  private buildSavingsSummary(): SavingsSummaryRecord {
     const risks = this.getRouteRisks(MAX_ATTACKS);
     const pools = this.getPools(MAX_ATTACKS);
     return {
@@ -5401,6 +5595,14 @@ class LiveChainService {
   }
 
   getValidators() {
+    return this.cachedDerived(
+      "validators:all",
+      DERIVED_CACHE_TTL_MS,
+      () => this.buildValidators(),
+    );
+  }
+
+  private buildValidators() {
     const entityContext = this.buildEntityContext();
     const swapAnalytics = this.buildSwapAnalyticsBySurface();
     const map = new Map<

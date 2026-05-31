@@ -12,7 +12,23 @@ export default defineConfig(({ mode }) => ({
       overlay: false,
     },
   },
-  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [
+    react(),
+    mode === "development" && process.env.VITE_ENABLE_COMPONENT_TAGGER === "true" && componentTagger(),
+  ].filter(Boolean),
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("recharts") || id.includes("d3-")) return "charts";
+          if (id.includes("framer-motion")) return "motion";
+          if (id.includes("@radix-ui")) return "radix-ui";
+          return "vendor";
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

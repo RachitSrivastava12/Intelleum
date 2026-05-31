@@ -8,7 +8,24 @@ import {
 import {
   api, Attack, AttackDetail, LpProtectionSnapshot, PoolToxicity, RouteRisk, SystemStatus,
 } from "@/lib/api";
+import {
+  demoSystemStatus,
+  getDemoRaydiumAttacks,
+  getDemoRaydiumLpProtection,
+  getDemoRaydiumPools,
+  getDemoRaydiumRoutes,
+} from "@/lib/demoData";
 import { formatPoolLabel, formatRelativeTime, truncateAddress } from "@/lib/utils";
+import {
+  RAYDIUM_PROGRAMS,
+  raydiumProgramLabel,
+  attackMeta,
+  sandwichConfidenceSignals,
+  jitConfidenceSignals,
+  fmtUsd,
+  fmtBps,
+  fmtLamports,
+} from "@/lib/raydium";
 
 export type RaydiumSection =
   | "pools" | "jit" | "launchlab" | "lp"
@@ -16,23 +33,17 @@ export type RaydiumSection =
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function fmt(n: number | null | undefined) {
-  if (n == null || !isFinite(n)) return "--";
-  if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (Math.abs(n) >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-  return `$${n.toFixed(0)}`;
-}
-function bps(n: number | null | undefined) {
-  if (n == null) return "--";
-  return `${n.toFixed(1)} bps`;
-}
+// Keep local aliases so internal code doesn't need to change
+const fmt = fmtUsd;
+const bps = fmtBps;
+
 function solscan(address: string, type: "account" | "tx" = "account") {
   return `https://solscan.io/${type}/${address}`;
 }
 function ExtLink({ href, label }: { href: string; label: string }) {
   return (
     <a href={href} target="_blank" rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 font-mono text-[10px] text-primary underline decoration-primary/30 hover:decoration-primary transition-all">
+      className="inline-flex min-h-6 items-center gap-1 font-mono text-[10px] text-primary underline decoration-primary/30 transition-all hover:decoration-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
       {label}
       <svg width="9" height="9" viewBox="0 0 9 9" fill="none" className="shrink-0">
         <path d="M1.5 7.5L7.5 1.5M7.5 1.5H3.5M7.5 1.5V5.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
@@ -42,16 +53,37 @@ function ExtLink({ href, label }: { href: string; label: string }) {
 }
 function isRaydium(v?: string | null) { return !!v && /raydium/i.test(v); }
 function isRaydiumRoute(r: RouteRisk) { return isRaydium(r.protocol) || isRaydium(r.route_key) || isRaydium(r.label); }
-function isRaydiumAttack(a: Attack) { return isRaydium(a.protocol) || isRaydium(a.pool_address) || isRaydium((a as any).surface_label); }
+function isRaydiumAttack(a: Attack) { return isRaydium(a.protocol) || isRaydium(a.pool_address) || isRaydium(a.surface_label); }
 function isRaydiumPool(p: PoolToxicity | LpProtectionSnapshot) { return isRaydium(p.protocol) || isRaydium(p.pool_address); }
-function isLiveData(data: RaydiumData | null) { return data?.status?.mode === "chain"; }
-function programName(protocol?: string | null) {
+const ENABLE_LOCAL_RAYDIUM_DEMO =
+  import.meta.env.DEV || import.meta.env.VITE_ENABLE_RAYDIUM_DEMO === "true";
+function isLiveData(data: RaydiumData | null) { return data?.source === "chain" && data.status?.mode === "chain"; }
+function isDemoData(data: RaydiumData | null) { return data?.source === "demo"; }
+function hasRaydiumData(data: RaydiumData | null) { return data?.source === "chain" || data?.source === "demo"; }
+function sourceLabel(data: RaydiumData | null) {
+  if (isLiveData(data)) return "Chain";
+  if (isDemoData(data)) return "Local demo";
+  return "--";
+}
+function sourceDetail(data: RaydiumData | null) {
+  if (isLiveData(data)) return "QuickNode live";
+  if (isDemoData(data)) return "local Raydium demo";
+  return "waiting for chain";
+}
+function sourceRowsText(data: RaydiumData | null) {
+  return isDemoData(data) ? "from local demo rows" : "from current API rows";
+}
+function programName(protocol?: string | null) { return raydiumProgramLabel(protocol, "Raydium"); }
+function programIdForProtocol(protocol?: string | null) {
   const raw = protocol ?? "";
-  if (raw.includes("cpmm")) return "CPMM";
-  if (raw.includes("clmm")) return "CLMM";
-  if (raw.includes("v4") || raw.includes("amm")) return "AMM v4";
-  if (raw.includes("launch")) return "LaunchLab";
-  return "Raydium";
+  if (/cpmm/i.test(raw)) return RAYDIUM_PROGRAMS.CPMM;
+  if (/clmm/i.test(raw)) return RAYDIUM_PROGRAMS.CLMM;
+  if (/launch/i.test(raw)) return RAYDIUM_PROGRAMS.LAUNCHLAB;
+  if (/stable/i.test(raw)) return RAYDIUM_PROGRAMS.STABLE_AMM;
+  return RAYDIUM_PROGRAMS.AMM_V4;
+}
+function hasBundleSignal(attack: Attack) {
+  return attack.execution_lane === "jito-aligned" || (attack.bundle_likelihood ?? 0) >= 0.75;
 }
 function actionTone(a: string) {
   if (a === "avoid" || a === "block" || a === "high") return "border-red-500/45 bg-red-500/10 text-red-300";
@@ -105,13 +137,13 @@ function PageShell({ section, refreshing, onRefresh, children }: {
         {/* Nav */}
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-4">
           <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] tracking-[0.14em] text-muted-foreground">
-            <Link to="/" className="border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary">Home</Link>
-            <Link to="/dex-intelligence" className="border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary">DEX Intelligence</Link>
-            <Link to="/dex-intelligence/raydium" className="border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary">Raydium</Link>
+            <Link to="/" className="border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Home</Link>
+            <Link to="/dex-intelligence" className="border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">DEX Intelligence</Link>
+            <Link to="/dex-intelligence/raydium" className="border border-border px-3 py-2 transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Raydium</Link>
             <span className="border border-primary/40 bg-primary/5 px-3 py-2 text-primary">{title}</span>
           </div>
           <button type="button" onClick={onRefresh} disabled={refreshing}
-            className="inline-flex min-h-9 items-center gap-2 border border-primary/40 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-primary transition-colors hover:bg-primary/10 disabled:opacity-60">
+            className="inline-flex min-h-10 items-center gap-2 border border-primary/40 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-60">
             <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
             Refresh
           </button>
@@ -151,12 +183,78 @@ type RaydiumData = {
   attacks: Attack[];
   pools: PoolToxicity[];
   lp: LpProtectionSnapshot[];
+  source: "chain" | "demo";
 };
+
+function buildRaydiumDemoStatus(base?: SystemStatus | null): SystemStatus {
+  const attacks = getDemoRaydiumAttacks();
+  const routes = getDemoRaydiumRoutes();
+  const previous = base ?? demoSystemStatus;
+
+  return {
+    ...previous,
+    mode: "fallback",
+    started: true,
+    syncing: false,
+    attacksDetected: attacks.length,
+    lastError: "Local Raydium demo scenario. Chain feed is offline.",
+    recentMetrics: {
+      ...previous.recentMetrics,
+      candidateRows: routes.reduce((sum, route) => sum + route.total_attacks, 0),
+      detectedAttacks: attacks.length,
+      parsedTransactions: Math.max(previous.recentMetrics.parsedTransactions, 148),
+      parsedSwaps: Math.max(previous.recentMetrics.parsedSwaps, 86),
+      rawSlotTxs: Math.max(previous.recentMetrics.rawSlotTxs, 420),
+      sandwichCandidates: attacks.filter((attack) => attack.attack_type === "sandwich").length,
+      arbitrageCandidates: attacks.filter((attack) => attack.attack_type === "arbitrage").length,
+      jitCandidates: attacks.filter((attack) => attack.attack_type === "jit").length,
+      liquiditySnipeCandidates: attacks.filter((attack) => attack.attack_type === "liquidity_snipe").length,
+      liquidityDrainCandidates: attacks.filter((attack) => attack.attack_type === "liquidity_drain").length,
+      backrunCandidates: routes.reduce((sum, route) => sum + route.backrun_count, 0),
+      suspiciousCandidates: attacks.length,
+    },
+    recentAttackPreview: attacks.slice(0, 8).map((attack) => ({
+      attack_type: attack.attack_type,
+      detector: attack.detector ?? "raydium_local_demo",
+      confidence: attack.confidence,
+      slot: attack.slot,
+    })),
+  };
+}
+
+function buildRaydiumDemoData(status?: SystemStatus | null): RaydiumData {
+  return {
+    status: buildRaydiumDemoStatus(status),
+    routes: getDemoRaydiumRoutes(),
+    attacks: getDemoRaydiumAttacks(),
+    pools: getDemoRaydiumPools(),
+    lp: getDemoRaydiumLpProtection(),
+    source: "demo",
+  };
+}
+
+function shouldUseLocalRaydiumDemo(
+  status: SystemStatus,
+  routes: RouteRisk[],
+  attacks: Attack[],
+  pools: PoolToxicity[],
+  lp: LpProtectionSnapshot[],
+) {
+  if (!ENABLE_LOCAL_RAYDIUM_DEMO) return false;
+  if (status.mode !== "chain") return true;
+  return !(
+    routes.some(isRaydiumRoute) ||
+    attacks.some(isRaydiumAttack) ||
+    pools.some(isRaydiumPool) ||
+    lp.some(isRaydiumPool)
+  );
+}
 
 function useRaydiumData() {
   const [data, setData] = useState<RaydiumData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
@@ -169,8 +267,20 @@ function useRaydiumData() {
         api.pools(120),
         api.lpProtection(120),
       ]);
-      setData({ status, routes, attacks, pools, lp });
-    } catch { /* silently ignore */ } finally {
+      if (shouldUseLocalRaydiumDemo(status, routes, attacks, pools, lp)) {
+        setData(buildRaydiumDemoData(status));
+      } else {
+        setData({ status, routes, attacks, pools, lp, source: "chain" });
+      }
+      setError(null);
+    } catch (err) {
+      if (ENABLE_LOCAL_RAYDIUM_DEMO) {
+        setData(buildRaydiumDemoData());
+        setError(null);
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to load Raydium data");
+      }
+    } finally {
       setLoading(false);
       setRefreshing(false);
     }
@@ -182,20 +292,25 @@ function useRaydiumData() {
     return () => window.clearInterval(id);
   }, [load]);
 
-  return { data, loading, refreshing, reload: () => void load(true) };
+  return { data, loading, refreshing, error, reload: () => void load(true) };
 }
 
 function typeTextClass(t: string) {
-  if (t === "sandwich") return "text-red-300";
-  if (t === "jit")      return "text-primary";
-  return "text-yellow-200";
+  if (t === "sandwich")        return "text-red-300";
+  if (t === "jit")             return "text-primary";
+  if (t === "backrun")         return "text-orange-300";
+  if (t === "arbitrage")       return "text-blue-300";
+  if (t === "liquidity_snipe") return "text-yellow-200";
+  if (t === "liquidity_drain") return "text-yellow-400";
+  if (t === "liquidation")     return "text-purple-300";
+  return "text-muted-foreground";
 }
 
 // ─── Section: Pools ──────────────────────────────────────────────────────────
 
 function SectionPools({ data }: { data: RaydiumData | null }) {
   const live = useMemo(() => {
-    if (!isLiveData(data)) return [];
+    if (!hasRaydiumData(data)) return [];
     const fromRoutes = data.routes.filter(isRaydiumRoute).filter((r) => r.sandwich_count > 0).map((r) => ({
       id: r.route_key, pair: r.label?.split("•")[1]?.trim() ?? r.route_key,
       program: programName(r.protocol),
@@ -204,7 +319,7 @@ function SectionPools({ data }: { data: RaydiumData | null }) {
       bpsAtRisk: r.markout_30s_bps, loss: r.total_extracted_usd,
       attackers: r.unique_attackers, conf: Math.round(r.avg_confidence * 100),
       action: r.policy_action,
-      programId: r.protocol?.includes("cpmm") ? "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C" : "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+      programId: programIdForProtocol(r.protocol),
     }));
     return fromRoutes;
   }, [data]);
@@ -212,7 +327,7 @@ function SectionPools({ data }: { data: RaydiumData | null }) {
   const totalLoss = live.reduce((s, r) => s + r.loss, 0);
   const avgBps = live.length > 0 ? live.reduce((s, r) => s + r.bpsAtRisk, 0) / live.length : null;
   const topAttackers = useMemo(() => {
-    if (!isLiveData(data)) return [];
+    if (!hasRaydiumData(data)) return [];
     const byWallet = new Map<string, { wallet: string; attacks: number; extracted: number; types: Set<string> }>();
     for (const attack of data.attacks.filter(isRaydiumAttack)) {
       const current = byWallet.get(attack.attacker_wallet) ?? {
@@ -237,7 +352,7 @@ function SectionPools({ data }: { data: RaydiumData | null }) {
       <div className="grid gap-3 sm:grid-cols-4">
         {[
           ["Pools Monitored", `${live.length}`, "CPMM + AMM v4"],
-          ["Observed Loss", fmt(totalLoss), "from current API rows"],
+          ["Observed Loss", fmt(totalLoss), sourceRowsText(data)],
           ["Avg Bps at Risk", avgBps == null ? "--" : `${avgBps.toFixed(1)} bps`, "per swap"],
           ["Active Operators", `${live.reduce((s, r) => s + r.attackers, 0)}`, "unique wallets"],
         ].map(([label, value, sub]) => (
@@ -277,7 +392,7 @@ function SectionPools({ data }: { data: RaydiumData | null }) {
             <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-primary">All Monitored Pools</p>
             <h2 className="mt-0.5 text-base font-semibold text-foreground">{live.length} surfaces ranked by extraction risk</h2>
           </div>
-          <span className="font-mono text-[10px] text-muted-foreground">{isLiveData(data) ? "chain data" : "waiting for chain"}</span>
+          <span className="font-mono text-[10px] text-muted-foreground">{sourceDetail(data)}</span>
         </div>
         {live.length > 0 ? <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] text-left">
@@ -347,56 +462,45 @@ function SectionPools({ data }: { data: RaydiumData | null }) {
 
 function SectionJit({ data }: { data: RaydiumData | null }) {
   const live = useMemo(() => {
-    if (!isLiveData(data)) return [];
-    const from = data.routes.filter(isRaydiumRoute).filter((r) => r.jit_count > 0 || /clmm/i.test(r.protocol ?? "")).map((r) => ({
-      id: r.route_key, pool: r.label?.split("•")[1]?.trim() ?? r.route_key,
-      feeTier: "--", tickBand: bps(r.markout_30s_bps),
-      windows: r.jit_count, dilutionBps: r.markout_5s_bps, lpDrag: r.lp_annual_loss_usd_estimate,
-      attacker: `${r.unique_attackers} operators`, action: r.policy_action,
-      programId: "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+    if (!hasRaydiumData(data)) return [];
+    return data.routes.filter(isRaydiumRoute).filter((r) => r.jit_count > 0 || /clmm/i.test(r.protocol ?? "")).map((r) => ({
+      id: r.route_key,
+      pool: r.label?.split("•")[1]?.trim() ?? r.route_key,
+      feeTier: "--",
+      tickBand: bps(r.markout_30s_bps),
+      windows: r.jit_count,
+      dilutionBps: r.markout_5s_bps,
+      lpDrag: r.lp_annual_loss_usd_estimate,
+      attacker: `${r.unique_attackers} operators`,
+      action: r.policy_action,
     }));
-    return from;
   }, [data]);
 
-  const clmmId = "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK";
+  const clmmId = RAYDIUM_PROGRAMS.CLMM;
 
   return (
     <>
-      {/* CLMM info bar */}
+      {/* Stats bar */}
       <div className="grid gap-3 sm:grid-cols-4">
-        {[
-          ["CLMM Program", truncateAddress(clmmId, 8, 6), ""],
-          ["JIT Windows", `${live.reduce((s, r) => s + r.windows, 0)}`, "detected this session"],
-          ["Total LP Drag", fmt(live.reduce((s, r) => s + r.lpDrag, 0)), "fee dilution + adverse selection"],
-          ["Pools With JIT", `${live.length}`, "from current API rows"],
-        ].map(([label, value, sub]) => (
-          <div key={label} className="border border-border bg-card p-4">
-            <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
-            <div className={`mt-2 font-bold text-foreground ${label === "CLMM Program" ? "text-sm" : "text-2xl"}`}>{value}</div>
-            {sub && <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div>}
-            {label === "CLMM Program" && <div className="mt-1.5"><ExtLink href={solscan(clmmId)} label="View on Solscan" /></div>}
-          </div>
-        ))}
-      </div>
-
-      {/* How JIT works */}
-      <div className="border border-primary/20 bg-primary/5 p-5">
-        <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-primary mb-3">How JIT Works on Raydium CLMM</p>
-        <div className="grid gap-2 sm:grid-cols-4">
-          {[
-            ["01", "Detection", "Bot detects large swap in mempool before execution"],
-            ["02", "Entry", "Adds concentrated liquidity in exact tick range using `increase_liquidity`"],
-            ["03", "Capture", "Captures fees from the swap while the temporary liquidity is active"],
-            ["04", "Exit", "Immediately removes liquidity via `decrease_liquidity` after swap confirms"],
-          ].map(([num, title, desc]) => (
-            <div key={num} className="border border-primary/20 bg-background/40 p-3">
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="font-mono text-[10px] font-bold text-primary">{num}</span>
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-foreground">{title}</span>
-              </div>
-              <p className="text-[11px] leading-4 text-muted-foreground">{desc}</p>
-            </div>
-          ))}
+        <div className="border border-border bg-card p-4">
+          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">CLMM Program</div>
+          <div className="mt-2 font-mono text-sm font-bold text-foreground">{truncateAddress(clmmId, 8, 6)}</div>
+          <div className="mt-1.5"><ExtLink href={solscan(clmmId)} label="View on Solscan" /></div>
+        </div>
+        <div className="border border-border bg-card p-4">
+          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">JIT Windows</div>
+          <div className="mt-2 text-2xl font-bold text-foreground">{live.reduce((s, r) => s + r.windows, 0)}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">detected this session</div>
+        </div>
+        <div className="border border-border bg-card p-4">
+          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Total LP Drag</div>
+          <div className="mt-2 text-2xl font-bold text-red-300">{fmt(live.reduce((s, r) => s + r.lpDrag, 0))}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">fee dilution + adverse selection</div>
+        </div>
+        <div className="border border-border bg-card p-4">
+          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Fee Config</div>
+          <div className="mt-2 text-2xl font-bold text-primary">AmmConfig</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">read live fee tiers before quoting</div>
         </div>
       </div>
 
@@ -434,7 +538,7 @@ function SectionJit({ data }: { data: RaydiumData | null }) {
               <div>
                 <div className="font-mono text-sm font-semibold text-foreground">{row.pool}</div>
                 <div className="mt-1 font-mono text-[10px] text-muted-foreground">Fee tier: {row.feeTier} · Tick: {row.tickBand}</div>
-                <div className="mt-1"><ExtLink href={solscan(row.programId)} label="CLMM program" /></div>
+                <div className="mt-1"><ExtLink href={solscan(clmmId)} label="CLMM program" /></div>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="border border-border/50 p-2">
@@ -466,90 +570,85 @@ function SectionJit({ data }: { data: RaydiumData | null }) {
 
 function SectionLaunchLab({ data }: { data: RaydiumData | null }) {
   const live = useMemo(() => {
-    if (!isLiveData(data)) return [];
-    const from = data.attacks.filter(isRaydiumAttack).filter((a) => a.attack_type === "liquidity_snipe").map((a) => ({
+    if (!hasRaydiumData(data)) return [];
+    return data.attacks.filter(isRaydiumAttack).filter((a) => a.attack_type === "liquidity_snipe").map((a) => ({
       id: a.frontrun_tx ?? a.pool_address,
       token: a.token_mint ? truncateAddress(a.token_mint, 8, 5) : "Unknown",
-      progress: null as number | null,
-      firstBuy: a.evidence?.some((e: string) => /same slot/i.test(e)) ? "same slot" : "--",
-      fee: a.tip_lamports ?? 0,
+      tokenFull: a.token_mint ?? null,
+      firstBuy: a.evidence?.some((e: string) => /same slot/i.test(e)) ? "same slot" : a.evidence?.some((e) => /\+1 slot/.test(e)) ? "+1 slot" : "--",
+      tipLamports: a.tip_lamports ?? 0,
+      hasBundle: hasBundleSignal(a),
       sniper: truncateAddress(a.attacker_wallet, 8, 5),
-      risk: "monitor",
+      sniperFull: a.attacker_wallet,
+      entityLabel: a.entity_label,
       extracted: a.profit_usd ?? a.victim_loss_usd ?? 0,
     }));
-    return from;
   }, [data]);
 
-  const launchlabId = "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj";
+  const launchlabId = RAYDIUM_PROGRAMS.LAUNCHLAB;
+  const totalExtracted = live.reduce((s, r) => s + r.extracted, 0);
+  const bundleCount = live.filter((r) => r.hasBundle).length;
 
   return (
     <>
+      {/* Stats */}
       <div className="grid gap-3 sm:grid-cols-4">
-        {[
-          ["LaunchLab Program", truncateAddress(launchlabId, 8, 6), ""],
-          ["Active Launches", `${live.length}`, "with sniper activity"],
-          ["Total Extracted", fmt(live.reduce((s, r) => s + r.extracted, 0)), "from launch curves"],
-          ["Priority Fees", live.reduce((s, r) => s + r.fee, 0).toLocaleString(), "lamports observed"],
-        ].map(([label, value, sub]) => (
-          <div key={label} className="border border-border bg-card p-4">
-            <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
-            <div className={`mt-2 font-bold text-foreground ${label === "LaunchLab Program" ? "text-sm" : "text-2xl"}`}>{value}</div>
-            {sub && <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div>}
-            {label === "LaunchLab Program" && <div className="mt-1.5"><ExtLink href={solscan(launchlabId)} label="View on Solscan" /></div>}
-          </div>
-        ))}
-      </div>
-
-      {/* Bonding curve explainer */}
-      <div className="border border-yellow-500/20 bg-yellow-500/5 p-5">
-        <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-yellow-200 mb-3">How LaunchLab Snipers Work</p>
-        <div className="grid gap-2 sm:grid-cols-3">
-          {[
-            ["Target", "Bots monitor LaunchLab for new pool creation transactions in every slot"],
-            ["Strike", "First buy happens in same slot or +1 slot with priority fee of 100K+ lamports"],
-            ["Extract", "Attempts to exit around migration when liquidity moves to a pool"],
-          ].map(([title, desc]) => (
-            <div key={title} className="border border-yellow-500/20 bg-background/40 p-3">
-              <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-yellow-200 mb-1.5">{title}</div>
-              <p className="text-[11px] leading-4 text-muted-foreground">{desc}</p>
-            </div>
-          ))}
+        <div className="border border-border bg-card p-4">
+          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">LaunchLab Program</div>
+          <div className="mt-2 font-mono text-sm font-bold text-foreground">{truncateAddress(launchlabId, 8, 6)}</div>
+          <div className="mt-1.5"><ExtLink href={solscan(launchlabId)} label="View on Solscan" /></div>
+        </div>
+        <div className="border border-yellow-500/30 bg-yellow-500/5 p-4">
+          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Snipes Detected</div>
+          <div className="mt-2 text-2xl font-bold text-yellow-200">{live.length}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{bundleCount} with bundle signal</div>
+        </div>
+        <div className="border border-border bg-card p-4">
+          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Total Extracted</div>
+          <div className="mt-2 text-2xl font-bold text-foreground">{fmt(totalExtracted)}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">from launch curves</div>
+        </div>
+        <div className="border border-border bg-card p-4">
+          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Graduation Rule</div>
+          <div className="mt-2 text-2xl font-bold text-foreground">Quote target</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">read from LaunchState</div>
         </div>
       </div>
 
-      {/* Live launches */}
+      {/* Live snipes table */}
       <div className="border border-border bg-card">
         <div className="border-b border-border/60 px-4 py-3">
-          <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-primary">Active Launch Curves</p>
-          <h2 className="mt-0.5 text-base font-semibold text-foreground">Launches with detected sniper activity</h2>
+          <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-primary">Detected Snipes</p>
+          <h2 className="mt-0.5 text-base font-semibold text-foreground">LaunchLab launches with first-slot buy activity</h2>
         </div>
         <div className="divide-y divide-border/40">
-          {live.length === 0 && <EmptyPanel message="No Raydium LaunchLab sniper detections are present in the current API window." />}
+          {live.length === 0 && <EmptyPanel message="No Raydium LaunchLab sniper detections in the current API window." />}
           {live.map((row) => (
-            <div key={row.id} className="grid gap-4 px-4 py-4 md:grid-cols-[1.5fr_1.2fr_1fr_0.5fr]">
+            <div key={row.id} className="grid gap-4 px-4 py-4 md:grid-cols-[1.5fr_1fr_1fr]">
               <div>
-                <div className="font-mono text-sm font-semibold text-foreground">{row.token}</div>
-                <div className="mt-1 font-mono text-[10px] text-muted-foreground">Sniper: {row.sniper}</div>
-                <div className="mt-1 font-mono text-[10px] text-muted-foreground">First buy: {row.firstBuy}</div>
-              </div>
-              <div>
-                <div className="mb-1.5 flex items-center justify-between font-mono text-[9px] text-muted-foreground">
-                  <span>Curve progress</span>
-                  <span className="text-foreground font-semibold">{row.progress == null ? "--" : `${row.progress}%`}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm font-semibold text-foreground">{row.token}</span>
+                  {row.hasBundle && <span className="border border-orange-500/40 bg-orange-500/10 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-[0.12em] text-orange-300">Bundle signal</span>}
+                  {row.entityLabel && <span className="border border-primary/40 bg-primary/10 px-1.5 py-0.5 font-mono text-[8px] uppercase text-primary">{row.entityLabel}</span>}
                 </div>
-                {row.progress != null && (
-                  <div className="h-2 border border-border/60 bg-background">
-                    <div className="h-full bg-primary/70 transition-all" style={{ width: `${row.progress}%` }} />
-                  </div>
-                )}
+                <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+                  First buy: <span className="text-foreground">{row.firstBuy}</span>
+                </div>
+                <div className="mt-0.5">
+                  {row.sniperFull
+                    ? <ExtLink href={solscan(row.sniperFull)} label={row.sniper} />
+                    : <span className="font-mono text-[10px] text-muted-foreground">{row.sniper}</span>}
+                </div>
               </div>
               <div>
                 <div className="font-mono text-[9px] text-muted-foreground">Extracted</div>
-                <div className="font-mono text-lg font-bold text-yellow-200">{fmt(row.extracted)}</div>
-                <div className="font-mono text-[9px] text-muted-foreground">{row.fee.toLocaleString()} lamports tip</div>
+                <div className="mt-1 font-mono text-lg font-bold text-yellow-200">{fmt(row.extracted)}</div>
+                <div className="mt-0.5 font-mono text-[9px] text-muted-foreground">{fmtLamports(row.tipLamports)} tip</div>
               </div>
-              <div className="flex items-center">
-                <span className={`border px-2 py-1 font-mono text-[9px] uppercase ${actionTone(row.risk)}`}>{row.risk}</span>
+              <div>
+                {row.tokenFull && (
+                  <ExtLink href={solscan(row.tokenFull)} label="View token" />
+                )}
               </div>
             </div>
           ))}
@@ -563,7 +662,7 @@ function SectionLaunchLab({ data }: { data: RaydiumData | null }) {
 
 function SectionLP({ data }: { data: RaydiumData | null }) {
   const live = useMemo(() => {
-    if (!isLiveData(data)) return [];
+    if (!hasRaydiumData(data)) return [];
     const from = data.lp.filter(isRaydiumPool).map((p) => ({
       id: p.pool_address, pool: p.pool_address,
       score: Math.round(p.toxicity_score), lvr: Math.round(p.lvr_proxy_score ?? 0),
@@ -601,8 +700,8 @@ function SectionLP({ data }: { data: RaydiumData | null }) {
         </div>
         <div className="border border-border bg-card p-4">
           <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Data Source</div>
-          <div className="mt-2 text-2xl font-bold text-foreground">{isLiveData(data) ? "Chain" : "--"}</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">live API rows only</div>
+          <div className="mt-2 text-2xl font-bold text-foreground">{sourceLabel(data)}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{isDemoData(data) ? "local demo rows" : "live API rows only"}</div>
         </div>
       </div>
 
@@ -671,257 +770,432 @@ function SectionLP({ data }: { data: RaydiumData | null }) {
 
 // ─── Section: Detections ─────────────────────────────────────────────────────
 
-type DetectionRow = {
-  attack: Attack;
-  id: string;
-  type: string;
-  pair: string;
-  program: string;
-  profit: number | null;
-  loss: number | null;
-  conf: number;
-  attacker: string;
-  attackerFull: string | null;
-  age: string;
-  frontrunTx: string | null;
-  backrunTx?: string | null;
+type DetectionFilter =
+  | "all" | "sandwich" | "backrun" | "arbitrage"
+  | "jit" | "liquidation" | "liquidity_snipe" | "liquidity_drain";
+
+const FILTER_LABELS: Record<DetectionFilter, string> = {
+  all:              "All",
+  sandwich:         "Sandwich",
+  backrun:          "Backrun",
+  arbitrage:        "Arbitrage",
+  jit:              "JIT",
+  liquidation:      "Liquidation",
+  liquidity_snipe:  "Snipe",
+  liquidity_drain:  "Drain",
 };
 
-function SectionDetections({ data }: { data: RaydiumData | null }) {
-  const [filter, setFilter] = useState<"all" | "sandwich" | "jit" | "sniper">("all");
-  const [selectedAttack, setSelectedAttack] = useState<Attack | null>(null);
-  const [detail, setDetail] = useState<AttackDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
+const DETECTION_FILTERS = Object.keys(FILTER_LABELS) as DetectionFilter[];
 
-  const liveAttacks = useMemo<DetectionRow[]>(() => {
-    if (!isLiveData(data)) return [];
-    const from = data.attacks.filter(isRaydiumAttack).map((a, i) => ({
-      attack: a,
-      id: a.frontrun_tx ?? a.pool_address ?? String(i),
-      type: a.attack_type === "liquidity_snipe" ? "sniper" : a.attack_type,
-      pair: (a as any).surface_label ?? truncateAddress(a.pool_address, 8, 5),
-      program: programName(a.protocol),
-      profit: a.profit_usd ?? null,
-      loss: a.victim_loss_usd ?? null,
-      conf: Math.round(a.confidence * 100),
-      attacker: truncateAddress(a.attacker_wallet, 8, 5),
-      attackerFull: a.attacker_wallet,
-      age: a.block_time ? formatRelativeTime(a.block_time) : "--",
-      frontrunTx: a.frontrun_tx ?? null,
-      backrunTx: (a as any).backrun_tx ?? null,
-    }));
-    return from;
+function detectionKey(attack: Attack) {
+  if (attack.attack_type === "sandwich" || attack.attack_type === "jit") {
+    return [
+      attack.attack_type,
+      attack.attacker_wallet,
+      attack.pool_address,
+      attack.frontrun_tx ?? "",
+      attack.backrun_tx ?? "",
+    ].join(":");
+  }
+  return [
+    attack.attack_type,
+    attack.attacker_wallet,
+    attack.pool_address,
+    attack.backrun_tx ?? attack.victim_tx ?? `${attack.slot}`,
+  ].join(":");
+}
+
+function dedupeAttacks(attacks: Attack[]) {
+  return attacks.reduce<Attack[]>((acc, attack) => {
+    const key = detectionKey(attack);
+    const existingIndex = acc.findIndex((item) => detectionKey(item) === key);
+    if (existingIndex === -1) return [...acc, attack];
+
+    const existing = acc[existingIndex];
+    const existingScore = (existing.confidence ?? 0) * 1000 + (existing.victim_loss_usd ?? 0) * 2 + (existing.profit_usd ?? 0);
+    const nextScore = (attack.confidence ?? 0) * 1000 + (attack.victim_loss_usd ?? 0) * 2 + (attack.profit_usd ?? 0);
+    if (nextScore > existingScore) {
+      const next = [...acc];
+      next[existingIndex] = attack;
+      return next;
+    }
+    return acc;
+  }, []);
+}
+
+function confidenceLabel(confidence: number) {
+  if (confidence >= 0.95) return "HIGH";
+  if (confidence >= 0.85) return "STRONG";
+  if (confidence >= 0.75) return "MED";
+  return "LOW";
+}
+
+function profitLabel(attack: Attack) {
+  if (attack.attack_type === "liquidation") return "Liquidator Gain";
+  if (attack.attack_type === "jit") return "LP Capture";
+  if (attack.attack_type === "liquidity_drain") return "Removed Value";
+  if (attack.attack_type === "liquidity_snipe") return "First Fill";
+  return "Searcher PnL";
+}
+
+function harmLabel(attack: Attack) {
+  if (attack.attack_type === "liquidation") return "Borrower Loss";
+  if (attack.attack_type === "jit") return "User Impact";
+  if (attack.attack_type === "liquidity_drain") return "Holder Risk";
+  if (attack.attack_type === "liquidity_snipe") return "Launch Risk";
+  return "User Harm";
+}
+
+function detectionSummary(attack: Attack) {
+  if (attack.attack_type === "jit") return "Short-lived concentrated liquidity entered around a target swap, then exited after the flow cleared.";
+  if (attack.attack_type === "liquidity_snipe") return "LaunchLab buy activity appeared near the launch window before broader organic demand caught up.";
+  if (attack.attack_type === "liquidity_drain") return "Liquidity removal and follow-through trading created a drain-like risk profile.";
+  if (attack.attack_type === "sandwich") return "Victim execution was bracketed by hostile Raydium route activity.";
+  if (attack.attack_type === "backrun") return "Post-victim execution harvested downstream repricing on a Raydium surface.";
+  if (attack.attack_type === "liquidation") return "Liquidation-like flow crossed Raydium liquidity and created adverse selection risk.";
+  return "Cross-surface Raydium activity matched an extraction pattern in the feed.";
+}
+
+function raydiumMechanic(attack: Attack) {
+  if (attack.attack_type === "jit") return "CLMM positions earn fees only while their tick range is active, so short-lived liquidity can capture flow without carrying normal LP inventory risk.";
+  if (attack.attack_type === "liquidity_snipe") return "LaunchLab launches trade on a bonding curve until the launch reaches its configured quote target and graduates into a post-launch pool.";
+  if (programName(attack.protocol) === "CLMM") return "CLMM swaps move through ticks and position liquidity ranges, so adverse selection often appears as markout after the active range is crossed.";
+  if (programName(attack.protocol) === "CPMM") return "CPMM is Raydium's modern constant-product pool; route risk comes from price impact, stale quotes, and toxic flow concentration.";
+  return "Raydium AMM v4 and CPMM pools follow constant-product pricing; sandwiches and backruns capture value from the price movement around user flow.";
+}
+
+function SectionDetections({ data }: { data: RaydiumData | null }) {
+  const [filter, setFilter] = useState<DetectionFilter>("all");
+  const [selectedAttackId, setSelectedAttackId] = useState<number | null>(null);
+  const [detailById, setDetailById] = useState<Record<number, AttackDetail>>({});
+  const [detailErrorById, setDetailErrorById] = useState<Record<number, string>>({});
+  const [loadingDetailId, setLoadingDetailId] = useState<number | null>(null);
+
+  const liveAttacks = useMemo<Attack[]>(() => {
+    if (!hasRaydiumData(data)) return [];
+    return dedupeAttacks(data.attacks.filter(isRaydiumAttack))
+      .sort((a, b) => new Date(b.block_time).getTime() - new Date(a.block_time).getTime());
   }, [data]);
 
-  useEffect(() => {
-    if (!selectedAttack) {
-      setDetail(null);
-      setDetailError(null);
-      setDetailLoading(false);
+  const demoMode = isDemoData(data);
+
+  const loadDetail = useCallback(async (attack: Attack) => {
+    const attackId = attack.id;
+    setLoadingDetailId(attackId);
+    setDetailErrorById((prev) => {
+      const next = { ...prev };
+      delete next[attackId];
+      return next;
+    });
+    if (demoMode) {
+      setDetailById((prev) => ({ ...prev, [attackId]: attack as AttackDetail }));
+      setLoadingDetailId(null);
       return;
     }
+    try {
+      const detail = await api.attackDetail(attackId);
+      setDetailById((prev) => ({ ...prev, [attackId]: detail }));
+    } catch (err) {
+      setDetailErrorById((prev) => ({
+        ...prev,
+        [attackId]: err instanceof Error ? err.message : "Failed to load detail",
+      }));
+    } finally {
+      setLoadingDetailId((current) => (current === attackId ? null : current));
+    }
+  }, [demoMode]);
 
-    setDetailLoading(true);
-    setDetailError(null);
-    api.attackDetail(selectedAttack.id)
-      .then(setDetail)
-      .catch((err) => setDetailError(err instanceof Error ? err.message : "Failed to load detection detail"))
-      .finally(() => setDetailLoading(false));
-  }, [selectedAttack]);
+  useEffect(() => {
+    if (!selectedAttackId || detailById[selectedAttackId] || loadingDetailId === selectedAttackId) return;
+    const selectedAttack = liveAttacks.find((attack) => attack.id === selectedAttackId);
+    if (selectedAttack) void loadDetail(selectedAttack);
+  }, [detailById, liveAttacks, loadDetail, loadingDetailId, selectedAttackId]);
 
-  const filtered = liveAttacks.filter((a) =>
-    filter === "all" ? true :
-    filter === "sandwich" ? a.type === "sandwich" :
-    filter === "jit" ? a.type === "jit" :
-    a.type === "sniper" || a.type === "liquidity_snipe"
-  );
+  const counts = useMemo(() => {
+    const c: Record<DetectionFilter, number> = {
+      all: liveAttacks.length,
+      sandwich: 0, backrun: 0, arbitrage: 0,
+      jit: 0, liquidation: 0, liquidity_snipe: 0, liquidity_drain: 0,
+    };
+    for (const a of liveAttacks) {
+      if (a.attack_type in c) c[a.attack_type as DetectionFilter] += 1;
+    }
+    return c;
+  }, [liveAttacks]);
 
-  const counts = {
-    sandwich: liveAttacks.filter((a) => a.type === "sandwich").length,
-    jit: liveAttacks.filter((a) => a.type === "jit").length,
-    sniper: liveAttacks.filter((a) => a.type === "sniper" || a.type === "liquidity_snipe").length,
-  };
+  const filtered = useMemo(() =>
+    filter === "all" ? liveAttacks : liveAttacks.filter((a) => a.attack_type === filter),
+  [filter, liveAttacks]);
+
+  const totalProfit = liveAttacks.reduce((sum, a) => sum + (a.profit_usd ?? 0), 0);
+  const totalVictimLoss = liveAttacks.reduce((sum, a) => sum + (a.victim_loss_usd ?? 0), 0);
+  const bundleSignals = liveAttacks.filter(hasBundleSignal).length;
 
   return (
     <>
-      {selectedAttack && (
-        <>
-          <button
-            type="button"
-            aria-label="Close detection detail"
-            className="fixed inset-0 z-40 cursor-default bg-background/60 backdrop-blur-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            onClick={() => setSelectedAttack(null)}
-          />
-          <DetectionDetailPanel
-            attack={selectedAttack}
-            detail={detail}
-            loading={detailLoading}
-            error={detailError}
-            onClose={() => setSelectedAttack(null)}
-          />
-        </>
-      )}
-
-      {/* Stats */}
-      <div className="grid gap-3 sm:grid-cols-4">
+      {/* Stats row */}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="border border-border bg-card p-4">
           <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Total Detections</div>
           <div className="mt-2 text-3xl font-bold text-foreground">{liveAttacks.length}</div>
           <div className="mt-0.5 text-xs text-muted-foreground">this session</div>
         </div>
         <div className="border border-red-500/30 bg-red-500/5 p-4">
-          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Sandwich</div>
-          <div className="mt-2 text-3xl font-bold text-red-300">{counts.sandwich}</div>
-        </div>
-        <div className="border border-primary/30 bg-primary/5 p-4">
-          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">JIT</div>
-          <div className="mt-2 text-3xl font-bold text-primary">{counts.jit}</div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Searcher Profit</div>
+          <div className="mt-2 text-3xl font-bold text-red-300">{fmt(totalProfit)}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">net gain by attackers</div>
         </div>
         <div className="border border-yellow-500/30 bg-yellow-500/5 p-4">
-          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">LaunchLab Sniper</div>
-          <div className="mt-2 text-3xl font-bold text-yellow-200">{counts.sniper}</div>
+          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Victim Loss</div>
+          <div className="mt-2 text-3xl font-bold text-yellow-200">{fmt(totalVictimLoss)}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">harm to users</div>
+        </div>
+        <div className="border border-primary/30 bg-primary/5 p-4">
+          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Bundle Signals</div>
+          <div className="mt-2 text-2xl font-bold text-primary">{bundleSignals}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">from lane or likelihood fields</div>
         </div>
       </div>
 
-      {/* Filter tabs */}
-      <div className="flex gap-2">
-        {(["all", "sandwich", "jit", "sniper"] as const).map((f) => (
-          <button key={f} type="button" onClick={() => setFilter(f)}
-            className={`border px-4 py-2 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors ${filter === f ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40 hover:text-primary"}`}>
-            {f} {f !== "all" && `(${counts[f as keyof typeof counts]})`}
-          </button>
-        ))}
+      {/* Filter tabs — all 8 attack types */}
+      <div className="flex flex-wrap gap-2">
+        {DETECTION_FILTERS.map((f) => {
+          const n = counts[f];
+          return (
+            <button key={f} type="button" onClick={() => setFilter(f)}
+              className={`min-h-10 border px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${filter === f ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40 hover:text-primary"}`}>
+              <span className={filter !== f && n > 0 ? typeTextClass(f) : ""}>{FILTER_LABELS[f]}</span>
+              {f !== "all" && <span className="ml-1 opacity-60">({n})</span>}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Detections table */}
+      {/* Detection cards */}
       <div className="border border-border bg-card">
-        <div className="border-b border-border/60 px-4 py-3 flex items-center gap-3">
+        <div className="border-b border-border/60 px-4 py-2.5 flex items-center gap-3">
           <span className="flex h-2 w-2 rounded-full bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.8)]" />
           <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-primary">Live Raydium MEV Detections</p>
-          <span className="ml-auto font-mono text-[10px] text-muted-foreground">{isLiveData(data) ? "QuickNode live" : "waiting for chain"}</span>
+          <span className="ml-auto font-mono text-[10px] text-muted-foreground">{sourceDetail(data)}</span>
         </div>
-        {filtered.length > 0 ? <div className="overflow-x-auto">
-          <table className="w-full min-w-[860px]">
-            <thead className="border-b border-border/50">
-              <tr className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
-                <th className="px-4 py-3 font-medium text-left">Type</th>
-                <th className="px-4 py-3 font-medium text-left">Surface</th>
-                <th className="px-4 py-3 font-medium text-left">Program</th>
-                <th className="px-4 py-3 font-medium text-left">Attacker</th>
-                <th className="px-4 py-3 font-medium text-right">Profit</th>
-                <th className="px-4 py-3 font-medium text-right">Victim Loss</th>
-                <th className="px-4 py-3 font-medium text-right">Conf</th>
-                <th className="px-4 py-3 font-medium text-left">Detail</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((row) => (
-                <tr key={row.id} className="border-b border-border/30 last:border-0 hover:bg-primary/5 transition-colors">
-                  <td className="px-4 py-3">
-                    <span className={`font-mono text-[10px] uppercase font-semibold ${typeTextClass(row.type)}`}>{row.type}</span>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-foreground">{row.pair}</td>
-                  <td className="px-4 py-3 font-mono text-[10px] text-primary">{row.program}</td>
-                  <td className="px-4 py-3">
-                    {row.attackerFull ? (
-                      <ExtLink href={solscan(row.attackerFull)} label={row.attacker} />
-                    ) : (
-                      <span className="font-mono text-[10px] text-muted-foreground">{row.attacker}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-right text-red-300">{row.profit != null ? fmt(row.profit) : "—"}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-right text-red-300">{row.loss != null ? fmt(row.loss) : "—"}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-right text-muted-foreground">{row.conf}%</td>
-                  <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedAttack(row.attack)}
-                      className="border border-primary/40 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                    >
-                      Open
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div> : <EmptyPanel message="No Raydium detections match this filter in the current live API window." />}
+        {filtered.length > 0 ? (
+          <div className="space-y-2 p-3">
+            {filtered.map((attack) => (
+              <RaydiumDetectionCard
+                key={attack.id}
+                attack={attack}
+                detail={detailById[attack.id] ?? null}
+                expanded={selectedAttackId === attack.id}
+                loading={loadingDetailId === attack.id}
+                error={detailErrorById[attack.id] ?? null}
+                onToggle={() => setSelectedAttackId((current) => (current === attack.id ? null : attack.id))}
+                onRetry={() => void loadDetail(attack)}
+              />
+            ))}
+          </div>
+        ) : (
+          <EmptyPanel message={hasRaydiumData(data) ? `No ${filter === "all" ? "Raydium" : filter} detections in the current window.` : "Waiting for live chain data. Detections appear here once the feed connects."} />
+        )}
       </div>
     </>
   );
 }
 
-function DetectionDetailPanel({
+function RaydiumDetectionCard({
   attack,
   detail,
+  expanded,
   loading,
   error,
-  onClose,
+  onToggle,
+  onRetry,
 }: {
   attack: Attack;
   detail: AttackDetail | null;
+  expanded: boolean;
   loading: boolean;
   error: string | null;
-  onClose: () => void;
+  onToggle: () => void;
+  onRetry: () => void;
 }) {
   const evidence = detail?.evidence ?? attack.evidence ?? [];
+  const meta = attackMeta(attack.attack_type);
+  const bundleSignal = hasBundleSignal(attack);
+  const confidenceSignals = attack.attack_type === "sandwich"
+    ? sandwichConfidenceSignals(attack)
+    : attack.attack_type === "jit"
+      ? jitConfidenceSignals(attack)
+      : null;
+  const confPct = Math.round((attack.confidence ?? 0) * 100);
+  const detailId = `raydium-detection-${attack.id}`;
 
   return (
-    <div className="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-border bg-background shadow-2xl">
-      <div className="flex items-center justify-between border-b border-border px-5 py-4">
-        <div>
-          <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-primary">Detection detail</p>
-          <h2 className="mt-0.5 text-base font-semibold text-foreground">{attack.attack_type.toUpperCase()} · {attack.surface_label ?? formatPoolLabel(attack.pool_address)}</h2>
+    <article className={`border p-3 transition-colors ${meta.bgColor}`}>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`border px-2 py-0.5 font-mono text-xs font-bold uppercase ${meta.bgColor} ${meta.color}`}>
+              {meta.shortLabel}
+            </span>
+            {bundleSignal && <span className="border border-orange-500/40 bg-orange-500/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-orange-300">Bundle signal</span>}
+            {attack.entity_label && <span className="border border-primary/40 bg-primary/10 px-2 py-0.5 font-mono text-[9px] uppercase text-primary">{attack.entity_label}</span>}
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+              {programName(attack.protocol)} · {attack.surface_precision ?? "inferred"}
+            </span>
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2">
+            <div>
+              <span className="font-mono text-xs text-muted-foreground">ATTACKER </span>
+              <ExtLink href={solscan(attack.attacker_wallet)} label={truncateAddress(attack.attacker_wallet, 6, 4)} />
+            </div>
+            {attack.victim_wallet && (
+              <div>
+                <span className="font-mono text-xs text-muted-foreground">VICTIM </span>
+                <ExtLink href={solscan(attack.victim_wallet)} label={truncateAddress(attack.victim_wallet, 6, 4)} />
+              </div>
+            )}
+          </div>
+
+          <h3 className="mt-2 truncate text-sm font-semibold text-foreground">
+            {attack.surface_label ?? formatPoolLabel(attack.pool_address)}
+          </h3>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{detectionSummary(attack)}</p>
         </div>
-        <button type="button" onClick={onClose} className="border border-border px-3 py-2 font-mono text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-          Close
+
+        <div className="grid shrink-0 grid-cols-2 gap-3 text-right sm:grid-cols-5 lg:min-w-[620px]">
+          <Metric label="Model" value={attack.detector ?? "unknown"} />
+          <Metric label="Confidence" value={`${confidenceLabel(attack.confidence)} · ${confPct}%`} tone={meta.color} />
+          <Metric label={profitLabel(attack)} value={fmt(attack.profit_usd)} tone={meta.color} />
+          <Metric label={harmLabel(attack)} value={fmt(attack.victim_loss_usd)} tone="text-yellow-200" />
+          <Metric label="Time" value={formatRelativeTime(attack.block_time)} />
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.16em]">
+        <Chip label="lane" value={attack.execution_lane ?? "standard"} />
+        <Chip label="basis" value={attack.detection_basis ?? "heuristic"} />
+        {attack.bundle_likelihood != null && <Chip label="bundle" value={`${(attack.bundle_likelihood * 100).toFixed(0)}%`} />}
+        {attack.tip_lamports != null && <Chip label="tip" value={fmtLamports(attack.tip_lamports)} />}
+      </div>
+
+      {!!evidence.length && !expanded && (
+        <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+          {evidence.slice(0, 3).map((item) => (
+            <span key={item} className="border border-border/80 px-2 py-1">{item}</span>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
+        {attack.frontrun_tx && <ExtLink href={solscan(attack.frontrun_tx, "tx")} label="Frontrun tx" />}
+        {attack.victim_tx && <ExtLink href={solscan(attack.victim_tx, "tx")} label="Victim tx" />}
+        {attack.backrun_tx && <ExtLink href={solscan(attack.backrun_tx, "tx")} label="Backrun tx" />}
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={detailId}
+          onClick={onToggle}
+          className="ml-auto inline-flex min-h-10 items-center border border-primary/40 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-primary transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          {expanded ? "Collapse" : "Expand evidence"}
         </button>
       </div>
 
-      <div className="flex-1 space-y-4 p-5">
-        <div className="border border-border/60 p-4">
-          <div className="grid gap-3 text-xs">
-            <DetailLine label="Attacker" value={attack.attacker_wallet} href={solscan(attack.attacker_wallet)} />
-            {attack.victim_wallet && <DetailLine label="Victim" value={attack.victim_wallet} href={solscan(attack.victim_wallet)} />}
-            <DetailLine label="Validator" value={attack.validator} href={solscan(attack.validator)} />
-            <DetailLine label="Confidence" value={`${Math.round(attack.confidence * 100)}%`} />
-            <DetailLine label="Surface" value={attack.surface_label ?? formatPoolLabel(attack.pool_address)} />
-            <DetailLine label="Block time" value={new Date(attack.block_time).toLocaleString()} />
-            {attack.profit_usd != null && <DetailLine label="Searcher profit" value={fmt(attack.profit_usd)} />}
-            {attack.victim_loss_usd != null && <DetailLine label="Victim loss" value={fmt(attack.victim_loss_usd)} />}
-          </div>
-        </div>
-
-        <div className="border border-border/60 p-4">
-          <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Transactions</div>
-          <div className="mt-3 flex flex-col gap-2">
-            {attack.frontrun_tx && <ExtLink href={solscan(attack.frontrun_tx, "tx")} label="Frontrun tx" />}
-            {attack.victim_tx && <ExtLink href={solscan(attack.victim_tx, "tx")} label="Victim tx" />}
-            {attack.backrun_tx && <ExtLink href={solscan(attack.backrun_tx, "tx")} label="Backrun tx" />}
-            {!attack.frontrun_tx && !attack.victim_tx && !attack.backrun_tx && <span className="text-sm text-muted-foreground">No transaction signatures returned for this detection.</span>}
-          </div>
-        </div>
-
-        <div className="border border-border/60 p-4">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Evidence</span>
-            {loading && <span className="font-mono text-[9px] text-primary">Loading</span>}
-          </div>
-          {error ? (
-            <div className="mt-3 text-sm text-red-300">{error}</div>
-          ) : evidence.length > 0 ? (
-            <div className="mt-3 space-y-2 text-[11px] text-foreground">
-              {evidence.map((item) => (
-                <div key={item} className="border border-border/70 px-2 py-2">{item}</div>
-              ))}
+      {expanded && (
+        <div id={detailId} className="mt-3 grid gap-3 border-t border-border/80 pt-3 xl:grid-cols-[1fr_1fr]">
+          <div className="space-y-3">
+            <div className="border border-border/60 p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Confidence Model</span>
+                <span className={`font-mono text-sm font-bold ${confPct >= 85 ? "text-red-300" : confPct >= 65 ? "text-yellow-200" : "text-muted-foreground"}`}>{confPct}%</span>
+              </div>
+              <div className="h-1.5 border border-border/50 bg-background/60">
+                <div
+                  className={`h-full transition-[width] ${confPct >= 85 ? "bg-red-400" : confPct >= 65 ? "bg-yellow-400" : "bg-primary"}`}
+                  style={{ width: `${confPct}%` }}
+                />
+              </div>
+              {confidenceSignals ? (
+                <div className="mt-3 space-y-1.5">
+                  {confidenceSignals.map((sig) => (
+                    <div key={sig.label} className="flex items-center gap-2">
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${sig.present ? "bg-green-400" : "bg-border"}`} />
+                      <span className={`font-mono text-[10px] ${sig.present ? "text-foreground" : "text-muted-foreground/60"}`}>{sig.label}</span>
+                      {sig.present && <span className="ml-auto font-mono text-[9px] text-green-400">+{Math.round(sig.weight * 100)}%</span>}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-xs text-muted-foreground">This detector does not expose a specialized Raydium confidence checklist yet.</p>
+              )}
             </div>
-          ) : (
-            <div className="mt-3 text-sm text-muted-foreground">No evidence trail returned yet.</div>
-          )}
+
+            <div className="border border-border/60 p-4">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Evidence trail</span>
+                {loading && <span className="font-mono text-[9px] text-primary animate-pulse">Loading...</span>}
+              </div>
+              {error ? (
+                <div className="mt-3 space-y-3">
+                  <p className="text-sm text-red-300">{error}</p>
+                  <button type="button" onClick={onRetry} className="min-h-10 border border-red-500/40 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-red-300 transition-colors hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400">
+                    Retry detail
+                  </button>
+                </div>
+              ) : evidence.length > 0 ? (
+                <div className="mt-3 space-y-2 text-[11px] text-foreground">
+                  {evidence.map((item) => <div key={item} className="border border-border/70 px-2 py-2">{item}</div>)}
+                </div>
+              ) : loading ? (
+                <div className="mt-3 space-y-2">
+                  <div className="h-8 animate-pulse bg-muted/40" />
+                  <div className="h-8 animate-pulse bg-muted/30" />
+                </div>
+              ) : (
+                <div className="mt-3 text-sm text-muted-foreground">No evidence trail returned yet.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="border border-border/60 p-4">
+              <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Event detail</div>
+              <div className="mt-3 grid gap-3 text-xs sm:grid-cols-2">
+                <DetailLine label="Surface" value={attack.surface_label ?? formatPoolLabel(attack.pool_address)} />
+                <DetailLine label="Program" value={programName(attack.protocol)} />
+                <DetailLine label="Block time" value={new Date(attack.block_time).toLocaleString()} />
+                <DetailLine label="Validator" value={truncateAddress(attack.validator, 10, 6)} href={solscan(attack.validator)} />
+                {attack.token_mint && <DetailLine label="Token mint" value={truncateAddress(attack.token_mint, 10, 6)} href={solscan(attack.token_mint)} />}
+                <DetailLine label="Surface precision" value={attack.surface_precision ?? "inferred"} />
+              </div>
+            </div>
+
+            <div className="border border-primary/25 bg-primary/5 p-4">
+              <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-primary">Raydium mechanics</div>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">{raydiumMechanic(attack)}</p>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+    </article>
+  );
+}
+
+function Metric({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="truncate font-mono text-xs text-muted-foreground">{label}</div>
+      <div className={`mt-0.5 truncate font-mono text-xs font-bold ${tone ?? "text-foreground"}`}>{value}</div>
     </div>
+  );
+}
+
+function Chip({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="border border-border/60 bg-background/35 px-2 py-1 font-mono text-muted-foreground">
+      {label} · <span className="text-foreground">{value}</span>
+    </span>
   );
 }
 
@@ -938,7 +1212,7 @@ function DetailLine({ label, value, href }: { label: string; value: string; href
 
 function SectionSavings({ data }: { data: RaydiumData | null }) {
   const chartData = useMemo(() => {
-    if (!isLiveData(data)) return [];
+    if (!hasRaydiumData(data)) return [];
     const from = data.routes.filter(isRaydiumRoute).filter((r) => r.estimated_savings_usd > 0).map((r) => ({
       name: r.label?.split("•")[1]?.trim() ?? r.route_key,
       savings: Math.round(r.estimated_savings_usd),
@@ -956,7 +1230,7 @@ function SectionSavings({ data }: { data: RaydiumData | null }) {
         <div className="col-span-2 border border-primary/40 bg-primary/5 p-5">
           <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground">Observed Savings Potential</div>
           <div className="mt-2 text-5xl font-bold text-primary">{fmt(totalSavings)}</div>
-          <div className="mt-1 text-sm text-muted-foreground">from current Raydium route rows</div>
+          <div className="mt-1 text-sm text-muted-foreground">{sourceRowsText(data)}</div>
         </div>
         {Object.entries(byProgram).slice(0, 3).map(([program, savings]) => (
           <div key={program} className="border border-border bg-card p-4">
@@ -971,7 +1245,7 @@ function SectionSavings({ data }: { data: RaydiumData | null }) {
       <div className="border border-border bg-card">
         <div className="border-b border-border/60 px-4 py-3">
           <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-primary">Savings by Pool</p>
-          <h2 className="mt-0.5 text-base font-semibold text-foreground">Estimated savings from live route rows</h2>
+          <h2 className="mt-0.5 text-base font-semibold text-foreground">Estimated savings from {isDemoData(data) ? "local demo" : "live route"} rows</h2>
         </div>
         <div className="h-64 p-4">
           {chartData.length > 0 ? (
@@ -1005,7 +1279,7 @@ function SectionSavings({ data }: { data: RaydiumData | null }) {
         {[
           { title: "Routes", value: `${chartData.length}`, desc: "Raydium routes with savings estimates returned by the API", color: "border-red-500/30 bg-red-500/5" },
           { title: "For LPs", value: fmt(live_lp_drag(data)), desc: "LP drag currently returned by live LP protection rows", color: "border-primary/30 bg-primary/5" },
-          { title: "Data Source", value: isLiveData(data) ? "Chain" : "--", desc: "no frontend demo values are blended into this view", color: "border-yellow-500/30 bg-yellow-500/5" },
+          { title: "Data Source", value: sourceLabel(data), desc: isDemoData(data) ? "local demo scenario for offline UI work" : "live Raydium rows returned by the API", color: "border-yellow-500/30 bg-yellow-500/5" },
         ].map((card) => (
           <div key={card.title} className={`border p-5 ${card.color}`}>
             <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">{card.title}</div>
@@ -1018,7 +1292,7 @@ function SectionSavings({ data }: { data: RaydiumData | null }) {
   );
 }
 function live_lp_drag(data: RaydiumData | null): number {
-  if (!isLiveData(data)) return 0;
+  if (!hasRaydiumData(data)) return 0;
   const total = data.lp.filter(isRaydiumPool).reduce((s, p) => s + (p.lp_drag_estimate_usd ?? 0), 0);
   return total;
 }
@@ -1026,7 +1300,7 @@ function live_lp_drag(data: RaydiumData | null): number {
 // ─── Section: Extraction ─────────────────────────────────────────────────────
 
 function SectionExtraction({ data }: { data: RaydiumData | null }) {
-  const liveAttacks = useMemo(() => isLiveData(data) ? data.attacks.filter(isRaydiumAttack) : [], [data]);
+  const liveAttacks = useMemo(() => hasRaydiumData(data) ? data.attacks.filter(isRaydiumAttack) : [], [data]);
   const trendData = useMemo(() => liveAttacks
     .map((attack) => {
       const value = (attack.profit_usd ?? 0) + (attack.victim_loss_usd ?? 0);
@@ -1067,7 +1341,7 @@ function SectionExtraction({ data }: { data: RaydiumData | null }) {
         <div className="col-span-2 border border-red-500/40 bg-red-500/5 p-5">
           <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground">Observed Raydium extraction</div>
           <div className="mt-2 text-5xl font-bold text-red-300">{fmt(observedTotal)}</div>
-          <div className="mt-1 text-sm text-muted-foreground">from current live detections</div>
+          <div className="mt-1 text-sm text-muted-foreground">{isDemoData(data) ? "from local demo detections" : "from current live detections"}</div>
         </div>
         <div className="border border-border bg-card p-4">
           <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Peak Observation</div>
@@ -1077,7 +1351,7 @@ function SectionExtraction({ data }: { data: RaydiumData | null }) {
         <div className="border border-border bg-card p-4">
           <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Detections</div>
           <div className="mt-2 text-2xl font-bold text-foreground">{liveAttacks.length}</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">current API window</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{isDemoData(data) ? "local demo window" : "current API window"}</div>
         </div>
       </div>
 
@@ -1180,7 +1454,7 @@ function SectionExtraction({ data }: { data: RaydiumData | null }) {
 // ─── Root export ─────────────────────────────────────────────────────────────
 
 export default function RaydiumDeepDive({ section }: { section: RaydiumSection }) {
-  const { data, loading, refreshing, reload } = useRaydiumData();
+  const { data, loading, refreshing, error, reload } = useRaydiumData();
 
   if (loading && !data) {
     return (
@@ -1196,6 +1470,28 @@ export default function RaydiumDeepDive({ section }: { section: RaydiumSection }
 
   return (
     <PageShell section={section} refreshing={refreshing} onRefresh={reload}>
+      {error && (
+        <div className="border border-red-500/35 bg-red-500/10 p-4">
+          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-red-300">Raydium API request failed</div>
+          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
+          <button
+            type="button"
+            onClick={reload}
+            className="mt-3 min-h-10 border border-red-500/40 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-red-300 transition-colors hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+      {isDemoData(data) && (
+        <div className="border border-yellow-500/35 bg-yellow-500/10 p-4">
+          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-yellow-200">Local Raydium demo scenario</div>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            Backend chain rows are unavailable or empty, so this page is showing a seeded Raydium protection scenario for local testing.
+            Live API rows replace it automatically once Raydium surfaces arrive.
+          </p>
+        </div>
+      )}
       {section === "pools"      && <SectionPools data={data} />}
       {section === "jit"        && <SectionJit data={data} />}
       {section === "launchlab"  && <SectionLaunchLab data={data} />}

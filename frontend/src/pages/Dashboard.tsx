@@ -84,64 +84,67 @@ export default function Dashboard() {
     <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-7xl mx-auto px-6 py-6">
         {/* Tab nav */}
-        <div className="mb-6 flex items-center gap-1 border-b border-border pb-4">
-          <Link
-            to="/"
-            className="mr-3 border border-border px-3 py-1 text-xs font-mono tracking-wider text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
-          >
-            ← HOME
-          </Link>
+        <div className="mb-6 border-b border-border pb-0">
+          {/* Top row: home + page links */}
+          <div className="flex items-center justify-between gap-2 pb-3">
+            <Link
+              to="/"
+              className="border border-border px-3 py-1 text-xs font-mono tracking-wider text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
+            >
+              ← HOME
+            </Link>
+            <div className="flex items-center gap-2 text-xs">
+              <Link
+                to="/history"
+                className="border border-primary/20 px-3 py-1 font-mono tracking-wider text-primary hover:bg-primary/10 transition-colors"
+              >
+                HISTORY
+              </Link>
+              <Link
+                to="/protection"
+                className="border border-primary/20 px-3 py-1 font-mono tracking-wider text-primary hover:bg-primary/10 transition-colors"
+              >
+                PROTECTION
+              </Link>
+              <Link
+                to="/dex-intelligence/raydium"
+                className="border border-primary/20 px-3 py-1 font-mono tracking-wider text-primary hover:bg-primary/10 transition-colors"
+              >
+                DEX INTEL
+              </Link>
+              {dataMode === "chain" ? (
+                <div className="flex items-center gap-1.5 border border-green-500/40 bg-green-500/10 px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-green-400">
+                  <motion.div
+                    className="w-1.5 h-1.5 rounded-full bg-green-400"
+                    animate={{ opacity: [1, 0.3, 1] }}
+                    transition={{ duration: 1.5, repeat: Infinity }}
+                  />
+                  LIVE CHAIN
+                </div>
+              ) : dataMode === "fallback" ? (
+                <div className="flex items-center gap-1.5 border border-yellow-500/40 bg-yellow-500/10 px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-yellow-400">
+                  <div className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
+                  API FALLBACK
+                </div>
+              ) : null}
+            </div>
+          </div>
 
-          <div className="flex flex-1 items-center gap-1 overflow-x-auto">
+          {/* Bottom row: tabs full width */}
+          <div className="flex items-center gap-1 overflow-x-auto">
             {tabs.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`whitespace-nowrap px-4 py-2 text-xs font-mono tracking-wider transition-all ${
                   activeTab === tab.id
-                    ? "text-primary border-b-2 border-primary -mb-[17px]"
+                    ? "text-primary border-b-2 border-primary -mb-[1px]"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {tab.label}
               </button>
             ))}
-          </div>
-
-          <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-            <Link
-              to="/history"
-              className="mr-4 border border-primary/20 px-3 py-1 text-primary hover:bg-primary/10 transition-colors"
-            >
-              HISTORY
-            </Link>
-            <Link
-              to="/protection"
-              className="mr-4 border border-primary/20 px-3 py-1 text-primary hover:bg-primary/10 transition-colors"
-            >
-              PROTECTION
-            </Link>
-            <Link
-              to="/dex-intelligence/raydium"
-              className="mr-4 border border-primary/20 px-3 py-1 text-primary hover:bg-primary/10 transition-colors"
-            >
-              DEX INTEL
-            </Link>
-            {dataMode === "chain" ? (
-              <div className="flex items-center gap-1.5 border border-green-500/40 bg-green-500/10 px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-green-400">
-                <motion.div
-                  className="w-1.5 h-1.5 rounded-full bg-green-400"
-                  animate={{ opacity: [1, 0.3, 1] }}
-                  transition={{ duration: 1.5, repeat: Infinity }}
-                />
-                LIVE CHAIN
-              </div>
-            ) : dataMode === "fallback" ? (
-              <div className="flex items-center gap-1.5 border border-yellow-500/40 bg-yellow-500/10 px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-yellow-400">
-                <div className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
-                API FALLBACK
-              </div>
-            ) : null}
           </div>
         </div>
 

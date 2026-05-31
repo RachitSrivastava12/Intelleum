@@ -1,3 +1,8 @@
+import {
+  getRaydiumProgramMeta,
+  raydiumGuardReasonCodes,
+} from "../ingestion/programs";
+
 type AttackType =
   | "sandwich"
   | "arbitrage"
@@ -1412,6 +1417,8 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
       const backrunRate = item.total_attacks > 0 ? item.backrun_count / item.total_attacks : 0;
       const arbitrageRate = item.total_attacks > 0 ? item.arbitrage_count / item.total_attacks : 0;
       const jitRate = item.total_attacks > 0 ? item.jit_count / item.total_attacks : 0;
+      const raydiumMeta = getRaydiumProgramMeta(item.protocol);
+      const raydiumRiskBias = raydiumMeta ? Math.max(0, (raydiumMeta.riskWeight - 1) * 18) : 0;
       const liquidityRiskRate =
         item.total_attacks > 0 ? (item.liquidity_snipe_count + item.liquidity_drain_count) / item.total_attacks : 0;
       const riskScore = Math.min(
@@ -1428,7 +1435,8 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
             item.total_extracted_usd / 90 +
             item.attackers.size * 2 +
             avgConfidence * 10 +
-            bundleShare * 8
+            bundleShare * 8 +
+            raydiumRiskBias
           ).toFixed(1),
         ),
       );
@@ -1459,7 +1467,10 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
       const priorityFeePressure = round(clamp(bundleShare * 0.68 + avgConfidence * 12, 2, 98));
       const validatorMarkoutQuality = round(clamp(100 - markout5 * 3.1 - bundleShare * 24, 3, 96));
       const recommendedMaxNotionalUsd = round(clamp(180_000 - toxicFlowRate * 1_250 - bundleShare * 650, 7_500, 180_000), 0);
-      const estimatedSavingsBps = round(clamp(markout30 * 0.55 + lvrProxyScore * 0.05, 0.3, 18), 2);
+      const estimatedSavingsBps = round(
+        clamp(markout30 * 0.55 + lvrProxyScore * 0.05 + (raydiumMeta ? raydiumRiskBias * 0.08 : 0), 0.3, 18),
+        2,
+      );
       const estimatedSavingsUsd = round((recommendedMaxNotionalUsd * estimatedSavingsBps) / 10_000, 2);
       const orderFlowImbalance = round(clamp(
         toxicFlowRate * 0.45 + sandwichRate * 30 + bundleShare * 18,
@@ -1469,14 +1480,17 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
       const impliedVolSq = Math.max(0, (markout30 / 10_000) * 252 * 2.4);
       const lvrAnnualRatePct = round(clamp(impliedVolSq * 50 + lvrProxyScore * 0.15, item.total_attacks > 0 ? 0.5 : 0, 85), 1);
       const lpAnnualLossUsdEstimate = round((recommendedMaxNotionalUsd * lvrAnnualRatePct) / 100, 0);
-      const reasonCodes = buildReasonCodes({
-        sandwichRate,
-        bundleShare: bundleShare * 100,
-        staleQuotePickupRate,
-        markout30,
-        lvrProxyScore,
-        toxicFlowRate,
-      });
+      const reasonCodes = [...new Set([
+        ...buildReasonCodes({
+          sandwichRate,
+          bundleShare: bundleShare * 100,
+          staleQuotePickupRate,
+          markout30,
+          lvrProxyScore,
+          toxicFlowRate,
+        }),
+        ...raydiumGuardReasonCodes(item.protocol),
+      ])];
       const policyAction =
         riskScore >= 86 || toxicityProbability >= 82
           ? "avoid"
@@ -1697,6 +1711,7 @@ export function evaluateRoute(request: RouteEvaluationRequest): RouteEvaluationR
     estimated_bps_saved: Number(Math.max(0, estimatedBpsAtRisk - estimateBpsAtRisk(route, objective)).toFixed(2)),
   }));
   const decision = classifyRouteDecision(selected, objective, estimatedBpsAtRisk, saferAlternatives.length);
+  const raydiumMeta = getRaydiumProgramMeta(selected.protocol);
 
   return {
     route_key: selected.route_key,
@@ -1713,12 +1728,18 @@ export function evaluateRoute(request: RouteEvaluationRequest): RouteEvaluationR
     safer_alternatives: saferAlternatives,
     rationale: [
       `matched against ${matched_on.replace("_", " ")} intel for ${selected.label}`,
+      raydiumMeta
+        ? `${raydiumMeta.label} guardrails: ${raydiumMeta.guardrails.slice(0, 2).join("; ")}`
+        : null,
       `${selected.total_attacks} detections and ${selected.unique_attackers} unique operators are attached to this surface`,
       `bundle-heavy share is ${selected.bundle_share.toFixed(0)}% and average detector confidence is ${selected.avg_confidence.toFixed(0)}%`,
       `30s markout is ${selected.markout_30s_bps.toFixed(1)} bps and stale quote pickup rate is ${selected.stale_quote_pickup_rate.toFixed(0)}%`,
       `estimated LVR proxy score is ${selected.lvr_proxy_score.toFixed(0)} with flow quality ${selected.flow_quality_score.toFixed(0)}`,
-    ],
+    ].filter((entry): entry is string => entry != null),
     integration_actions: [
+      raydiumMeta?.configEndpoint
+        ? `refresh Raydium config from ${raydiumMeta.configEndpoint} before using fee or tick assumptions`
+        : null,
       decision === "reroute" || decision === "avoid"
         ? "prefer the safer alternative or remove this venue from the active route set"
         : decision === "penalize"
@@ -1729,7 +1750,7 @@ export function evaluateRoute(request: RouteEvaluationRequest): RouteEvaluationR
         ? "trigger a high-severity ops alert for repeated toxic execution on this pair"
         : "keep this surface under live alert monitoring",
       `cap order size near $${selected.recommended_max_notional_usd.toLocaleString()} unless the venue state improves`,
-    ],
+    ].filter((entry): entry is string => entry != null),
     execution_quality_score: selected.execution_quality_score,
     toxic_flow_rate: selected.toxic_flow_rate,
     realized_slippage_bps: selected.realized_slippage_bps,
@@ -2128,12 +2149,14 @@ function buildProtectedSendPolicy(
       route_action: action,
       implementation_steps: [
         "switch to the top safer alternative returned by the guard",
-        "submit through a protected/private lane with dont-front semantics when available",
+        "when using Jito, add a read-only jitodontfront account and keep the protected transaction first in the bundle",
+        "set compute-unit price and limit from a current priority-fee estimate instead of overpaying unused CU",
         "cap notional at the recommended max until toxicity drops",
       ],
       rationale: [
         "a cleaner candidate exists for this pair",
-        "private submission reduces public mempool exposure while the route is replaced",
+        "Jito bundle ordering only protects the marked transaction when it is first in the bundle",
+        "Solana priority fees are charged on requested compute limit, so capped CU avoids waste",
       ],
     };
   }
@@ -2151,6 +2174,7 @@ function buildProtectedSendPolicy(
       implementation_steps: [
         "downrank this candidate inside the router score",
         "tighten slippage and cap size for the current quote",
+        "prefer private submission for large orders and only add Jito tip when the next leader path can use it",
         "emit the reason codes into execution analytics",
       ],
       rationale: [
@@ -2173,6 +2197,7 @@ function buildProtectedSendPolicy(
       implementation_steps: [
         "submit normally or through a private RPC if trade size is elevated",
         "attach the guard response to logs for post-trade markout review",
+        "track compute-unit limit and priority fee paid so overpayment can be detected",
         "rescore the route if quote age or slippage changes",
       ],
       rationale: [
