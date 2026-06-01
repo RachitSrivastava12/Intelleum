@@ -1298,9 +1298,6 @@ class LiveChainService {
     if (this.started) return;
     this.started = true;
 
-    // Restore previous detections from DB so history survives restarts
-    void this.loadAttacksFromDb(500);
-
     const hasHeliusConfig = this.ensureHeliusConfig();
     if (!hasHeliusConfig || !this.heliusRpcUrl) {
       console.warn("[chain] Helius disabled: HELIUS_RPC_URL missing");
@@ -1385,8 +1382,6 @@ class LiveChainService {
     if (!Array.isArray(blocks) || blocks.length === 0) return;
 
     this.ensureHeliusConfig();
-    // Load DB history on first external block if not already started
-    if (!this.started) void this.loadAttacksFromDb(500);
     this.started = true;
     this.externalStreamActive = true;
     this.syncing = false;
