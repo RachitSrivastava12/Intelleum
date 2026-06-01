@@ -41,28 +41,9 @@ app.use(
   }),
 );
 
-app.use("/api/streams/quicknode", (req, _res, next) => {
-  if (req.method !== "POST") {
-    next();
-    return;
-  }
-
-  const chunks: Buffer[] = [];
-
-  req.on("data", (chunk) => {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  });
-
-  req.on("end", () => {
-    (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.concat(chunks);
-    next();
-  });
-
-  req.on("error", (error) => {
-    next(error);
-  });
-});
-
+// QuickNode sends raw JSON blocks up to ~15MB — use express.raw so the
+// stream is consumed once cleanly before express.json runs on other routes
+app.use("/api/streams/quicknode", express.raw({ type: "*/*", limit: "50mb" }));
 app.use(express.json({ limit: "50mb" }));
 
 app.use("/api", async (req, res, next) => {
