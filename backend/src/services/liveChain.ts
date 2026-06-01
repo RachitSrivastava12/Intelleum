@@ -2081,7 +2081,12 @@ class LiveChainService {
       programLabel === "jupiter_v4" || programLabel === "jupiter_v6" || programLabel === "raydium_router";
 
     if (exactPoolAvailable && programLabel && !programIsAggregator && !sourceIsAggregator) {
-      return poolAddress!;
+      // Embed the DEX label so downstream filters (isRaydiumAttack etc.) can identify the protocol
+      // from the pool_address string alone, without needing a separate protocol lookup.
+      const routeMints = [inputMint, outputMint].filter(Boolean).join("->");
+      return routeMints
+        ? `${poolAddress}:${programLabel}:${routeMints}`
+        : `${poolAddress}:${programLabel}`;
     }
 
     if (source) {
@@ -2089,7 +2094,10 @@ class LiveChainService {
       return `route:${source.toLowerCase()}:${routeMints}`;
     }
     if (programLabel) {
-      if (exactPoolAvailable && !programIsAggregator) return poolAddress!;
+      if (exactPoolAvailable && !programIsAggregator) {
+        const routeMints = [inputMint, outputMint].filter(Boolean).join("->");
+        return routeMints ? `${poolAddress}:${programLabel}:${routeMints}` : `${poolAddress}:${programLabel}`;
+      }
       const routeMints = [inputMint, outputMint].filter(Boolean).join("->");
       return routeMints ? `venue:${programLabel}:${routeMints}` : `venue:${programLabel}`;
     }
