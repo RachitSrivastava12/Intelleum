@@ -156,6 +156,18 @@ router.get("/attacks", (req: Request, res: Response) => {
   );
 });
 
+router.get("/attacks/stream", (req: Request, res: Response) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // disable Nginx buffering
+  res.flushHeaders();
+  res.write(": connected\n\n");
+
+  const clientId = liveChainService.addSseClient(res);
+  req.on("close", () => liveChainService.removeSseClient(clientId));
+});
+
 router.get("/attacks/history", async (req: Request, res: Response) => {
   const limit = Number.parseInt((req.query.limit as string) ?? "100", 10) || 100;
   res.json(liveChainService.getAttacks({ limit: String(limit) }));

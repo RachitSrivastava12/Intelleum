@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import {
@@ -6,7 +6,7 @@ import {
   ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
 import {
-  api, Attack, AttackDetail, LpProtectionSnapshot, PoolToxicity, RouteRisk, SystemStatus,
+  api, API_BASE, Attack, AttackDetail, LpProtectionSnapshot, PoolToxicity, RouteRisk, SystemStatus,
 } from "@/lib/api";
 import {
   demoSystemStatus,
@@ -296,14 +296,30 @@ function shouldUseLocalRaydiumDemo(
   );
 }
 
+// Cap on how many Raydium attacks we keep in the live feed. The feed is
+// append-only — it only ever grows up to this cap, never shrinks on refresh.
+const RAYDIUM_FEED_CAP = 300;
+
 function useRaydiumData() {
   const [data, setData] = useState<RaydiumData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const lastAttackFetchRef = useRef<string | null>(null);
 
-  // Initial load — fetch routes/pools/lp once, attacks for seed
+  // Merge new attacks into the existing feed without ever dropping ones we
+  // already showed. Dedupe by id, newest first, capped at RAYDIUM_FEED_CAP.
+  const mergeAttacks = useCallback((existing: Attack[], incoming: Attack[]) => {
+    if (incoming.length === 0) return existing;
+    const byId = new Map<number, Attack>();
+    for (const a of incoming) byId.set(a.id, a);
+    for (const a of existing) if (!byId.has(a.id)) byId.set(a.id, a);
+    return [...byId.values()]
+      .sort((a, b) => new Date(b.block_time).getTime() - new Date(a.block_time).getTime())
+      .slice(0, RAYDIUM_FEED_CAP);
+  }, []);
+
+  // Full load — refreshes surrounding data (routes/pools/lp/status) and MERGES
+  // attacks into the feed instead of replacing them, so the count never drops.
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
     else setLoading(true);
@@ -315,18 +331,23 @@ function useRaydiumData() {
         api.pools(20),
         api.lpProtection(20),
       ]);
-      if (attacks.length > 0) {
-        lastAttackFetchRef.current = attacks[0].block_time;
-      }
-      if (shouldUseLocalRaydiumDemo(status, routes, attacks, pools, lp)) {
-        setData(buildRaydiumDemoData(status));
-      } else {
-        setData({ status, routes, attacks, pools, lp, source: "chain" });
-      }
+      setData((prev) => {
+        if (shouldUseLocalRaydiumDemo(status, routes, attacks, pools, lp) && !prev) {
+          return buildRaydiumDemoData(status);
+        }
+        if (prev?.source === "demo") {
+          // Once live data starts flowing, switch off the demo scenario
+          if (attacks.length === 0) return prev;
+        }
+        const mergedAttacks = prev && prev.source === "chain"
+          ? mergeAttacks(prev.attacks, attacks)
+          : attacks;
+        return { status, routes, attacks: mergedAttacks, pools, lp, source: "chain" };
+      });
       setError(null);
     } catch (err) {
       if (ENABLE_LOCAL_RAYDIUM_DEMO) {
-        setData(buildRaydiumDemoData());
+        setData((prev) => prev ?? buildRaydiumDemoData());
         setError(null);
       } else {
         setError(err instanceof Error ? err.message : "Failed to load Raydium data");
@@ -335,38 +356,33 @@ function useRaydiumData() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
-
-  // Attack poll — runs every 5s, fetches only new attacks and prepends them
-  const pollAttacks = useCallback(async () => {
-    try {
-      const fresh = await api.attacks({
-        protocol: "raydium",
-        limit: "50",
-        since: lastAttackFetchRef.current ?? undefined,
-      });
-      if (fresh.length === 0) return;
-      lastAttackFetchRef.current = fresh[0].block_time;
-      setData((prev) => {
-        if (!prev || prev.source === "demo") return prev;
-        const existingIds = new Set(prev.attacks.map((a) => a.id));
-        const newOnes = fresh.filter((a) => !existingIds.has(a.id));
-        if (newOnes.length === 0) return prev;
-        return { ...prev, attacks: [...newOnes, ...prev.attacks].slice(0, 200) };
-      });
-    } catch { /* silent — don't disrupt the page */ }
-  }, []);
+  }, [mergeAttacks]);
 
   useEffect(() => {
     void load();
-    // Routes/pools/lp refresh every 30s; attacks every 5s
+    // Refresh surrounding data every 30s (attacks arrive in real time via SSE)
     const slowId = window.setInterval(() => void load(true), 30_000);
-    const fastId = window.setInterval(() => void pollAttacks(), 5_000);
-    return () => {
-      window.clearInterval(slowId);
-      window.clearInterval(fastId);
+    return () => window.clearInterval(slowId);
+  }, [load]);
+
+  // Real-time attack stream — append each new Raydium attack the instant it lands
+  useEffect(() => {
+    const es = new EventSource(`${API_BASE}/api/attacks/stream`);
+    es.onmessage = (e) => {
+      try {
+        const attack = JSON.parse(e.data) as Attack;
+        if (!isRaydiumAttack(attack)) return;
+        if (attack.detector === "suspicious_orderflow_candidate") return;
+        setData((prev) => {
+          if (!prev || prev.source !== "chain") return prev;
+          if (prev.attacks.some((a) => a.id === attack.id)) return prev;
+          return { ...prev, attacks: mergeAttacks(prev.attacks, [attack]) };
+        });
+      } catch { /* ignore malformed */ }
     };
-  }, [load, pollAttacks]);
+    es.onerror = () => { /* EventSource auto-reconnects */ };
+    return () => es.close();
+  }, [mergeAttacks]);
 
   return { data, loading, refreshing, error, reload: () => void load(true) };
 }

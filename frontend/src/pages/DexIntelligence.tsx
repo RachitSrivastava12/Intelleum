@@ -559,7 +559,7 @@ export default function DexIntelligence() {
       // Then load the rest; toxicFlowTerminal is slow so run it independently
       const [routes, attacks, pools, lpProtection] = await Promise.all([
         api.routeRisks(20),
-        api.attacks({ limit: "20" }),
+        api.attacks({ protocol: "raydium", limit: "100" }),
         api.pools(20),
         api.lpProtection(20),
       ]);

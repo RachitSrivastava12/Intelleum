@@ -1255,6 +1255,8 @@ class LiveChainService {
   private recentWalletValueEdges: WalletValueEdge[] = [];
   private recentSlotTxs: TxFlow[] = [];
   private lastSnapshotPersistAt = 0;
+  private sseClients = new Map<number, import("http").ServerResponse>();
+  private sseNextId = 1;
   private dataVersion = 0;
   private derivedCache = new Map<string, { version: number; expiresAt: number; value: unknown }>();
   private priceCache: { key: string; expiresAt: number; prices: Map<string, number> } | null = null;
@@ -3614,10 +3616,8 @@ class LiveChainService {
 
     this.attacks.unshift(persistedAttack);
     this.attackIndexByKey = new Map(this.attacks.map((item, index) => [this.attackFamilyKey(item), index] as const));
-    void this.persistAttack(
-      key,
-      persistedAttack,
-    );
+    void this.persistAttack(key, persistedAttack);
+    this.pushToSseClients(persistedAttack);
 
     if (this.attacks.length > MAX_ATTACKS) {
       const removed = this.attacks.splice(MAX_ATTACKS);
@@ -3781,6 +3781,28 @@ class LiveChainService {
     if (attack.detector.includes("parsed")) score += 0.08;
     if (attack.detector.includes("wide")) score -= 0.08;
     return Number(Math.max(0.05, Math.min(0.92, score)).toFixed(2));
+  }
+
+  addSseClient(res: import("http").ServerResponse): number {
+    const id = this.sseNextId++;
+    this.sseClients.set(id, res);
+    return id;
+  }
+
+  removeSseClient(id: number) {
+    this.sseClients.delete(id);
+  }
+
+  private pushToSseClients(attack: ApiAttack) {
+    if (this.sseClients.size === 0) return;
+    const payload = `data: ${JSON.stringify(attack)}\n\n`;
+    for (const [id, res] of this.sseClients) {
+      try {
+        res.write(payload);
+      } catch {
+        this.sseClients.delete(id);
+      }
+    }
   }
 
   hasLiveData() {

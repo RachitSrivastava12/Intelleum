@@ -1,6 +1,6 @@
 import { useCallback, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { api, Attack, AttackDetail } from "@/lib/api";
+import { api, API_BASE, Attack, AttackDetail } from "@/lib/api";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import CopyableValue from "@/components/CopyableValue";
 import InfoHint from "@/components/InfoHint";
@@ -107,49 +107,37 @@ export default function LiveAttackFeed({ filterType, maxItems = 20, compact = fa
     attacksRef.current = attacks;
   }, [attacks]);
 
-  const fetchAttacks = useCallback(async () => {
-    try {
-      const response = await api.attacks({
-        type: activeFilter || undefined,
-        limit: String(maxItems),
-        since: lastFetchRef.current ?? undefined,
-      });
-      const data = response.filter(
-        (attack) => attack.detector !== "suspicious_orderflow_candidate",
-      );
-      setError(null);
-
-      if (data.length > 0) {
-        const existingIds = new Set(attacksRef.current.map((attack) => attack.id));
-        const fresh = data.filter(a => !existingIds.has(a.id));
-        if (fresh.length > 0) {
-          setNewIds(new Set(fresh.map(a => a.id)));
-          setAttacks((prev) => [...fresh, ...prev].slice(0, maxItems));
-          lastFetchRef.current = fresh[0].block_time;
-          // Clear new highlights after 3s
-          setTimeout(() => setNewIds(new Set()), 3000);
-        }
-      }
-
-      // Initial load
-      if (attacksRef.current.length === 0 && data.length > 0) {
-        setAttacks(data);
-        lastFetchRef.current = data[0].block_time;
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown API error";
-      console.error("[feed] failed to fetch attacks", err);
-      if (attacksRef.current.length === 0) {
-        setError(message);
-      }
-    }
+  const addAttack = useCallback((attack: Attack) => {
+    if (attack.detector === "suspicious_orderflow_candidate") return;
+    if (activeFilter && attack.attack_type !== activeFilter) return;
+    setAttacks((prev) => {
+      if (prev.some((a) => a.id === attack.id)) return prev;
+      setNewIds((ids) => new Set([...ids, attack.id]));
+      setTimeout(() => setNewIds((ids) => { const next = new Set(ids); next.delete(attack.id); return next; }), 3000);
+      return [attack, ...prev].slice(0, maxItems);
+    });
   }, [activeFilter, maxItems]);
 
+  // Initial load via REST
   useEffect(() => {
-    fetchAttacks();
-    const t = setInterval(fetchAttacks, 5_000);
-    return () => clearInterval(t);
-  }, [fetchAttacks]);
+    api.attacks({ type: activeFilter || undefined, limit: String(maxItems) })
+      .then((data) => {
+        const filtered = data.filter((a) => a.detector !== "suspicious_orderflow_candidate");
+        setAttacks(filtered);
+        setError(null);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load"));
+  }, [activeFilter, maxItems]);
+
+  // Real-time updates via SSE
+  useEffect(() => {
+    const es = new EventSource(`${API_BASE}/api/attacks/stream`);
+    es.onmessage = (e) => {
+      try { addAttack(JSON.parse(e.data)); } catch { /* ignore malformed */ }
+    };
+    es.onerror = () => { /* SSE auto-reconnects */ };
+    return () => es.close();
+  }, [addAttack]);
 
   useEffect(() => {
     if (!selectedAttackId || detailById[selectedAttackId]) return;
