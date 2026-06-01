@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import {
@@ -301,7 +301,9 @@ function useRaydiumData() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const lastAttackFetchRef = useRef<string | null>(null);
 
+  // Initial load — fetch routes/pools/lp once, attacks for seed
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
     else setLoading(true);
@@ -313,6 +315,9 @@ function useRaydiumData() {
         api.pools(20),
         api.lpProtection(20),
       ]);
+      if (attacks.length > 0) {
+        lastAttackFetchRef.current = attacks[0].block_time;
+      }
       if (shouldUseLocalRaydiumDemo(status, routes, attacks, pools, lp)) {
         setData(buildRaydiumDemoData(status));
       } else {
@@ -332,11 +337,35 @@ function useRaydiumData() {
     }
   }, []);
 
+  // Attack poll — runs every 5s, fetches only new attacks and prepends them
+  const pollAttacks = useCallback(async () => {
+    try {
+      const fresh = await api.attacks({
+        limit: "20",
+        since: lastAttackFetchRef.current ?? undefined,
+      });
+      if (fresh.length === 0) return;
+      lastAttackFetchRef.current = fresh[0].block_time;
+      setData((prev) => {
+        if (!prev || prev.source === "demo") return prev;
+        const existingIds = new Set(prev.attacks.map((a) => a.id));
+        const newOnes = fresh.filter((a) => !existingIds.has(a.id));
+        if (newOnes.length === 0) return prev;
+        return { ...prev, attacks: [...newOnes, ...prev.attacks].slice(0, 200) };
+      });
+    } catch { /* silent — don't disrupt the page */ }
+  }, []);
+
   useEffect(() => {
     void load();
-    const id = window.setInterval(() => void load(true), 30_000);
-    return () => window.clearInterval(id);
-  }, [load]);
+    // Routes/pools/lp refresh every 30s; attacks every 5s
+    const slowId = window.setInterval(() => void load(true), 30_000);
+    const fastId = window.setInterval(() => void pollAttacks(), 5_000);
+    return () => {
+      window.clearInterval(slowId);
+      window.clearInterval(fastId);
+    };
+  }, [load, pollAttacks]);
 
   return { data, loading, refreshing, error, reload: () => void load(true) };
 }
@@ -552,7 +581,7 @@ function SectionJit({ data }: { data: RaydiumData | null }) {
         <div className="border border-border bg-card p-4">
           <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">JIT Windows</div>
           <div className="mt-2 text-2xl font-bold text-foreground">{live.reduce((s, r) => s + r.windows, 0)}</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">detected this session</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">live feed</div>
         </div>
         <div className="border border-border bg-card p-4">
           <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Total LP Drag</div>
@@ -1007,7 +1036,7 @@ function SectionDetections({ data }: { data: RaydiumData | null }) {
         <div className="border border-border bg-card p-4">
           <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Total Detections</div>
           <div className="mt-2 text-3xl font-bold text-foreground">{liveAttacks.length}</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">this session</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">live feed</div>
         </div>
         <div className="border border-red-500/30 bg-red-500/5 p-4">
           <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Searcher Profit</div>
