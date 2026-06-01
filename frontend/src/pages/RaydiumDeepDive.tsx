@@ -1292,8 +1292,10 @@ function SectionSavings({ data }: { data: RaydiumData | null }) {
     if (!hasRaydiumData(data)) return [];
     const from = data.routes.filter(isRaydiumRoute).filter((r) => r.estimated_savings_usd > 0).map((r) => ({
       name: r.label?.split("•")[1]?.trim() ?? r.route_key,
+      routeKey: r.route_key,
       savings: Math.round(r.estimated_savings_usd),
       program: programName(r.protocol),
+      programId: programIdForProtocol(r.protocol),
     })).sort((a, b) => b.savings - a.savings);
     return from;
   }, [data]);
@@ -1350,6 +1352,49 @@ function SectionSavings({ data }: { data: RaydiumData | null }) {
           ))}
         </div>
       </div>
+
+      {/* Route table with copyable identifiers */}
+      {chartData.length > 0 && (
+        <div className="border border-border bg-card">
+          <div className="border-b border-border/60 px-4 py-3">
+            <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-primary">Route Breakdown</p>
+            <h2 className="mt-0.5 text-base font-semibold text-foreground">All routes — savings + identifiers</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="border-b border-border/50">
+                <tr className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
+                  <th className="px-4 py-2.5 font-medium">Pair</th>
+                  <th className="px-4 py-2.5 font-medium">Program</th>
+                  <th className="px-4 py-2.5 font-medium">Route Key</th>
+                  <th className="px-4 py-2.5 font-medium text-right">Savings</th>
+                </tr>
+              </thead>
+              <tbody>
+                {chartData.map((row) => (
+                  <tr key={row.routeKey} className="border-b border-border/30 last:border-0 hover:bg-primary/5 transition-colors">
+                    <td className="px-4 py-3 font-mono text-xs font-semibold text-foreground">{row.name}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-mono text-[10px] text-primary">{row.program}</div>
+                      <div className="mt-0.5 flex items-center gap-1">
+                        <ExtLink href={solscan(row.programId)} label={truncateAddress(row.programId, 5, 4)} />
+                        <CopyButton text={row.programId} />
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-[10px] text-muted-foreground max-w-[220px] truncate">{row.routeKey}</span>
+                        <CopyButton text={row.routeKey} />
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs font-semibold text-primary text-right">{fmt(row.savings)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* What this means */}
       <div className="grid gap-3 sm:grid-cols-3">
