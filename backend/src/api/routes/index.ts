@@ -119,14 +119,12 @@ router.get("/streams/quicknode", (_req: Request, res: Response) => {
   });
 });
 
-router.post("/streams/quicknode", async (req: Request, res: Response) => {
-  try {
-    const result = await quickNodeStreamService.receive(req);
-    res.json(result);
-  } catch (error) {
+router.post("/streams/quicknode", (req: Request, res: Response) => {
+  // ACK QuickNode immediately — never let block processing delay the response
+  res.json({ ok: true, received: true });
+  void quickNodeStreamService.receive(req).catch((error) => {
     console.error("[streams] quicknode processing failed", error);
-    res.json({ ok: false, error: error instanceof Error ? error.message : "QuickNode processing failed" });
-  }
+  });
 });
 
 router.get("/stats", (_req: Request, res: Response) => {
