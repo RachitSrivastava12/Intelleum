@@ -21,8 +21,8 @@ const rawBase = import.meta.env.VITE_API_URL ?? "http://localhost:8081";
 const BASE = rawBase.replace(/\/$/, "").replace(/\/api$/, "");
 const API_KEY = import.meta.env.VITE_INTELLEUM_API_KEY;
 const ENABLE_DEMO_FALLBACK = import.meta.env.VITE_ENABLE_DEMO_FALLBACK === "true";
-const API_GET_TIMEOUT_MS = Number(import.meta.env.VITE_API_GET_TIMEOUT_MS ?? 4_500);
-const API_POST_TIMEOUT_MS = Number(import.meta.env.VITE_API_POST_TIMEOUT_MS ?? 5_500);
+const API_GET_TIMEOUT_MS = Number(import.meta.env.VITE_API_GET_TIMEOUT_MS ?? 15_000);
+const API_POST_TIMEOUT_MS = Number(import.meta.env.VITE_API_POST_TIMEOUT_MS ?? 20_000);
 const API_STALE_MS = Number(import.meta.env.VITE_API_STALE_MS ?? 120_000);
 const API_DEBUG = import.meta.env.VITE_API_DEBUG === "true";
 
