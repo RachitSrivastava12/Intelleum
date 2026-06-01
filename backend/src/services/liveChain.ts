@@ -711,6 +711,21 @@ function parseSurface(poolAddress: string) {
     };
   }
 
+  // Handle poolAddress:programLabel:mints format set by normalizePoolAddress
+  // e.g. "58oQChx4...:raydium_clmm:SOL->USDC"
+  const parts = poolAddress.split(":");
+  if (parts.length >= 2 && parts[1] && !poolAddress.startsWith("unknown")) {
+    const protocol = parts[1];
+    const pair = parts.slice(2).join(":");
+    const prettyPair = pair ? pair.split("->").map(tokenLabel).join(" / ") : "UNKNOWN";
+    return {
+      route_kind: "pool" as const,
+      protocol,
+      label: `${protocol.toUpperCase().replace(/_/g, " ")} • ${prettyPair}`,
+      mints: parseMints(pair),
+    };
+  }
+
   return {
     route_kind: "pool" as const,
     protocol: null,
