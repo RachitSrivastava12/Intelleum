@@ -112,7 +112,12 @@ function hasAddLiquidityText(tx: TxFlow) {
     text.includes("increase_liquidity") ||
     text.includes("increase liquidity") ||
     text.includes("deposit liquidity") ||
-    text.includes("instruction: increaseliquidity")
+    text.includes("instruction: increaseliquidity") ||
+    // CLMM open_position / open_position_with_token22_nft — new position creation also
+    // counts as adding liquidity for JIT purposes (attacker opens then immediately closes)
+    text.includes("open_position") ||
+    text.includes("openposition") ||
+    text.includes("instruction: openposition")
   );
 }
 
@@ -127,7 +132,10 @@ function hasRemoveLiquidityText(tx: TxFlow) {
     text.includes("withdraw liquidity") ||
     text.includes("close_position") ||
     text.includes("close position") ||
-    text.includes("instruction: decreaseliquidity")
+    text.includes("instruction: decreaseliquidity") ||
+    // CLMM close_position — paired with open_position-based JIT
+    text.includes("closeposition") ||
+    text.includes("instruction: closeposition")
   );
 }
 

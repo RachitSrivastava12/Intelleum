@@ -85,6 +85,16 @@ function programIdForProtocol(protocol?: string | null) {
 function hasBundleSignal(attack: Attack) {
   return attack.execution_lane === "jito-aligned" || (attack.bundle_likelihood ?? 0) >= 0.75;
 }
+const TX_LABELS: Record<string, { frontrun?: string; victim?: string; backrun?: string }> = {
+  sandwich:        { frontrun: "Frontrun tx",   victim: "Victim tx",    backrun: "Backrun tx" },
+  jit:             { frontrun: "LP add",         victim: "Victim swap",  backrun: "LP remove" },
+  backrun:         {                             victim: "Victim tx",    backrun: "Backrun tx" },
+  arbitrage:       { frontrun: "Entry leg",      victim: "Exit leg" },
+  liquidity_snipe: { frontrun: "Launch create",  victim: "First buy" },
+  liquidity_drain: { frontrun: "Drain remove",                           backrun: "Dump tx" },
+  liquidation:     {                             victim: "Liquidation tx" },
+};
+
 function actionTone(a: string) {
   if (a === "avoid" || a === "block" || a === "high") return "border-red-500/45 bg-red-500/10 text-red-300";
   if (a === "reroute" || a === "penalize" || a === "cap" || a === "medium") return "border-yellow-500/45 bg-yellow-500/10 text-yellow-200";
@@ -1088,9 +1098,9 @@ function RaydiumDetectionCard({
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/70 pt-3">
-        {attack.frontrun_tx && <ExtLink href={solscan(attack.frontrun_tx, "tx")} label="Frontrun tx" />}
-        {attack.victim_tx && <ExtLink href={solscan(attack.victim_tx, "tx")} label="Victim tx" />}
-        {attack.backrun_tx && <ExtLink href={solscan(attack.backrun_tx, "tx")} label="Backrun tx" />}
+        {attack.frontrun_tx && <ExtLink href={solscan(attack.frontrun_tx, "tx")} label={TX_LABELS[attack.attack_type]?.frontrun ?? "Frontrun tx"} />}
+        {attack.victim_tx && <ExtLink href={solscan(attack.victim_tx, "tx")} label={TX_LABELS[attack.attack_type]?.victim ?? "Victim tx"} />}
+        {attack.backrun_tx && <ExtLink href={solscan(attack.backrun_tx, "tx")} label={TX_LABELS[attack.attack_type]?.backrun ?? "Backrun tx"} />}
         <button
           type="button"
           aria-expanded={expanded}
@@ -1299,27 +1309,47 @@ function live_lp_drag(data: RaydiumData | null): number {
 
 // ─── Section: Extraction ─────────────────────────────────────────────────────
 
+const EXTRACTION_TYPES = [
+  { key: "sandwich",        label: "Sandwich",  color: "hsl(0 85% 62%)"       },
+  { key: "jit",             label: "JIT",       color: "hsl(var(--primary))"  },
+  { key: "backrun",         label: "Backrun",   color: "hsl(24 95% 58%)"      },
+  { key: "arbitrage",       label: "Arb",       color: "hsl(210 80% 60%)"     },
+  { key: "liquidity_snipe", label: "Snipe",     color: "hsl(48 96% 53%)"      },
+  { key: "liquidity_drain", label: "Drain",     color: "hsl(280 70% 60%)"     },
+] as const;
+
+type ExtractionKey = typeof EXTRACTION_TYPES[number]["key"];
+
+type TrendRow = { ts: number; day: string } & Record<ExtractionKey, number>;
+
+function rowTotal(row: TrendRow) {
+  return EXTRACTION_TYPES.reduce((s, { key }) => s + row[key], 0);
+}
+
 function SectionExtraction({ data }: { data: RaydiumData | null }) {
   const liveAttacks = useMemo(() => hasRaydiumData(data) ? data.attacks.filter(isRaydiumAttack) : [], [data]);
   const trendData = useMemo(() => liveAttacks
-    .map((attack) => {
+    .map((attack): TrendRow => {
       const value = (attack.profit_usd ?? 0) + (attack.victim_loss_usd ?? 0);
       const ts = new Date(attack.block_time).getTime();
-      const bucket = attack.attack_type === "sandwich" ? "sandwich" : attack.attack_type === "jit" ? "jit" : "sniper";
+      const t = attack.attack_type as ExtractionKey;
       return {
         ts,
         day: Number.isFinite(ts) ? new Date(ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "--",
-        sandwich: bucket === "sandwich" ? value : 0,
-        jit: bucket === "jit" ? value : 0,
-        sniper: bucket === "sniper" ? value : 0,
+        sandwich:        t === "sandwich"        ? value : 0,
+        jit:             t === "jit"             ? value : 0,
+        backrun:         t === "backrun"         ? value : 0,
+        arbitrage:       t === "arbitrage"       ? value : 0,
+        liquidity_snipe: t === "liquidity_snipe" ? value : 0,
+        liquidity_drain: t === "liquidity_drain" ? value : 0,
       };
     })
-    .filter((row) => Number.isFinite(row.ts) && row.sandwich + row.jit + row.sniper > 0)
+    .filter((row) => Number.isFinite(row.ts) && rowTotal(row) > 0)
     .sort((a, b) => a.ts - b.ts), [liveAttacks]);
 
-  const observedTotal = trendData.reduce((sum, row) => sum + row.sandwich + row.jit + row.sniper, 0);
+  const observedTotal = trendData.reduce((sum, row) => sum + rowTotal(row), 0);
   const peakBucket = trendData.length > 0
-    ? trendData.reduce((max, row) => (row.sandwich + row.jit + row.sniper) > (max.sandwich + max.jit + max.sniper) ? row : max, trendData[0])
+    ? trendData.reduce((max, row) => rowTotal(row) > rowTotal(max) ? row : max, trendData[0])
     : null;
   const byProgram = useMemo(() => {
     const totals = new Map<string, number>();
@@ -1346,7 +1376,7 @@ function SectionExtraction({ data }: { data: RaydiumData | null }) {
         <div className="border border-border bg-card p-4">
           <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Peak Observation</div>
           <div className="mt-2 text-2xl font-bold text-foreground">{peakBucket?.day ?? "--"}</div>
-          <div className="mt-0.5 font-mono text-xs text-red-300">{peakBucket ? fmt(peakBucket.sandwich + peakBucket.jit + peakBucket.sniper) : "--"}</div>
+          <div className="mt-0.5 font-mono text-xs text-red-300">{peakBucket ? fmt(rowTotal(peakBucket)) : "--"}</div>
         </div>
         <div className="border border-border bg-card p-4">
           <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Detections</div>
@@ -1359,7 +1389,7 @@ function SectionExtraction({ data }: { data: RaydiumData | null }) {
       <div className="border border-border bg-card">
         <div className="border-b border-border/60 px-4 py-3">
           <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-primary">Observed Extraction Timeline</p>
-          <h2 className="mt-0.5 text-base font-semibold text-foreground">Sandwich / JIT / Sniper by detection time</h2>
+          <h2 className="mt-0.5 text-base font-semibold text-foreground">By attack type — detection time</h2>
         </div>
         <div className="h-72 p-4">
           {trendData.length > 0 ? (
@@ -1368,17 +1398,25 @@ function SectionExtraction({ data }: { data: RaydiumData | null }) {
                 <CartesianGrid stroke="hsl(var(--border))" strokeOpacity={0.4} />
                 <XAxis dataKey="day" tick={TICK_STYLE} axisLine={false} tickLine={false} />
                 <YAxis tickFormatter={(v) => `$${Math.round(v / 1000)}K`} tick={TICK_STYLE} axisLine={false} tickLine={false} width={44} />
-                <Tooltip formatter={(v: number, name: string) => [fmt(v), name.charAt(0).toUpperCase() + name.slice(1)]} contentStyle={TOOLTIP_STYLE} />
-                <Area type="monotone" dataKey="sandwich" stackId="1" stroke="hsl(0 85% 62%)" fill="hsl(0 85% 62%)" fillOpacity={0.35} strokeWidth={2} />
-                <Area type="monotone" dataKey="jit"      stackId="1" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.35} strokeWidth={2} />
-                <Area type="monotone" dataKey="sniper"   stackId="1" stroke="hsl(48 96% 53%)" fill="hsl(48 96% 53%)" fillOpacity={0.35} strokeWidth={2} />
+                <Tooltip formatter={(v: number, name: string) => [fmt(v), EXTRACTION_TYPES.find(t => t.key === name)?.label ?? name]} contentStyle={TOOLTIP_STYLE} />
+                {EXTRACTION_TYPES.map(({ key, color }) => (
+                  <Area key={key} type="monotone" dataKey={key} stackId="1" stroke={color} fill={color} fillOpacity={0.35} strokeWidth={2} />
+                ))}
               </AreaChart>
             </ResponsiveContainer>
           ) : <EmptyPanel message="No Raydium extraction timeline is available yet. The graph only renders live API detections." />}
         </div>
+        <div className="flex flex-wrap gap-4 border-t border-border/50 px-4 py-2.5">
+          {EXTRACTION_TYPES.map(({ key, label, color }) => (
+            <div key={key} className="flex items-center gap-1.5">
+              <div className="h-2 w-2 rounded-full" style={{ background: color }} />
+              <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">{label}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* By program */}
+      {/* By program + bucket table */}
       <div className="grid gap-5 xl:grid-cols-2">
         <div className="border border-border bg-card">
           <div className="border-b border-border/60 px-4 py-3">
@@ -1409,36 +1447,38 @@ function SectionExtraction({ data }: { data: RaydiumData | null }) {
           </div>
         </div>
 
-        {/* Daily table */}
+        {/* Bucket table */}
         <div className="border border-border bg-card">
           <div className="border-b border-border/60 px-4 py-3">
             <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-primary">Bucket Breakdown</p>
-            <h2 className="mt-0.5 text-base font-semibold text-foreground">Observed extraction per detection time</h2>
+            <h2 className="mt-0.5 text-base font-semibold text-foreground">Extraction per type per slot window</h2>
           </div>
           {trendData.length > 0 ? <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="border-b border-border/50">
                 <tr className="font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground">
-                  <th className="px-4 py-2.5 font-medium text-left">Bucket</th>
-                  <th className="px-4 py-2.5 font-medium text-right text-red-300">Sandwich</th>
-                  <th className="px-4 py-2.5 font-medium text-right text-primary">JIT</th>
-                  <th className="px-4 py-2.5 font-medium text-right text-yellow-200">Sniper</th>
-                  <th className="px-4 py-2.5 font-medium text-right text-foreground">Total</th>
+                  <th className="px-3 py-2.5 font-medium text-left">Time</th>
+                  {EXTRACTION_TYPES.map(({ key, label, color }) => (
+                    <th key={key} className="px-3 py-2.5 font-medium text-right" style={{ color }}>{label}</th>
+                  ))}
+                  <th className="px-3 py-2.5 font-medium text-right text-foreground">Total</th>
                 </tr>
               </thead>
               <tbody>
                 {trendData.map((row) => {
-                  const total = row.sandwich + row.jit + row.sniper;
+                  const total = rowTotal(row);
                   const isPeak = peakBucket != null && row.day === peakBucket.day;
                   return (
                     <tr key={`${row.ts}-${row.day}`} className={`border-b border-border/30 last:border-0 ${isPeak ? "bg-red-500/5" : "hover:bg-primary/5"} transition-colors`}>
-                      <td className="px-4 py-2.5 font-mono text-xs">
-                        {row.day} {isPeak && <span className="ml-1 font-mono text-[9px] text-red-300">peak</span>}
+                      <td className="px-3 py-2 font-mono text-xs">
+                        {row.day}{isPeak && <span className="ml-1 font-mono text-[9px] text-red-300">peak</span>}
                       </td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-right text-red-300">{fmt(row.sandwich)}</td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-right text-primary">{fmt(row.jit)}</td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-right text-yellow-200">{fmt(row.sniper)}</td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-right font-semibold text-foreground">{fmt(total)}</td>
+                      {EXTRACTION_TYPES.map(({ key }) => (
+                        <td key={key} className="px-3 py-2 font-mono text-xs text-right text-muted-foreground">
+                          {row[key] > 0 ? fmt(row[key]) : "—"}
+                        </td>
+                      ))}
+                      <td className="px-3 py-2 font-mono text-xs text-right font-semibold text-foreground">{fmt(total)}</td>
                     </tr>
                   );
                 })}
