@@ -73,7 +73,7 @@ const AccessForm = () => {
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
         >
-          <p className="data-label mb-2">// Get Started</p>
+          <p className="data-label mb-2">Get Started</p>
           <h2 className="text-3xl md:text-4xl font-semibold text-foreground">
             Request Early Access
           </h2>

@@ -283,7 +283,7 @@ export default function Protection() {
             className="grid gap-5 py-6 lg:grid-cols-[1.15fr_0.85fr] lg:items-end"
           >
             <div>
-              <p className="data-label mb-4">// Protection Firewall</p>
+              <p className="data-label mb-4">Protection Firewall</p>
               <h1 className="max-w-4xl text-4xl font-semibold tracking-tight text-foreground md:text-6xl">
                 Check the route before it leaks.
               </h1>
@@ -293,7 +293,7 @@ export default function Protection() {
             </div>
 
             <div className="intel-panel p-5">
-              <p className="data-label mb-4">// Flow</p>
+              <p className="data-label mb-4">Flow</p>
               <div className="grid grid-cols-3 gap-2 font-mono text-xs uppercase tracking-[0.14em]">
                 <div className="border border-border/60 bg-background/25 p-3 text-muted-foreground">Route</div>
                 <div className="border border-primary/40 bg-primary/10 p-3 text-primary">Guard</div>
@@ -510,7 +510,7 @@ function DecisionReceipt({ guard, loading }: { guard: PreventionGuard | null; lo
       <div className="border-b border-border/70 p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="data-label mb-3">// Decision Receipt</p>
+            <p className="data-label mb-3">Decision Receipt</p>
             <h2 className="text-3xl font-semibold tracking-tight text-foreground md:text-5xl">
               {decisionHeadline(guard?.action)}
             </h2>
@@ -525,7 +525,7 @@ function DecisionReceipt({ guard, loading }: { guard: PreventionGuard | null; lo
         {guard?.ai_brief && (
           <div className="mt-5 border border-primary/20 bg-primary/5 p-4">
             <div className="mb-2 flex items-center gap-2">
-              <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">// AI Analysis</span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">AI Analysis</span>
               <span className="font-mono text-[9px] text-muted-foreground">gpt-4o-mini</span>
             </div>
             <p className="text-sm leading-relaxed text-foreground/90">{guard.ai_brief}</p>
@@ -604,7 +604,7 @@ function AdvancedIntel({
       <div className="intel-panel p-5">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <p className="data-label mb-2">// Routes</p>
+            <p className="data-label mb-2">Routes</p>
             <h3 className="text-lg font-semibold text-foreground">Best fallback paths.</h3>
           </div>
         </div>
@@ -629,7 +629,7 @@ function AdvancedIntel({
       <div className="intel-panel p-5">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <p className="data-label mb-2">// Liquidations</p>
+            <p className="data-label mb-2">Liquidations</p>
             <h3 className="text-lg font-semibold text-foreground">Keeper regime watch.</h3>
           </div>
         </div>
@@ -659,7 +659,7 @@ function SdkExplainer() {
 
   return (
     <div className="intel-panel p-5">
-      <p className="data-label mb-3">// What Is The SDK?</p>
+      <p className="data-label mb-3">What Is The SDK?</p>
       <h2 className="text-lg font-semibold text-foreground">SDK = code integration.</h2>
       <p className="mt-2 text-sm text-muted-foreground">
         Teams call Intelleum inside their own app before sending a transaction.

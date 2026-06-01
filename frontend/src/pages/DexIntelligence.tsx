@@ -885,7 +885,7 @@ export default function DexIntelligence() {
 
         {/* Title */}
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">// Raydium Intelligence</p>
+          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">Raydium Intelligence</p>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground md:text-4xl">Raydium protection surface.</h1>
         </div>
 

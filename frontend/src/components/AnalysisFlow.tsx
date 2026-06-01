@@ -82,7 +82,7 @@ const AnalysisFlow = () => {
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
         >
-          <p className="data-label mb-2">// How It Works</p>
+          <p className="data-label mb-2">How It Works</p>
           <h2 className="text-2xl md:text-3xl font-semibold text-foreground">
             From Raw Blocks to Actionable Intel
           </h2>

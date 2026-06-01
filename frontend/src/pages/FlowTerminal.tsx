@@ -172,7 +172,7 @@ function EmptyState({ onRetry }: { onRetry: () => void }) {
   return (
     <main className="min-h-screen bg-background px-4 py-5 text-foreground md:px-6">
       <div className="mx-auto flex min-h-[70vh] max-w-3xl flex-col items-center justify-center text-center">
-        <p className="data-label text-primary">// Flow Terminal</p>
+        <p className="data-label text-primary">Flow Terminal</p>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight">No route signal yet.</h1>
         <p className="mt-3 max-w-xl text-sm text-muted-foreground">
           QuickNode stream data will populate this surface as routes are observed.

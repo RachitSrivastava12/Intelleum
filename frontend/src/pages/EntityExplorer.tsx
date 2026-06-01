@@ -238,7 +238,7 @@ export default function EntityExplorer() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <p className="text-xs text-primary tracking-widest uppercase mb-1">// Entity Intelligence</p>
+            <p className="text-xs text-primary tracking-widest uppercase mb-1">Entity Intelligence</p>
             <h1 className="text-2xl font-bold text-foreground">MEV Entity Explorer</h1>
             <p className="mt-2 max-w-2xl text-xs leading-relaxed text-muted-foreground">
               Signer-based attribution: each attacker signer is treated as its own entity until funding,

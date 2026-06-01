@@ -75,7 +75,7 @@ const WhoIsThisFor = () => {
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
         >
-          <p className="data-label mb-2">// Built For</p>
+          <p className="data-label mb-2">Built For</p>
           <h2 className="text-3xl font-semibold text-foreground md:text-4xl">
             Who This Is For
           </h2>

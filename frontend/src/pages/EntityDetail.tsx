@@ -191,7 +191,7 @@ export default function EntityDetail() {
             {/* Profit timeline */}
             {profit_timeline.length > 0 && (
               <div className="intel-panel p-5">
-                <p className="text-xs font-mono text-muted-foreground mb-4">// Profit Timeline ({timelineLabel})</p>
+                <p className="text-xs font-mono text-muted-foreground mb-4">Profit Timeline ({timelineLabel})</p>
                 <div className="flex items-end gap-1 h-24">
                   {profit_timeline.map((d, i) => (
                     <div key={i} className="flex-1 flex flex-col items-center gap-1">
@@ -214,7 +214,7 @@ export default function EntityDetail() {
 
             {/* Recent attacks */}
             <div className="intel-panel p-5">
-              <p className="text-xs font-mono text-muted-foreground mb-4">// Recent Attacks</p>
+              <p className="text-xs font-mono text-muted-foreground mb-4">Recent Attacks</p>
               <div className="space-y-2">
                 {recent_attacks.length === 0 && (
                   <p className="text-xs text-muted-foreground">No attacks recorded yet.</p>
@@ -270,7 +270,7 @@ export default function EntityDetail() {
 
             {/* Member wallets */}
             <div className="intel-panel p-5">
-              <p className="text-xs font-mono text-muted-foreground mb-4">// Member Wallets ({entity.wallet_count})</p>
+              <p className="text-xs font-mono text-muted-foreground mb-4">Member Wallets ({entity.wallet_count})</p>
               <div className="space-y-2">
                 {wallets.slice(0, 10).map(w => (
                   <div key={w.wallet} className="flex items-center justify-between">
@@ -295,7 +295,7 @@ export default function EntityDetail() {
 
             {/* Cluster evidence */}
             <div className="intel-panel p-5">
-              <p className="text-xs font-mono text-muted-foreground mb-4">// Cluster Evidence</p>
+              <p className="text-xs font-mono text-muted-foreground mb-4">Cluster Evidence</p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="border border-border/70 p-3">
                   <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Shared Surfaces</div>
@@ -318,7 +318,7 @@ export default function EntityDetail() {
 
             {relatedSurfaces.length > 0 && (
               <div className="intel-panel p-5">
-                <p className="text-xs font-mono text-muted-foreground mb-4">// Shared Surfaces</p>
+                <p className="text-xs font-mono text-muted-foreground mb-4">Shared Surfaces</p>
                 <div className="space-y-3">
                   {relatedSurfaces.map((surface) => (
                     <div key={surface.surface} className="border border-border/70 p-3">
@@ -342,7 +342,7 @@ export default function EntityDetail() {
 
             {/* Targeted pools */}
             <div className="intel-panel p-5">
-              <p className="text-xs font-mono text-muted-foreground mb-4">// Targeted Pools</p>
+              <p className="text-xs font-mono text-muted-foreground mb-4">Targeted Pools</p>
               <div className="space-y-3">
                 {targeted_pools.slice(0, 8).map((p, i) => (
                   <div key={p.pool_address}>
@@ -380,7 +380,7 @@ export default function EntityDetail() {
             {/* Validator correlation */}
             {validator_correlation.length > 0 && (
               <div className="intel-panel p-5">
-                <p className="text-xs font-mono text-muted-foreground mb-4">// Validator Correlation</p>
+                <p className="text-xs font-mono text-muted-foreground mb-4">Validator Correlation</p>
                 <div className="space-y-2">
                   {validator_correlation.map(v => {
                     return (

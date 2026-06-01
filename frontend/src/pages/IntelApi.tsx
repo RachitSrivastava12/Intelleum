@@ -412,7 +412,7 @@ for (const surface of terminal.surfaces) {
     teams: buyerTeams.filter((t) => ["Helius", "Sanctum"].includes(t.name)),
     curl: `curl "${BASE_URL}/api/integrations/live-alerts?limit=5" \\
   -H "x-api-key: YOUR_API_KEY"`,
-    typescript: `// Poll every 15 seconds and forward critical alerts to Slack
+    typescript: `Poll every 15 seconds and forward critical alerts to Slack
 setInterval(async () => {
   const res = await fetch(
     "${BASE_URL}/api/integrations/live-alerts?limit=10",

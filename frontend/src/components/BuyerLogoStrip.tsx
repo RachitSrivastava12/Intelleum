@@ -35,7 +35,7 @@ export default function BuyerLogoStrip() {
           transition={{ duration: 0.4 }}
         >
           <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.26em] text-primary">// Intelleum API</div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.26em] text-primary">Intelleum API</div>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">
               MEV intelligence, one request away.
             </h2>

@@ -78,7 +78,7 @@ function DexProtectionSection() {
           transition={{ duration: 0.45 }}
           className="mb-10 text-center"
         >
-          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">// DEX Intelligence</p>
+          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">DEX Intelligence</p>
           <h2 className="mt-2 text-[1.9rem] font-semibold tracking-tight text-foreground md:text-[2.4rem]">
             MEV intelligence, per DEX, per pool.
           </h2>
@@ -172,7 +172,7 @@ function LiveDashboardCTA() {
     <section className="relative py-20 px-6 overflow-hidden">
       <div className="absolute inset-0 grid-overlay-subtle opacity-15 pointer-events-none" />
       <div className="relative z-10 max-w-4xl mx-auto text-center">
-        <p className="data-label mb-2">// Live Intelligence</p>
+        <p className="data-label mb-2">Live Intelligence</p>
         <h2 className="text-4xl md:text-5xl font-semibold text-foreground mb-4">
           Open The Live Solana MEV Surface
         </h2>

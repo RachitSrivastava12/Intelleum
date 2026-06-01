@@ -124,7 +124,7 @@ export default function DexGateway() {
           transition={{ duration: 0.45 }}
           className="mb-12"
         >
-          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">// DEX Intelligence</p>
+          <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">DEX Intelligence</p>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight text-foreground md:text-5xl">
             MEV intelligence,<br />per DEX, per pool.
           </h1>

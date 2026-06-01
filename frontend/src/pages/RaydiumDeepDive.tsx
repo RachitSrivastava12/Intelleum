@@ -199,7 +199,7 @@ function PageShell({ section, refreshing, onRefresh, children }: {
         <div className="flex items-center gap-4">
           <RaydiumLogo size={36} />
           <div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">// {eyebrow}</p>
+            <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">{eyebrow}</p>
             <h1 className="mt-0.5 text-3xl font-semibold tracking-tight text-foreground">{title}</h1>
           </div>
         </div>
