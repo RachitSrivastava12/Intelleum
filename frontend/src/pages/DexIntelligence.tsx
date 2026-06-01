@@ -554,14 +554,20 @@ export default function DexIntelligence() {
     else setLoading(true);
     setError(null);
     try {
-      const [status, routes, attacks, pools, lpProtection, terminal] = await Promise.all([
-        api.systemStatus(),
-        api.routeRisks(40),
-        api.attacks({ limit: "80" }),
-        api.pools(40),
-        api.lpProtection(40),
-        api.toxicFlowTerminal(8, "1m"),
+      // Load status first — it's fast and unblocks the page skeleton
+      const status = await api.systemStatus();
+      // Then load the rest; toxicFlowTerminal is slow so run it independently
+      const [routes, attacks, pools, lpProtection] = await Promise.all([
+        api.routeRisks(20),
+        api.attacks({ limit: "20" }),
+        api.pools(20),
+        api.lpProtection(20),
       ]);
+      // Terminal loads in background — don't let it block the main page
+      api.toxicFlowTerminal(8, "1m").then((terminal) =>
+        setState((prev) => prev ? { ...prev, terminal } : prev)
+      ).catch(() => {});
+
       setState((prev) => ({
         ...(shouldUseLocalRaydiumDemo(status, routes, attacks, pools, lpProtection)
           ? buildRaydiumDemoState(prev, status)
@@ -574,7 +580,7 @@ export default function DexIntelligence() {
               market: prev?.market ?? EMPTY_MARKET_REFERENCE,
               guard: prev?.guard ?? null,
             }),
-        terminal,
+        terminal: prev?.terminal ?? null,
       }));
     } catch (err) {
       if (ENABLE_LOCAL_RAYDIUM_DEMO) {

@@ -308,10 +308,10 @@ function useRaydiumData() {
     try {
       const [status, routes, attacks, pools, lp] = await Promise.all([
         api.systemStatus(),
-        api.routeRisks(120),
-        api.attacks({ limit: "200" }),
-        api.pools(120),
-        api.lpProtection(120),
+        api.routeRisks(20),
+        api.attacks({ limit: "20" }),
+        api.pools(20),
+        api.lpProtection(20),
       ]);
       if (shouldUseLocalRaydiumDemo(status, routes, attacks, pools, lp)) {
         setData(buildRaydiumDemoData(status));

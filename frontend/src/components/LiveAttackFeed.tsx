@@ -93,7 +93,7 @@ interface Props {
   compact?: boolean;
 }
 
-export default function LiveAttackFeed({ filterType, maxItems = 50, compact = false }: Props) {
+export default function LiveAttackFeed({ filterType, maxItems = 20, compact = false }: Props) {
   const [attacks, setAttacks] = useState<Attack[]>([]);
   const [newIds, setNewIds] = useState<Set<number>>(new Set());
   const [activeFilter, setActiveFilter] = useState<string>(filterType ?? "");

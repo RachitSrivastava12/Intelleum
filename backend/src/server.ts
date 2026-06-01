@@ -15,6 +15,10 @@ const allowedOrigins = new Set([
   "http://127.0.0.1:8080",
   "http://localhost:5173",
   "http://127.0.0.1:5173",
+  // Production domains — always allowed regardless of env var
+  "https://intelleum.in",
+  "https://www.intelleum.in",
+  "https://intelleum.vercel.app",
   process.env.FRONTEND_URL,
 ].filter(Boolean) as string[]);
 
@@ -59,7 +63,7 @@ app.use("/api/streams/quicknode", (req, _res, next) => {
   });
 });
 
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
 
 app.use("/api", async (req, res, next) => {
   const authExempt =
