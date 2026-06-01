@@ -358,14 +358,16 @@ function SectionPools({ data }: { data: RaydiumData | null }) {
   const live = useMemo(() => {
     if (!hasRaydiumData(data)) return [];
     const fromRoutes = data.routes.filter(isRaydiumRoute).filter((r) => r.sandwich_count > 0).map((r) => ({
-      id: r.route_key, pair: r.label?.split("•")[1]?.trim() ?? r.route_key,
+      id: r.route_key,
+      routeKey: r.route_key,
+      pair: r.label?.split("•")[1]?.trim() ?? r.route_key,
       program: programName(r.protocol),
+      programId: programIdForProtocol(r.protocol),
       sandwichPct: Math.round((r.sandwich_count / Math.max(1, r.total_attacks)) * 100),
       stalePct: Math.round(r.stale_quote_pickup_rate),
       bpsAtRisk: r.markout_30s_bps, loss: r.total_extracted_usd,
       attackers: r.unique_attackers, conf: Math.round(r.avg_confidence * 100),
       action: r.policy_action,
-      programId: programIdForProtocol(r.protocol),
     }));
     return fromRoutes;
   }, [data]);
@@ -441,10 +443,10 @@ function SectionPools({ data }: { data: RaydiumData | null }) {
           <span className="font-mono text-[10px] text-muted-foreground">{sourceDetail(data)}</span>
         </div>
         {live.length > 0 ? <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left">
+          <table className="w-full min-w-[860px] text-left">
             <thead className="border-b border-border/50">
               <tr className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Pair</th>
+                <th className="px-4 py-3 font-medium">Pair / Route</th>
                 <th className="px-4 py-3 font-medium">Program</th>
                 <th className="px-4 py-3 font-medium">Sandwich%</th>
                 <th className="px-4 py-3 font-medium">Stale Quote</th>
@@ -452,14 +454,25 @@ function SectionPools({ data }: { data: RaydiumData | null }) {
                 <th className="px-4 py-3 font-medium">Est. Daily Loss</th>
                 <th className="px-4 py-3 font-medium">Operators</th>
                 <th className="px-4 py-3 font-medium">Policy</th>
-                <th className="px-4 py-3 font-medium">Program</th>
               </tr>
             </thead>
             <tbody>
               {live.map((row) => (
                 <tr key={row.id} className="border-b border-border/30 last:border-0 hover:bg-primary/5 transition-colors">
-                  <td className="px-4 py-3 font-mono text-xs font-semibold text-foreground">{row.pair}</td>
-                  <td className="px-4 py-3 font-mono text-[10px] text-primary">{row.program}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-mono text-xs font-semibold text-foreground">{row.pair}</div>
+                    <div className="mt-0.5 flex items-center gap-1">
+                      <span className="font-mono text-[9px] text-muted-foreground truncate max-w-[160px]">{row.routeKey}</span>
+                      <CopyButton text={row.routeKey} />
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="font-mono text-[10px] text-primary">{row.program}</div>
+                    <div className="mt-0.5 flex items-center gap-1">
+                      <ExtLink href={solscan(row.programId)} label={truncateAddress(row.programId, 5, 4)} />
+                      <CopyButton text={row.programId} />
+                    </div>
+                  </td>
                   <td className="px-4 py-3 font-mono text-xs text-red-300">{row.sandwichPct}%</td>
                   <td className="px-4 py-3 font-mono text-xs text-foreground">{row.stalePct}%</td>
                   <td className="px-4 py-3 font-mono text-xs text-yellow-200">{bps(row.bpsAtRisk)}</td>
@@ -467,12 +480,6 @@ function SectionPools({ data }: { data: RaydiumData | null }) {
                   <td className="px-4 py-3 font-mono text-xs text-foreground">{row.attackers}</td>
                   <td className="px-4 py-3">
                     <span className={`border px-2 py-0.5 font-mono text-[9px] uppercase ${actionTone(row.action)}`}>{row.action}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1.5">
-                      <ExtLink href={solscan(row.programId)} label={truncateAddress(row.programId, 6, 5)} />
-                      <CopyButton text={row.programId} />
-                    </div>
                   </td>
                 </tr>
               ))}
