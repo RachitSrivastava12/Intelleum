@@ -19,6 +19,7 @@ import {
   raydiumGuardReasonCodes,
 } from "../ingestion/programs";
 import { extractTokenFlows } from "../ingestion/tokenFlows";
+import { hasDatabase, pool, ensureIntelligenceSchema } from "../db/pool";
 
 
 type AttackType = DetectedAttack["attack_type"];
@@ -1297,6 +1298,9 @@ class LiveChainService {
     if (this.started) return;
     this.started = true;
 
+    // Restore previous detections from DB so history survives restarts
+    void this.loadAttacksFromDb(500);
+
     const hasHeliusConfig = this.ensureHeliusConfig();
     if (!hasHeliusConfig || !this.heliusRpcUrl) {
       console.warn("[chain] Helius disabled: HELIUS_RPC_URL missing");
@@ -1381,6 +1385,8 @@ class LiveChainService {
     if (!Array.isArray(blocks) || blocks.length === 0) return;
 
     this.ensureHeliusConfig();
+    // Load DB history on first external block if not already started
+    if (!this.started) void this.loadAttacksFromDb(500);
     this.started = true;
     this.externalStreamActive = true;
     this.syncing = false;
@@ -3610,8 +3616,100 @@ class LiveChainService {
   }
 
   private async persistAttack(attackKey: string, attack: ApiAttack) {
-    void attackKey;
-    void attack;
+    if (!hasDatabase()) return;
+    try {
+      await ensureIntelligenceSchema();
+      await pool.query(
+        `INSERT INTO detected_attacks (
+          attack_key, attack_type, slot, block_time, validator,
+          attacker_wallet, entity_id, entity_label, entity_risk,
+          victim_wallet, victim_loss_usd, pool_address, token_mint,
+          profit_usd, tip_lamports, confidence, detector, evidence,
+          frontrun_tx, victim_tx, backrun_tx
+        ) VALUES (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21
+        ) ON CONFLICT (attack_key) DO NOTHING`,
+        [
+          attackKey,
+          attack.attack_type,
+          attack.slot,
+          attack.block_time,
+          attack.validator,
+          attack.attacker_wallet,
+          attack.entity_id ?? null,
+          attack.entity_label ?? null,
+          attack.entity_risk ?? null,
+          attack.victim_wallet ?? null,
+          attack.victim_loss_usd ?? null,
+          attack.pool_address,
+          attack.token_mint ?? null,
+          attack.profit_usd ?? null,
+          attack.tip_lamports ?? null,
+          attack.confidence,
+          attack.detector,
+          JSON.stringify(attack.evidence ?? []),
+          attack.frontrun_tx ?? null,
+          attack.victim_tx ?? null,
+          attack.backrun_tx ?? null,
+        ],
+      );
+    } catch (err) {
+      console.warn("[chain] persistAttack failed", err instanceof Error ? err.message : err);
+    }
+  }
+
+  async loadAttacksFromDb(limit = 500): Promise<void> {
+    if (!hasDatabase()) return;
+    try {
+      await ensureIntelligenceSchema();
+      const result = await pool.query(
+        `SELECT * FROM detected_attacks ORDER BY block_time DESC LIMIT $1`,
+        [limit],
+      );
+      if (result.rows.length === 0) return;
+      const loaded: ApiAttack[] = result.rows.map((row, i) => ({
+        id: -(i + 1),
+        attack_type: row.attack_type,
+        slot: Number(row.slot),
+        block_time: row.block_time instanceof Date ? row.block_time.toISOString() : row.block_time,
+        validator: row.validator,
+        attacker_wallet: row.attacker_wallet,
+        entity_id: row.entity_id ?? null,
+        entity_label: row.entity_label ?? null,
+        entity_risk: row.entity_risk ?? null,
+        victim_wallet: row.victim_wallet ?? null,
+        victim_loss_usd: row.victim_loss_usd ?? null,
+        pool_address: row.pool_address,
+        token_mint: row.token_mint ?? null,
+        profit_usd: row.profit_usd ?? null,
+        tip_lamports: row.tip_lamports ? Number(row.tip_lamports) : null,
+        confidence: row.confidence,
+        detector: row.detector,
+        evidence: Array.isArray(row.evidence) ? row.evidence : JSON.parse(row.evidence ?? "[]"),
+        frontrun_tx: row.frontrun_tx ?? null,
+        victim_tx: row.victim_tx ?? null,
+        backrun_tx: row.backrun_tx ?? null,
+        attack_quality: undefined,
+        campaign_id: undefined,
+        protocol: undefined,
+        surface_kind: undefined,
+        surface_precision: undefined,
+        surface_label: undefined,
+        surface_mints: undefined,
+        detection_basis: undefined,
+        bundle_likelihood: undefined,
+        execution_lane: undefined,
+      }));
+      // Only add attacks not already in memory (avoid duplicates on hot reload)
+      const existingKeys = new Set(this.attacks.map((a) => `${a.attack_type}:${a.attacker_wallet}:${a.slot}`));
+      const fresh = loaded.filter((a) => !existingKeys.has(`${a.attack_type}:${a.attacker_wallet}:${a.slot}`));
+      this.attacks.push(...fresh);
+      this.attacks.sort((a, b) => new Date(b.block_time).getTime() - new Date(a.block_time).getTime());
+      if (this.attacks.length > MAX_ATTACKS) this.attacks.length = MAX_ATTACKS;
+      console.log(`[chain] loaded ${fresh.length} attacks from DB (total in-memory: ${this.attacks.length})`);
+    } catch (err) {
+      console.warn("[chain] loadAttacksFromDb failed", err instanceof Error ? err.message : err);
+    }
   }
 
   private async persistSnapshot() {
