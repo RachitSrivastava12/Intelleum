@@ -36,7 +36,7 @@ const DEXES: Dex[] = [
     name: "Meteora",
     slug: "meteora",
     live: false,
-    favicon: "https://app.meteora.ag/favicon.ico",
+    favicon: "https://www.google.com/s2/favicons?domain=app.meteora.ag&sz=64",
     surfaces: "DLMM · DAMM",
     detail: "Dynamic liquidity distribution and volatile pool extraction.",
     accent: "border-border/50 bg-card/40",
@@ -70,8 +70,20 @@ const DEXES: Dex[] = [
   },
 ];
 
-function DexLogo({ favicon, name, live }: { favicon: string; name: string; live: boolean }) {
-  const [failed, setFailed] = useState(false);
+const FALLBACK_FAVICONS: Record<string, string[]> = {
+  meteora: [
+    "https://www.google.com/s2/favicons?domain=app.meteora.ag&sz=64",
+    "https://www.google.com/s2/favicons?domain=meteora.ag&sz=64",
+    "https://meteora.ag/favicon.ico",
+  ],
+};
+
+function DexLogo({ favicon, name, slug, live }: { favicon: string; name: string; slug: string; live: boolean }) {
+  const fallbacks = FALLBACK_FAVICONS[slug] ?? [];
+  const allSrcs = [favicon, ...fallbacks.filter((f) => f !== favicon)];
+  const [srcIndex, setSrcIndex] = useState(0);
+  const failed = srcIndex >= allSrcs.length;
+
   if (failed) {
     return (
       <div className={`flex h-10 w-10 items-center justify-center border font-mono text-sm font-bold ${live ? "border-primary/50 bg-primary/10 text-primary" : "border-border/50 bg-border/10 text-muted-foreground"}`}>
@@ -81,12 +93,12 @@ function DexLogo({ favicon, name, live }: { favicon: string; name: string; live:
   }
   return (
     <img
-      src={favicon}
+      src={allSrcs[srcIndex]}
       alt={name}
       width={40}
       height={40}
       className="h-10 w-10 object-contain"
-      onError={() => setFailed(true)}
+      onError={() => setSrcIndex((i) => i + 1)}
     />
   );
 }
@@ -140,7 +152,7 @@ export default function DexGateway() {
 
             <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
               <div className="flex items-start gap-5">
-                <DexLogo favicon="https://www.google.com/s2/favicons?domain=raydium.io&sz=64" name="Raydium" live={true} />
+                <DexLogo favicon="https://www.google.com/s2/favicons?domain=raydium.io&sz=64" name="Raydium" slug="raydium" live={true} />
                 <div>
                   <div className="flex items-center gap-3">
                     <h2 className="text-2xl font-semibold text-foreground">Raydium</h2>
@@ -192,7 +204,7 @@ export default function DexGateway() {
               className="relative border border-border/50 bg-card/40 p-5 opacity-70"
             >
               <div className="flex items-start justify-between gap-2">
-                <DexLogo favicon={dex.favicon} name={dex.name} live={false} />
+                <DexLogo favicon={dex.favicon} name={dex.name} slug={dex.slug} live={false} />
                 <LockKeyhole className="h-4 w-4 text-muted-foreground/50" />
               </div>
               <div className="mt-3 font-semibold text-foreground">{dex.name}</div>
