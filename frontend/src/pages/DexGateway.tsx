@@ -36,7 +36,7 @@ const DEXES: Dex[] = [
     name: "Meteora",
     slug: "meteora",
     live: false,
-    favicon: "https://www.google.com/s2/favicons?domain=meteora.ag&sz=64",
+    favicon: "https://app.meteora.ag/favicon.ico",
     surfaces: "DLMM · DAMM",
     detail: "Dynamic liquidity distribution and volatile pool extraction.",
     accent: "border-border/50 bg-card/40",

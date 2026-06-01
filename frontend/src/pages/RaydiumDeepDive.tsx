@@ -37,9 +37,45 @@ export type RaydiumSection =
 const fmt = fmtUsd;
 const bps = fmtBps;
 
+function fmtAxis(v: number): string {
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}K`;
+  if (v > 0) return `$${v.toFixed(0)}`;
+  return "$0";
+}
+
 function solscan(address: string, type: "account" | "tx" = "account") {
   return `https://solscan.io/${type}/${address}`;
 }
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void navigator.clipboard.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        });
+      }}
+      title="Copy"
+      className="inline-flex items-center justify-center h-4 w-4 shrink-0 text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none"
+    >
+      {copied ? (
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+          <path d="M1.5 5.5L4 8L9.5 2.5" stroke="hsl(var(--primary))" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      ) : (
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+          <rect x="1" y="3.5" width="6.5" height="7" rx="0.5" stroke="currentColor" strokeWidth="1.1"/>
+          <path d="M3.5 3.5V2a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-.5.5H8" stroke="currentColor" strokeWidth="1.1"/>
+        </svg>
+      )}
+    </button>
+  );
+}
+
 function ExtLink({ href, label }: { href: string; label: string }) {
   return (
     <a href={href} target="_blank" rel="noopener noreferrer"
@@ -433,7 +469,10 @@ function SectionPools({ data }: { data: RaydiumData | null }) {
                     <span className={`border px-2 py-0.5 font-mono text-[9px] uppercase ${actionTone(row.action)}`}>{row.action}</span>
                   </td>
                   <td className="px-4 py-3">
-                    <ExtLink href={solscan(row.programId)} label={truncateAddress(row.programId, 6, 5)} />
+                    <div className="flex items-center gap-1.5">
+                      <ExtLink href={solscan(row.programId)} label={truncateAddress(row.programId, 6, 5)} />
+                      <CopyButton text={row.programId} />
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -453,7 +492,10 @@ function SectionPools({ data }: { data: RaydiumData | null }) {
             <div key={a.wallet} className="flex items-center gap-4 px-4 py-3">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-border font-mono text-xs text-muted-foreground">{i + 1}</div>
               <div className="flex-1 min-w-0">
-                <ExtLink href={solscan(a.wallet)} label={truncateAddress(a.wallet, 8, 5)} />
+                <div className="flex items-center gap-1.5">
+                  <ExtLink href={solscan(a.wallet)} label={truncateAddress(a.wallet, 8, 5)} />
+                  <CopyButton text={a.wallet} />
+                </div>
                 <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{[...a.types].join(", ")}</div>
               </div>
               <div className="text-right">
@@ -494,7 +536,10 @@ function SectionJit({ data }: { data: RaydiumData | null }) {
       <div className="grid gap-3 sm:grid-cols-4">
         <div className="border border-border bg-card p-4">
           <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">CLMM Program</div>
-          <div className="mt-2 font-mono text-sm font-bold text-foreground">{truncateAddress(clmmId, 8, 6)}</div>
+          <div className="mt-2 flex items-center gap-1.5">
+            <span className="font-mono text-sm font-bold text-foreground">{truncateAddress(clmmId, 8, 6)}</span>
+            <CopyButton text={clmmId} />
+          </div>
           <div className="mt-1.5"><ExtLink href={solscan(clmmId)} label="View on Solscan" /></div>
         </div>
         <div className="border border-border bg-card p-4">
@@ -605,7 +650,10 @@ function SectionLaunchLab({ data }: { data: RaydiumData | null }) {
       <div className="grid gap-3 sm:grid-cols-4">
         <div className="border border-border bg-card p-4">
           <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">LaunchLab Program</div>
-          <div className="mt-2 font-mono text-sm font-bold text-foreground">{truncateAddress(launchlabId, 8, 6)}</div>
+          <div className="mt-2 flex items-center gap-1.5">
+            <span className="font-mono text-sm font-bold text-foreground">{truncateAddress(launchlabId, 8, 6)}</span>
+            <CopyButton text={launchlabId} />
+          </div>
           <div className="mt-1.5"><ExtLink href={solscan(launchlabId)} label="View on Solscan" /></div>
         </div>
         <div className="border border-yellow-500/30 bg-yellow-500/5 p-4">
@@ -644,10 +692,11 @@ function SectionLaunchLab({ data }: { data: RaydiumData | null }) {
                 <div className="mt-1 font-mono text-[10px] text-muted-foreground">
                   First buy: <span className="text-foreground">{row.firstBuy}</span>
                 </div>
-                <div className="mt-0.5">
+                <div className="mt-0.5 flex items-center gap-1.5">
                   {row.sniperFull
                     ? <ExtLink href={solscan(row.sniperFull)} label={row.sniper} />
                     : <span className="font-mono text-[10px] text-muted-foreground">{row.sniper}</span>}
+                  {row.sniperFull && <CopyButton text={row.sniperFull} />}
                 </div>
               </div>
               <div>
@@ -657,7 +706,10 @@ function SectionLaunchLab({ data }: { data: RaydiumData | null }) {
               </div>
               <div>
                 {row.tokenFull && (
-                  <ExtLink href={solscan(row.tokenFull)} label="View token" />
+                  <div className="flex items-center gap-1.5">
+                    <ExtLink href={solscan(row.tokenFull)} label="View token" />
+                    <CopyButton text={row.tokenFull} />
+                  </div>
                 )}
               </div>
             </div>
@@ -1055,21 +1107,26 @@ function RaydiumDetectionCard({
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2">
-            <div>
+            <div className="flex items-center gap-1.5">
               <span className="font-mono text-xs text-muted-foreground">ATTACKER </span>
               <ExtLink href={solscan(attack.attacker_wallet)} label={truncateAddress(attack.attacker_wallet, 6, 4)} />
+              <CopyButton text={attack.attacker_wallet} />
             </div>
             {attack.victim_wallet && (
-              <div>
+              <div className="flex items-center gap-1.5">
                 <span className="font-mono text-xs text-muted-foreground">VICTIM </span>
                 <ExtLink href={solscan(attack.victim_wallet)} label={truncateAddress(attack.victim_wallet, 6, 4)} />
+                <CopyButton text={attack.victim_wallet} />
               </div>
             )}
           </div>
 
-          <h3 className="mt-2 truncate text-sm font-semibold text-foreground">
-            {attack.surface_label ?? formatPoolLabel(attack.pool_address)}
-          </h3>
+          <div className="mt-2 flex items-center gap-1.5">
+            <h3 className="truncate text-sm font-semibold text-foreground">
+              {attack.surface_label ?? formatPoolLabel(attack.pool_address)}
+            </h3>
+            <CopyButton text={attack.pool_address} />
+          </div>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">{detectionSummary(attack)}</p>
         </div>
 
@@ -1172,11 +1229,11 @@ function RaydiumDetectionCard({
             <div className="border border-border/60 p-4">
               <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Event detail</div>
               <div className="mt-3 grid gap-3 text-xs sm:grid-cols-2">
-                <DetailLine label="Surface" value={attack.surface_label ?? formatPoolLabel(attack.pool_address)} />
+                <DetailLine label="Surface" value={attack.surface_label ?? formatPoolLabel(attack.pool_address)} copy={attack.pool_address} />
                 <DetailLine label="Program" value={programName(attack.protocol)} />
                 <DetailLine label="Block time" value={new Date(attack.block_time).toLocaleString()} />
-                <DetailLine label="Validator" value={truncateAddress(attack.validator, 10, 6)} href={solscan(attack.validator)} />
-                {attack.token_mint && <DetailLine label="Token mint" value={truncateAddress(attack.token_mint, 10, 6)} href={solscan(attack.token_mint)} />}
+                <DetailLine label="Validator" value={truncateAddress(attack.validator, 10, 6)} href={solscan(attack.validator)} copy={attack.validator} />
+                {attack.token_mint && <DetailLine label="Token mint" value={truncateAddress(attack.token_mint, 10, 6)} href={solscan(attack.token_mint)} copy={attack.token_mint} />}
                 <DetailLine label="Surface precision" value={attack.surface_precision ?? "inferred"} />
               </div>
             </div>
@@ -1209,11 +1266,14 @@ function Chip({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DetailLine({ label, value, href }: { label: string; value: string; href?: string }) {
+function DetailLine({ label, value, href, copy }: { label: string; value: string; href?: string; copy?: string }) {
   return (
     <div className="grid gap-1">
       <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">{label}</span>
-      {href ? <ExtLink href={href} label={value} /> : <span className="break-all font-mono text-[11px] text-foreground">{value}</span>}
+      <div className="flex items-center gap-1.5">
+        {href ? <ExtLink href={href} label={value} /> : <span className="break-all font-mono text-[11px] text-foreground">{value}</span>}
+        {copy && <CopyButton text={copy} />}
+      </div>
     </div>
   );
 }
@@ -1262,7 +1322,7 @@ function SectionSavings({ data }: { data: RaydiumData | null }) {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} layout="vertical" margin={{ left: 12, right: 20, top: 4, bottom: 4 }}>
                 <CartesianGrid horizontal={false} stroke="hsl(var(--border))" strokeOpacity={0.4} />
-                <XAxis type="number" tickFormatter={(v) => `$${Math.round(v / 1000)}K`} tick={TICK_STYLE} axisLine={false} tickLine={false} />
+                <XAxis type="number" tickFormatter={(v) => fmtAxis(v)} tick={TICK_STYLE} axisLine={false} tickLine={false} />
                 <YAxis type="category" dataKey="name" width={100} tick={{ ...TICK_STYLE, fontSize: 9 }} axisLine={false} tickLine={false} />
                 <Tooltip formatter={(v: number) => [fmt(v), "Savings"]} contentStyle={TOOLTIP_STYLE} labelStyle={{ color: "hsl(var(--foreground))" }} />
                 <Bar dataKey="savings" radius={[0, 2, 2, 0]}>
@@ -1397,7 +1457,7 @@ function SectionExtraction({ data }: { data: RaydiumData | null }) {
               <AreaChart data={trendData} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
                 <CartesianGrid stroke="hsl(var(--border))" strokeOpacity={0.4} />
                 <XAxis dataKey="day" tick={TICK_STYLE} axisLine={false} tickLine={false} />
-                <YAxis tickFormatter={(v) => `$${Math.round(v / 1000)}K`} tick={TICK_STYLE} axisLine={false} tickLine={false} width={44} />
+                <YAxis tickFormatter={(v) => fmtAxis(v)} tick={TICK_STYLE} axisLine={false} tickLine={false} width={44} />
                 <Tooltip formatter={(v: number, name: string) => [fmt(v), EXTRACTION_TYPES.find(t => t.key === name)?.label ?? name]} contentStyle={TOOLTIP_STYLE} />
                 {EXTRACTION_TYPES.map(({ key, color }) => (
                   <Area key={key} type="monotone" dataKey={key} stackId="1" stroke={color} fill={color} fillOpacity={0.35} strokeWidth={2} />
@@ -1423,11 +1483,11 @@ function SectionExtraction({ data }: { data: RaydiumData | null }) {
             <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-primary">By Program</p>
             <h2 className="mt-0.5 text-base font-semibold text-foreground">Extraction breakdown by Raydium surface</h2>
           </div>
-          <div className="h-48 p-4">
+          <div className="h-64 p-4">
             {byProgram.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={byProgram} dataKey="value" cx="50%" cy="50%" outerRadius={80} strokeWidth={0}>
+                  <Pie data={byProgram} dataKey="value" cx="50%" cy="50%" outerRadius={90} strokeWidth={0}>
                     {byProgram.map((d) => <Cell key={d.name} fill={d.fill} fillOpacity={0.85} />)}
                   </Pie>
                   <Tooltip formatter={(v: number) => [fmt(v), ""]} contentStyle={TOOLTIP_STYLE} />
