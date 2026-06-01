@@ -311,7 +311,7 @@ function useRaydiumData() {
       const [status, routes, attacks, pools, lp] = await Promise.all([
         api.systemStatus(),
         api.routeRisks(20),
-        api.attacks({ limit: "20" }),
+        api.attacks({ protocol: "raydium", limit: "100" }),
         api.pools(20),
         api.lpProtection(20),
       ]);
@@ -341,7 +341,8 @@ function useRaydiumData() {
   const pollAttacks = useCallback(async () => {
     try {
       const fresh = await api.attacks({
-        limit: "20",
+        protocol: "raydium",
+        limit: "50",
         since: lastAttackFetchRef.current ?? undefined,
       });
       if (fresh.length === 0) return;

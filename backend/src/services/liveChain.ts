@@ -3855,6 +3855,7 @@ class LiveChainService {
   getAttacks(params: {
     type?: string;
     pool?: string;
+    protocol?: string;
     limit?: string;
     offset?: string;
     since?: string;
@@ -3869,6 +3870,7 @@ class LiveChainService {
   private buildAttacks(params: {
     type?: string;
     pool?: string;
+    protocol?: string;
     limit?: string;
     offset?: string;
     since?: string;
@@ -3878,6 +3880,14 @@ class LiveChainService {
 
     if (params.type) results = results.filter((attack) => attack.attack_type === params.type);
     if (params.pool) results = results.filter((attack) => attack.pool_address === params.pool);
+    if (params.protocol) {
+      const proto = params.protocol.toLowerCase();
+      results = results.filter((attack) =>
+        attack.protocol?.toLowerCase().includes(proto) ||
+        attack.pool_address?.toLowerCase().includes(proto) ||
+        attack.surface_label?.toLowerCase().includes(proto),
+      );
+    }
     if (params.since) {
       const sinceTs = new Date(params.since).getTime();
       if (!Number.isNaN(sinceTs)) {

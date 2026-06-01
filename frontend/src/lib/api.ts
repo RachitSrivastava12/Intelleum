@@ -1630,7 +1630,7 @@ export interface ToxicFlowTerminal {
 export const api = {
   stats: () => cachedGet<GlobalStats>("/stats", undefined, 8_000),
 
-  attacks: (params?: { type?: string; pool?: string; limit?: string; since?: string }) =>
+  attacks: (params?: { type?: string; pool?: string; protocol?: string; limit?: string; since?: string }) =>
     cachedGet<Attack[]>("/attacks", params as any, 4_000),
 
   attackHistory: (limit?: number) =>

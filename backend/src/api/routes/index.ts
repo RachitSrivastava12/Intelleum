@@ -133,7 +133,7 @@ router.get("/stats", (_req: Request, res: Response) => {
 });
 
 router.get("/attacks", (req: Request, res: Response) => {
-  const { type, pool: poolAddress, limit = "50", offset = "0", since } = req.query as any;
+  const { type, pool: poolAddress, protocol, limit = "50", offset = "0", since } = req.query as any;
 
   res.setHeader("X-Intelleum-Source", liveChainService.hasLiveData() ? "chain" : "fallback");
   res.json(
@@ -141,6 +141,7 @@ router.get("/attacks", (req: Request, res: Response) => {
       ? liveChainService.getAttacks({
           type,
           pool: poolAddress,
+          protocol,
           limit,
           offset,
           since,
