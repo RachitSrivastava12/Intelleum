@@ -1274,12 +1274,131 @@ function SectionOverview({ data }: { data: OrcaData | null }) {
   );
   const lpDrag = lpRows.reduce((sum, row) => sum + row.lp_drag_estimate_usd, 0);
 
-  const cards = [
-    { to: "/dex-intelligence/orca/whirlpools", title: "Whirlpools", value: `${routes.length}`, desc: "tick-range surfaces ranked by extraction risk" },
-    { to: "/dex-intelligence/orca/detections", title: "Live Detections", value: `${attacks.length}`, desc: "append-only Orca detection feed" },
-    { to: "/dex-intelligence/orca/savings", title: "Savings", value: fmtUsd(savings), desc: "route caps and tick-aware reroute value" },
-    { to: "/dex-intelligence/orca/lp", title: "LP Drag", value: fmtUsd(lpDrag), desc: "JIT dilution and adverse-selection proxy" },
-  ];
+  const savingsChartData = routes
+    .filter((route) => route.estimated_savings_usd > 0 || route.total_extracted_usd > 0)
+    .map((route) => ({
+      name: surfaceName(route),
+      routeKey: route.route_key,
+      savings: Math.round(Math.max(route.estimated_savings_usd, route.total_extracted_usd)),
+      program: orcaProgramLabel(route.protocol),
+      action: route.policy_action,
+    }))
+    .sort((a, b) => b.savings - a.savings)
+    .slice(0, 5);
+
+  const attackTypeCounts = attacks.reduce((counts, attack) => {
+    if (attack.attack_type === "jit") counts.jit += 1;
+    else if (attack.attack_type === "sandwich") counts.sandwich += 1;
+    else if (attack.attack_type === "backrun") counts.backrun += 1;
+    else if (attack.attack_type === "arbitrage") counts.arbitrage += 1;
+    else if (attack.attack_type === "liquidation") counts.liquidation += 1;
+    else counts.other += 1;
+    return counts;
+  }, { jit: 0, sandwich: 0, backrun: 0, arbitrage: 0, liquidation: 0, other: 0 });
+
+  const attackPieData = [
+    { name: "JIT", value: attackTypeCounts.jit, color: "hsl(var(--primary))" },
+    { name: "Sandwich", value: attackTypeCounts.sandwich, color: "hsl(0 85% 62%)" },
+    { name: "Backrun", value: attackTypeCounts.backrun, color: "hsl(28 90% 60%)" },
+    { name: "Arb", value: attackTypeCounts.arbitrage, color: "hsl(210 80% 65%)" },
+    { name: "Liquidation", value: attackTypeCounts.liquidation, color: "hsl(270 70% 60%)" },
+    { name: "Other", value: attackTypeCounts.other, color: "hsl(150 70% 45%)" },
+  ].filter((entry) => entry.value > 0);
+  const attackPieTotal = attackPieData.reduce((sum, entry) => sum + entry.value, 0);
+  const attackPiePercent = attackPieTotal === 0 ? [] : attackPieData.map((entry) => ({
+    ...entry,
+    value: Math.round((entry.value / attackPieTotal) * 100),
+  }));
+
+  const trendData = useMemo(() => {
+    const terminalSurfaces = data?.terminal?.surfaces?.filter((surface) =>
+      isOrcaText(surface.protocol) || isOrcaText(surface.route_key) || isOrcaText(surface.label),
+    ) ?? [];
+    const candles = terminalSurfaces
+      .flatMap((surface) => surface.candles?.map((candle) => ({ ...candle, surface })) ?? [])
+      .map((candle) => ({ ...candle, ts: new Date(candle.timestamp).getTime() }))
+      .filter((candle) => Number.isFinite(candle.ts))
+      .sort((a, b) => a.ts - b.ts);
+
+    if (candles.length > 0) {
+      const bucketCount = Math.min(12, Math.max(1, candles.length));
+      const startMs = candles[0].ts;
+      const endMs = candles[candles.length - 1].ts;
+      const spanMs = Math.max(1, endMs - startMs);
+      const bucketMs = Math.max(1, spanMs / bucketCount);
+      const buckets = new Map<number, { jit: number; sandwich: number; stale: number; other: number }>();
+
+      for (const candle of candles) {
+        const index = Math.max(0, Math.min(bucketCount - 1, Math.floor((candle.ts - startMs) / bucketMs)));
+        const prev = buckets.get(index) ?? { jit: 0, sandwich: 0, stale: 0, other: 0 };
+        const value = candle.loss_at_risk_usd ?? 0;
+        if (candle.event_type === "jit") prev.jit += value;
+        else if (candle.event_type === "sandwich") prev.sandwich += value;
+        else if (candle.event_type === "backrun" || candle.event_type === "arbitrage") prev.stale += value;
+        else prev.other += value;
+        buckets.set(index, prev);
+      }
+
+      return Array.from({ length: bucketCount }, (_, index) => {
+        const bucketStart = startMs + index * bucketMs;
+        const row = buckets.get(index) ?? { jit: 0, sandwich: 0, stale: 0, other: 0 };
+        return {
+          day: new Date(bucketStart).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+          ...row,
+        };
+      }).filter((row) => row.jit + row.sandwich + row.stale + row.other > 0);
+    }
+
+    return attacks
+      .map((attack) => {
+        const ts = new Date(attack.block_time).getTime();
+        const value = attack.profit_usd != null ? attack.profit_usd : (attack.victim_loss_usd ?? 0);
+        const kind = attack.attack_type === "jit" ? "jit"
+          : attack.attack_type === "sandwich" ? "sandwich"
+          : attack.attack_type === "backrun" || attack.attack_type === "arbitrage" ? "stale"
+          : "other";
+        return { ts, value, kind };
+      })
+      .filter((attack) => Number.isFinite(attack.ts) && attack.value > 0)
+      .sort((a, b) => a.ts - b.ts)
+      .map((attack) => ({
+        day: new Date(attack.ts).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+        jit: attack.kind === "jit" ? attack.value : 0,
+        sandwich: attack.kind === "sandwich" ? attack.value : 0,
+        stale: attack.kind === "stale" ? attack.value : 0,
+        other: attack.kind === "other" ? attack.value : 0,
+      }));
+  }, [attacks, data?.terminal]);
+
+  const whirlpoolRows = routes
+    .map((route) => ({
+      id: route.route_key,
+      surface: surfaceName(route),
+      routeKey: route.route_key,
+      program: orcaProgramLabel(route.protocol),
+      jit: route.jit_count,
+      bpsAtRisk: route.markout_30s_bps,
+      action: route.policy_action,
+    }))
+    .sort((a, b) => b.jit - a.jit || b.bpsAtRisk - a.bpsAtRisk)
+    .slice(0, 4);
+  const jitRows = routes
+    .filter((route) => route.jit_count > 0 || orcaProgramLabel(route.protocol) === "Whirlpool")
+    .map((route) => ({
+      id: route.route_key,
+      surface: surfaceName(route),
+      windows: route.jit_count,
+      drag: route.lp_annual_loss_usd_estimate,
+      action: route.policy_action,
+    }))
+    .sort((a, b) => b.windows - a.windows || b.drag - a.drag)
+    .slice(0, 4);
+  const adaptiveRows = routes
+    .sort((a, b) => b.stale_quote_pickup_rate - a.stale_quote_pickup_rate)
+    .slice(0, 4);
+  const lpPreviewRows = lpRows
+    .sort((a, b) => b.toxicity_score - a.toxicity_score || b.lp_drag_estimate_usd - a.lp_drag_estimate_usd)
+    .slice(0, 4);
 
   return (
     <>
@@ -1308,44 +1427,189 @@ function SectionOverview({ data }: { data: OrcaData | null }) {
 
       <LiveTicker attacks={attacks} onAttackClick={() => navigate("/dex-intelligence/orca/detections")} />
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {cards.map((card) => (
-          <Link key={card.to} to={card.to} className="block border border-border bg-card p-4 transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-            <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-primary">{card.title}</div>
-            <div className="mt-2 text-2xl font-bold text-foreground">{card.value}</div>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">{card.desc}</p>
-          </Link>
-        ))}
+      <div className="grid gap-5 xl:grid-cols-[1.5fr_0.5fr]">
+        <SectionShell eyebrow="Savings Potential" title="Estimated Savings — Top Orca Surfaces" action={<Link to="/dex-intelligence/orca/savings" className="font-mono text-[10px] text-primary hover:underline">View full -&gt;</Link>}>
+          <div className="h-56 p-4">
+            {savingsChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={savingsChartData} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
+                  <CartesianGrid horizontal={false} stroke="hsl(var(--border))" strokeOpacity={0.4} />
+                  <XAxis type="number" tickFormatter={(value) => formatAxisCurrency(Number(value))} tick={TICK_STYLE} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="name" width={86} tick={TICK_STYLE} axisLine={false} tickLine={false} />
+                  <Tooltip formatter={(value: number) => [fmtUsd(value), "Savings"]} contentStyle={TOOLTIP_STYLE} labelStyle={{ color: "hsl(var(--foreground))" }} />
+                  <Bar dataKey="savings" radius={[0, 2, 2, 0]}>
+                    {savingsChartData.map((entry) => (
+                      <Cell key={entry.routeKey} fill={entry.action === "avoid" ? "hsl(0 85% 62%)" : entry.program === "Whirlpool" ? "hsl(var(--primary))" : "hsl(48 96% 53%)"} fillOpacity={0.85} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-full items-center justify-center border border-dashed border-border/50 bg-background/80 text-sm text-muted-foreground">
+                Orca route savings are still warming up. Live savings appear once the API returns enough Orca surfaces.
+              </div>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-4 border-t border-border/50 px-4 py-2">
+            {[["Whirlpool", "hsl(var(--primary))"], ["Legacy", "hsl(48 96% 53%)"], ["Block", "hsl(0 85% 62%)"]].map(([label, color]) => (
+              <div key={label} className="flex items-center gap-1.5">
+                <div className="h-2 w-2 rounded-full" style={{ background: color }} />
+                <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">{label}</span>
+              </div>
+            ))}
+          </div>
+        </SectionShell>
+
+        <SectionShell eyebrow="Attack Types" title="MEV Breakdown">
+          <div className="flex h-56 flex-col items-center justify-center p-4">
+            {attackPiePercent.length > 0 ? (
+              <>
+                <ResponsiveContainer width="100%" height={160}>
+                  <PieChart>
+                    <Pie data={attackPiePercent} cx="50%" cy="50%" innerRadius={48} outerRadius={72} dataKey="value" strokeWidth={0}>
+                      {attackPiePercent.map((entry) => <Cell key={entry.name} fill={entry.color} fillOpacity={0.9} />)}
+                    </Pie>
+                    <Tooltip formatter={(value: number) => [`${value}%`, ""]} contentStyle={TOOLTIP_STYLE} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="mt-2 flex w-full flex-col gap-1.5 px-4">
+                  {attackPiePercent.map((entry) => (
+                    <div key={entry.name} className="flex items-center gap-2">
+                      <div className="h-2 w-2 rounded-full" style={{ background: entry.color }} />
+                      <span className="font-mono text-[10px] text-muted-foreground">{entry.name}</span>
+                      <span className="ml-auto font-mono text-[10px] font-semibold text-foreground">{entry.value}%</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="flex h-full items-center justify-center border border-dashed border-border/50 bg-background/80 px-4 text-center text-sm text-muted-foreground">
+                No Orca attack breakdown available yet. Wait for the live feed to accumulate classified detections.
+              </div>
+            )}
+          </div>
+        </SectionShell>
       </div>
 
-      <SectionShell eyebrow="Policy Output" title="Protected Send Decision" action={<Link to="/protection" className="font-mono text-[10px] text-primary hover:underline">Open Guard</Link>}>
-        <div className="grid gap-4 p-4 lg:grid-cols-[1fr_1.1fr]">
-          <div className="grid grid-cols-3 gap-2">
-            <MiniMetric label="Loss at risk" value={fmtUsd(data?.guard?.expected_loss_at_risk_usd)} />
-            <MiniMetric label="Bps at risk" value={fmtBps(data?.guard?.expected_loss_at_risk_bps ?? routes[0]?.markout_30s_bps)} />
-            <MiniMetric label="Safe size" value={fmtUsd(data?.guard?.recommended_max_notional_usd)} />
-          </div>
-          <div className="border border-border/60 bg-background/30 p-3">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-primary" />
-              <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Surface</div>
+      <SectionShell eyebrow={trendData.length > 0 ? "Observed Window" : "Live Window"} title="Extraction by Type — Orca Surfaces" action={<Link to="/dex-intelligence/orca/extraction" className="font-mono text-[10px] text-primary hover:underline">View full -&gt;</Link>}>
+        <div className="h-52 p-4">
+          {trendData.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={trendData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
+                <CartesianGrid stroke="hsl(var(--border))" strokeOpacity={0.4} />
+                <XAxis dataKey="day" tick={TICK_STYLE} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={(value) => formatAxisCurrency(Number(value))} tick={TICK_STYLE} axisLine={false} tickLine={false} width={44} />
+                <Tooltip formatter={(value: number, name: string) => [fmtUsd(value), name.charAt(0).toUpperCase() + name.slice(1)]} contentStyle={TOOLTIP_STYLE} />
+                <Area type="monotone" dataKey="jit" stackId="1" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.3} strokeWidth={1.5} />
+                <Area type="monotone" dataKey="sandwich" stackId="1" stroke="hsl(0 85% 62%)" fill="hsl(0 85% 62%)" fillOpacity={0.3} strokeWidth={1.5} />
+                <Area type="monotone" dataKey="stale" stackId="1" stroke="hsl(210 80% 65%)" fill="hsl(210 80% 65%)" fillOpacity={0.3} strokeWidth={1.5} />
+                <Area type="monotone" dataKey="other" stackId="1" stroke="hsl(28 90% 60%)" fill="hsl(28 90% 60%)" fillOpacity={0.3} strokeWidth={1.5} />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-full items-center justify-center border border-dashed border-border/50 bg-background/80 text-sm text-muted-foreground">
+              No Orca extraction trend available yet. Waiting for the live toxic-flow terminal to ingest Orca surfaces.
             </div>
-            <div className="mt-1 text-sm text-foreground">{data?.guard?.selected_label ?? routes[0]?.label ?? "No Orca route selected yet"}</div>
-            <div className="mt-3 space-y-1.5">
-              {(data?.guard?.protected_send_policy.implementation_steps ?? [
-                "Refresh Whirlpool fee, tick-array, and adaptive-fee state before submit.",
-                "Cap size or reroute if JIT and stale quote pressure are elevated.",
-                "Emit Orca reason codes into execution analytics.",
-              ]).slice(0, 3).map((step, index) => (
-                <div key={step} className="flex gap-2 border border-border/40 bg-background/20 px-3 py-2 text-xs text-muted-foreground">
-                  <span className="shrink-0 font-mono text-primary">{String(index + 1).padStart(2, "0")}</span>
-                  <span>{step}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          )}
         </div>
       </SectionShell>
+
+      <div className="grid gap-5 xl:grid-cols-3">
+        <SectionShell eyebrow="Whirlpools" title="Tick-Range Surfaces" action={<Link to="/dex-intelligence/orca/whirlpools" className="font-mono text-[10px] text-primary hover:underline">View full -&gt;</Link>}>
+          <div className="divide-y divide-border/40">
+            {whirlpoolRows.length > 0 ? whirlpoolRows.map((row) => (
+              <Link key={row.id} to="/dex-intelligence/orca/whirlpools" className="flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary">
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-medium text-foreground">{row.surface}</div>
+                  <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{row.program} · {row.jit} JIT · {fmtBps(row.bpsAtRisk)}</div>
+                </div>
+                <span className={`shrink-0 border px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] ${actionTone(row.action)}`}>{actionLabel(row.action)}</span>
+              </Link>
+            )) : <EmptyInline message="No Orca Whirlpool surfaces in the current API window." />}
+          </div>
+        </SectionShell>
+
+        <SectionShell eyebrow="JIT Liquidity" title="JIT Windows" action={<Link to="/dex-intelligence/orca/jit" className="font-mono text-[10px] text-primary hover:underline">View full -&gt;</Link>}>
+          <div className="divide-y divide-border/40">
+            {jitRows.length > 0 ? jitRows.map((row) => (
+              <Link key={row.id} to="/dex-intelligence/orca/jit" className="flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary">
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-medium text-foreground">{row.surface}</div>
+                  <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{row.windows} windows · {fmtUsd(row.drag)} LP drag</div>
+                </div>
+                <span className={`shrink-0 border px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] ${actionTone(row.action)}`}>{actionLabel(row.action)}</span>
+              </Link>
+            )) : <EmptyInline message="No Orca JIT windows in the current API window." />}
+          </div>
+        </SectionShell>
+
+        <SectionShell eyebrow="Adaptive Fees" title="State Read Risk" action={<Link to="/dex-intelligence/orca/adaptive" className="font-mono text-[10px] text-primary hover:underline">View full -&gt;</Link>}>
+          <div className="divide-y divide-border/40">
+            {adaptiveRows.length > 0 ? adaptiveRows.map((route) => (
+              <Link key={route.route_key} to="/dex-intelligence/orca/adaptive" className="block px-4 py-3 transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="truncate text-xs font-medium text-foreground">{surfaceName(route)}</div>
+                  <span className={`shrink-0 border px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] ${actionTone(route.policy_action)}`}>{actionLabel(route.policy_action)}</span>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  <MiniMetric label="Stale quote" value={`${route.stale_quote_pickup_rate.toFixed(0)}%`} />
+                  <MiniMetric label="Freshness" value={`${route.quote_freshness_ms.toFixed(0)}ms`} />
+                  <MiniMetric label="Saved" value={fmtBps(route.estimated_savings_bps)} />
+                </div>
+              </Link>
+            )) : <EmptyInline message="No adaptive-fee or tick-array risk rows yet." />}
+          </div>
+        </SectionShell>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <SectionShell eyebrow="LP Protection" title="Per-Surface Protection Score" action={<Link to="/dex-intelligence/orca/lp" className="font-mono text-[10px] text-primary hover:underline">View full -&gt;</Link>}>
+          <div className="divide-y divide-border/40">
+            {lpPreviewRows.length > 0 ? lpPreviewRows.map((row) => (
+              <Link key={row.pool_address} to="/dex-intelligence/orca/lp" className="flex items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center border font-mono text-sm font-bold ${row.toxicity_score >= 80 ? "border-red-500/40 text-red-300" : row.toxicity_score >= 60 ? "border-yellow-500/40 text-yellow-200" : "border-green-500/40 text-green-300"}`}>
+                  {row.toxicity_score.toFixed(0)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-medium text-foreground">{formatPoolLabel(row.pool_address)}</div>
+                  <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                    {row.primary_cause} · {fmtUsd(row.lp_drag_estimate_usd)} drag · {fmtBps(row.saved_fee_bps_if_segmented)} saved
+                  </div>
+                </div>
+              </Link>
+            )) : <EmptyInline message="No Orca LP protection rows in the current API window." />}
+          </div>
+        </SectionShell>
+
+        <SectionShell eyebrow="Policy Output" title="Protected Send Decision" action={<Link to="/protection" className="font-mono text-[10px] text-primary hover:underline">Open Guard</Link>}>
+          <div className="grid gap-4 p-4 lg:grid-cols-[1fr_1.1fr]">
+            <div className="grid grid-cols-3 gap-2">
+              <MiniMetric label="Loss at risk" value={fmtUsd(data?.guard?.expected_loss_at_risk_usd)} />
+              <MiniMetric label="Bps at risk" value={fmtBps(data?.guard?.expected_loss_at_risk_bps ?? routes[0]?.markout_30s_bps)} />
+              <MiniMetric label="Safe size" value={fmtUsd(data?.guard?.recommended_max_notional_usd)} />
+            </div>
+            <div className="border border-border/60 bg-background/30 p-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-primary" />
+                <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Surface</div>
+              </div>
+              <div className="mt-1 text-sm text-foreground">{data?.guard?.selected_label ?? routes[0]?.label ?? "No Orca route selected yet"}</div>
+              <div className="mt-3 space-y-1.5">
+                {(data?.guard?.protected_send_policy.implementation_steps ?? [
+                  "Refresh Whirlpool fee, tick-array, and adaptive-fee state before submit.",
+                  "Cap size or reroute if JIT and stale quote pressure are elevated.",
+                  "Emit Orca reason codes into execution analytics.",
+                ]).slice(0, 3).map((step, index) => (
+                  <div key={step} className="flex gap-2 border border-border/40 bg-background/20 px-3 py-2 text-xs text-muted-foreground">
+                    <span className="shrink-0 font-mono text-primary">{String(index + 1).padStart(2, "0")}</span>
+                    <span>{step}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </SectionShell>
+      </div>
     </>
   );
 }
