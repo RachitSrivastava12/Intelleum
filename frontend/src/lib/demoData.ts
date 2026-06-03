@@ -615,15 +615,24 @@ export const demoEngineHistory: EngineSnapshot[] = Array.from({ length: 12 }, (_
 export function getDemoAttacks(params?: {
   type?: string;
   pool?: string;
+  protocol?: string;
   limit?: string;
   since?: string;
 }): Attack[] {
-  let result = [...attacks].sort(
+  let result = [...attacks, ...orcaAttacks].sort(
     (a, b) => new Date(b.block_time).getTime() - new Date(a.block_time).getTime(),
   );
 
   if (params?.type) result = result.filter((attack) => attack.attack_type === params.type);
   if (params?.pool) result = result.filter((attack) => attack.pool_address === params.pool);
+  if (params?.protocol) {
+    const protocol = params.protocol.toLowerCase();
+    result = result.filter((attack) =>
+      attack.protocol?.toLowerCase().includes(protocol) ||
+      attack.pool_address.toLowerCase().includes(protocol) ||
+      attack.surface_label?.toLowerCase().includes(protocol),
+    );
+  }
   if (params?.since) {
     const since = new Date(params.since).getTime();
     result = result.filter((attack) => new Date(attack.block_time).getTime() > since);
@@ -716,11 +725,11 @@ export function getDemoEntity(id: string): EntityDetail | null {
 }
 
 export function getDemoPools(limit = 50): PoolToxicity[] {
-  return [...pools].slice(0, limit);
+  return [...pools, ...orcaPools].slice(0, limit);
 }
 
 export function getDemoRouteRisks(limit = 25): RouteRisk[] {
-  return [...routeRisks].slice(0, limit);
+  return [...routeRisks, ...orcaRoutes].slice(0, limit);
 }
 
 export function getDemoRouteRecommendations(limit = 12): RouteRecommendation[] {
@@ -1514,6 +1523,465 @@ const raydiumLpProtection: LpProtectionSnapshot[] = [
   },
 ];
 
+// ─── Orca local demo data (shown when chain feed is offline) ─────────────────
+
+const MSOL = "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So";
+const JITO = "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn";
+const ORCA = "orcaEKTd8a7LKz57vaAYC5Az1Wd7Gg99j5ba87TtfF2";
+
+const OK_WHIRL_SOL_USDC = `venue:orca_whirlpool:${SOL}->${USDC}`;
+const OK_WHIRL_USDC_SOL = `venue:orca_whirlpool:${USDC}->${SOL}`;
+const OK_WHIRL_MSOL_SOL = `venue:orca_whirlpool:${MSOL}->${SOL}`;
+const OK_WHIRL_ORCA_SOL = `venue:orca_whirlpool:${ORCA}->${SOL}`;
+const OK_WHIRL_JITO_SOL = `venue:orca_whirlpool:${JITO}->${SOL}`;
+const OK_LEGACY_USDC_USDT = `route:orca_legacy_v2:${USDC}->${USDT}`;
+
+const orcaAttacks: Attack[] = [
+  {
+    id: 201,
+    attack_type: "jit",
+    slot: 330100061,
+    block_time: new Date(now - 24 * 1000).toISOString(),
+    validator: "Jito-Validator-Whirlpool-01",
+    attacker_wallet: "ORCAjitTickDesk7vN2mQ4pL9sX1cB6wT8eK3aF5gH0yR",
+    entity_id: "entity_jit_labs",
+    entity_label: "JIT Liquidity Desk",
+    entity_risk: 0.81,
+    victim_wallet: "OrcaLpPassive1tK7bL1xF3cT9eH5jR6yP2gM0s",
+    victim_loss_usd: 388.24,
+    pool_address: OK_WHIRL_SOL_USDC,
+    protocol: "orca_whirlpool",
+    surface_label: "Orca Whirlpool SOL/USDC 0.04%",
+    token_mint: SOL,
+    profit_usd: 954.12,
+    tip_lamports: 168000,
+    confidence: 0.95,
+    detector: "raw_delta_jit_orca_whirlpool",
+    execution_lane: "jito-aligned",
+    bundle_likelihood: 0.82,
+    evidence: [
+      "Whirlpool add/swap/remove sequence landed in the same slot",
+      "temporary range overlapped the active SOL/USDC tick array",
+      "passive LP fee dilution estimated at 8.4 bps in the active band",
+    ],
+    frontrun_tx: "OrcaJitAddSOLUSDC11111111111111111111111111",
+    victim_tx: "OrcaVictimSwapSOLUSDC111111111111111111111",
+    backrun_tx: "OrcaJitRemoveSOLUSDC111111111111111111111",
+  },
+  {
+    id: 202,
+    attack_type: "jit",
+    slot: 330100058,
+    block_time: new Date(now - 72 * 1000).toISOString(),
+    validator: "Jito-Validator-Whirlpool-02",
+    attacker_wallet: "ORCAjitTickDesk7vN2mQ4pL9sX1cB6wT8eK3aF5gH0yR",
+    entity_id: "entity_jit_labs",
+    entity_label: "JIT Liquidity Desk",
+    entity_risk: 0.81,
+    victim_wallet: "OrcaLpPassive2mK8sQ3xP7wT1eH4cF9gA6yR0dL",
+    victim_loss_usd: 276.61,
+    pool_address: OK_WHIRL_MSOL_SOL,
+    protocol: "orca_whirlpool",
+    surface_label: "Orca Whirlpool mSOL/SOL 0.01%",
+    token_mint: MSOL,
+    profit_usd: 642.38,
+    tip_lamports: 142000,
+    confidence: 0.93,
+    detector: "raw_delta_jit_orca_whirlpool",
+    execution_lane: "jito-aligned",
+    bundle_likelihood: 0.78,
+    evidence: [
+      "same signer opened a narrow position then closed after the swap",
+      "tick spacing 1 pool showed high fee-capture concentration",
+      "active range fee share spiked relative to passive LP share",
+    ],
+    frontrun_tx: "OrcaJitAddMSOLSOL222222222222222222222222",
+    victim_tx: "OrcaVictimSwapMSOLSOL22222222222222222222",
+    backrun_tx: "OrcaJitRemoveMSOLSOL22222222222222222222",
+  },
+  {
+    id: 203,
+    attack_type: "arbitrage",
+    slot: 330100054,
+    block_time: new Date(now - 2 * 60 * 1000).toISOString(),
+    validator: "Stakewiz-Pro-22",
+    attacker_wallet: "ORCAarbAcrossFees9pQx3Vt7hD2nM8kP1sR5wY4aF6",
+    entity_id: "entity_orca_arb",
+    entity_label: "Orca Cross-Pool Arb",
+    entity_risk: 0.74,
+    victim_wallet: null,
+    victim_loss_usd: null,
+    pool_address: OK_WHIRL_USDC_SOL,
+    protocol: "orca_whirlpool",
+    surface_label: "Orca Whirlpool USDC/SOL adaptive fee",
+    token_mint: USDC,
+    profit_usd: 1184.9,
+    tip_lamports: 92000,
+    confidence: 0.9,
+    detector: "parsed_swap_arbitrage_orca_whirlpool",
+    execution_lane: "priority-fee",
+    bundle_likelihood: 0.54,
+    evidence: [
+      "same signer crossed multiple Orca fee-tier pools",
+      "adaptive-fee pool repriced after tick-group movement",
+      "net USDC balance remained positive after route completion",
+    ],
+    frontrun_tx: null,
+    victim_tx: null,
+    backrun_tx: null,
+  },
+  {
+    id: 204,
+    attack_type: "backrun",
+    slot: 330100050,
+    block_time: new Date(now - 3 * 60 * 1000 - 15 * 1000).toISOString(),
+    validator: "Jito-Validator-Whirlpool-03",
+    attacker_wallet: "ORCAbackrunTickDrift5mQ1pL6sX2cB9wT3eK7",
+    entity_id: null,
+    entity_label: null,
+    entity_risk: null,
+    victim_wallet: "DeskRouteUser3wQ7xL4dJ7cP1eF6gH9wY3zA0",
+    victim_loss_usd: 188.44,
+    pool_address: OK_WHIRL_JITO_SOL,
+    protocol: "orca_whirlpool",
+    surface_label: "Orca Whirlpool JITO/SOL",
+    token_mint: JITO,
+    profit_usd: 529.73,
+    tip_lamports: 112000,
+    confidence: 0.87,
+    detector: "parsed_swap_backrun_orca_whirlpool",
+    execution_lane: "jito-aligned",
+    bundle_likelihood: 0.69,
+    evidence: [
+      "large victim swap moved across adjacent tick array",
+      "backrun captured post-swap price drift before external venues updated",
+      "quote freshness degraded below 180ms on the route window",
+    ],
+    frontrun_tx: null,
+    victim_tx: "OrcaVictimSwapJITOSOL444444444444444444444",
+    backrun_tx: "OrcaBackrunJITOSOL44444444444444444444444",
+  },
+  {
+    id: 205,
+    attack_type: "sandwich",
+    slot: 330100046,
+    block_time: new Date(now - 4 * 60 * 1000 - 40 * 1000).toISOString(),
+    validator: "Stakewiz-Pro-24",
+    attacker_wallet: "ORCAlegacySandwich4vN8mQ1pL6sX2cB9wT3eK",
+    entity_id: null,
+    entity_label: null,
+    entity_risk: null,
+    victim_wallet: "StableRouteUser4mP9sX7cT1eH3kF8wQ6yN5dM",
+    victim_loss_usd: 116.78,
+    pool_address: OK_LEGACY_USDC_USDT,
+    protocol: "orca_legacy_v2",
+    surface_label: "Orca Legacy USDC/USDT",
+    token_mint: USDC,
+    profit_usd: 306.54,
+    tip_lamports: 36000,
+    confidence: 0.84,
+    detector: "raw_delta_sandwich_orca_legacy_v2",
+    execution_lane: "priority-fee",
+    bundle_likelihood: 0.31,
+    evidence: [
+      "legacy Orca pool bracketed by same signer",
+      "victim stable swap paid above expected markout",
+      "cleaner Whirlpool stable route was available in candidate set",
+    ],
+    frontrun_tx: "OrcaLegacyFront555555555555555555555555555",
+    victim_tx: "OrcaLegacyVictim55555555555555555555555555",
+    backrun_tx: "OrcaLegacyBack555555555555555555555555555",
+  },
+];
+
+const orcaRoutes: RouteRisk[] = [
+  {
+    route_key: OK_WHIRL_SOL_USDC,
+    route_kind: "venue",
+    protocol: "orca_whirlpool",
+    label: "Orca Whirlpool SOL/USDC 0.04%",
+    sandwich_count: 10,
+    arbitrage_count: 22,
+    jit_count: 46,
+    liquidation_count: 1,
+    backrun_count: 12,
+    total_attacks: 91,
+    total_extracted_usd: 38480,
+    unique_attackers: 8,
+    avg_confidence: 91,
+    bundle_share: 68,
+    risk_score: 87,
+    recommendation: "avoid",
+    execution_quality_score: 24,
+    toxic_flow_rate: 82,
+    realized_slippage_bps: 9.6,
+    stale_quote_pickup_rate: 39,
+    quote_freshness_ms: 118,
+    markout_1s_bps: 6.8,
+    markout_5s_bps: 11.7,
+    markout_30s_bps: 18.4,
+    flow_quality_score: 18,
+    toxicity_probability: 88,
+    retail_likelihood: 7,
+    lp_adverse_selection_probability: 84,
+    lvr_proxy_score: 79,
+    priority_fee_pressure: 58,
+    validator_markout_quality: 22,
+    source_hint: "bundle-lane",
+    recommended_max_notional_usd: 16500,
+    estimated_savings_bps: 11.2,
+    estimated_savings_usd: 156800,
+    order_flow_imbalance: 56.8,
+    lp_annual_loss_rate_pct: 27.6,
+    lp_annual_loss_usd_estimate: 4554,
+    policy_action: "avoid",
+    reason_codes: ["read_whirlpool_state", "read_tick_arrays", "adaptive_fee_state", "jit_liquidity", "lp_adverse_selection"],
+    decomposition: [
+      { label: "jit_window_exposure", value: 74 },
+      { label: "stale_quote_pickups", value: 39 },
+      { label: "bundle_pressure", value: 68 },
+      { label: "markout_deterioration", value: 55 },
+      { label: "lp_adverse_selection", value: 79 },
+    ],
+  },
+  {
+    route_key: OK_WHIRL_MSOL_SOL,
+    route_kind: "venue",
+    protocol: "orca_whirlpool",
+    label: "Orca Whirlpool mSOL/SOL 0.01%",
+    sandwich_count: 3,
+    arbitrage_count: 35,
+    jit_count: 31,
+    liquidation_count: 0,
+    backrun_count: 8,
+    total_attacks: 77,
+    total_extracted_usd: 24420,
+    unique_attackers: 6,
+    avg_confidence: 87,
+    bundle_share: 56,
+    risk_score: 76,
+    recommendation: "penalize",
+    execution_quality_score: 38,
+    toxic_flow_rate: 67,
+    realized_slippage_bps: 5.7,
+    stale_quote_pickup_rate: 44,
+    quote_freshness_ms: 172,
+    markout_1s_bps: 3.9,
+    markout_5s_bps: 7.6,
+    markout_30s_bps: 12.1,
+    flow_quality_score: 33,
+    toxicity_probability: 73,
+    retail_likelihood: 20,
+    lp_adverse_selection_probability: 71,
+    lvr_proxy_score: 66,
+    priority_fee_pressure: 42,
+    validator_markout_quality: 36,
+    source_hint: "searcher-bot",
+    recommended_max_notional_usd: 36000,
+    estimated_savings_bps: 7.4,
+    estimated_savings_usd: 92800,
+    order_flow_imbalance: 37.4,
+    lp_annual_loss_rate_pct: 19.6,
+    lp_annual_loss_usd_estimate: 7056,
+    policy_action: "reroute",
+    reason_codes: ["read_tick_arrays", "jit_liquidity", "lp_adverse_selection", "stale_quote_pickups"],
+    decomposition: [
+      { label: "jit_window_exposure", value: 61 },
+      { label: "stale_quote_pickups", value: 44 },
+      { label: "bundle_pressure", value: 56 },
+      { label: "markout_deterioration", value: 36 },
+      { label: "lp_adverse_selection", value: 66 },
+    ],
+  },
+  {
+    route_key: OK_WHIRL_USDC_SOL,
+    route_kind: "venue",
+    protocol: "orca_whirlpool",
+    label: "Orca Whirlpool USDC/SOL adaptive fee",
+    sandwich_count: 6,
+    arbitrage_count: 43,
+    jit_count: 18,
+    liquidation_count: 0,
+    backrun_count: 18,
+    total_attacks: 85,
+    total_extracted_usd: 31260,
+    unique_attackers: 9,
+    avg_confidence: 84,
+    bundle_share: 46,
+    risk_score: 72,
+    recommendation: "penalize",
+    execution_quality_score: 42,
+    toxic_flow_rate: 63,
+    realized_slippage_bps: 6.8,
+    stale_quote_pickup_rate: 52,
+    quote_freshness_ms: 146,
+    markout_1s_bps: 4.8,
+    markout_5s_bps: 8.9,
+    markout_30s_bps: 13.8,
+    flow_quality_score: 39,
+    toxicity_probability: 69,
+    retail_likelihood: 24,
+    lp_adverse_selection_probability: 68,
+    lvr_proxy_score: 70,
+    priority_fee_pressure: 36,
+    validator_markout_quality: 40,
+    source_hint: "adaptive-fee",
+    recommended_max_notional_usd: 42000,
+    estimated_savings_bps: 7.9,
+    estimated_savings_usd: 104400,
+    order_flow_imbalance: 42.1,
+    lp_annual_loss_rate_pct: 20.8,
+    lp_annual_loss_usd_estimate: 8736,
+    policy_action: "reroute",
+    reason_codes: ["adaptive_fee_state", "tick_array_staleness", "stale_quote_pickups", "lp_adverse_selection"],
+    decomposition: [
+      { label: "jit_window_exposure", value: 38 },
+      { label: "stale_quote_pickups", value: 52 },
+      { label: "bundle_pressure", value: 46 },
+      { label: "markout_deterioration", value: 41 },
+      { label: "lp_adverse_selection", value: 70 },
+    ],
+  },
+  {
+    route_key: OK_WHIRL_ORCA_SOL,
+    route_kind: "venue",
+    protocol: "orca_whirlpool",
+    label: "Orca Whirlpool ORCA/SOL 0.30%",
+    sandwich_count: 4,
+    arbitrage_count: 19,
+    jit_count: 14,
+    liquidation_count: 0,
+    backrun_count: 7,
+    total_attacks: 44,
+    total_extracted_usd: 10440,
+    unique_attackers: 5,
+    avg_confidence: 78,
+    bundle_share: 34,
+    risk_score: 58,
+    recommendation: "penalize",
+    execution_quality_score: 57,
+    toxic_flow_rate: 48,
+    realized_slippage_bps: 4.2,
+    stale_quote_pickup_rate: 31,
+    quote_freshness_ms: 254,
+    markout_1s_bps: 2.4,
+    markout_5s_bps: 4.8,
+    markout_30s_bps: 8.1,
+    flow_quality_score: 52,
+    toxicity_probability: 54,
+    retail_likelihood: 36,
+    lp_adverse_selection_probability: 48,
+    lvr_proxy_score: 46,
+    priority_fee_pressure: 27,
+    validator_markout_quality: 55,
+    source_hint: "searcher-bot",
+    recommended_max_notional_usd: 68000,
+    estimated_savings_bps: 4.6,
+    estimated_savings_usd: 38200,
+    order_flow_imbalance: 24.2,
+    lp_annual_loss_rate_pct: 11.8,
+    lp_annual_loss_usd_estimate: 8024,
+    policy_action: "penalize",
+    reason_codes: ["read_whirlpool_state", "lp_adverse_selection", "monitor_surface"],
+    decomposition: [
+      { label: "jit_window_exposure", value: 32 },
+      { label: "stale_quote_pickups", value: 31 },
+      { label: "bundle_pressure", value: 34 },
+      { label: "markout_deterioration", value: 24 },
+      { label: "lp_adverse_selection", value: 46 },
+    ],
+  },
+  {
+    route_key: OK_LEGACY_USDC_USDT,
+    route_kind: "route",
+    protocol: "orca_legacy_v2",
+    label: "Orca Legacy USDC/USDT",
+    sandwich_count: 9,
+    arbitrage_count: 37,
+    jit_count: 0,
+    liquidation_count: 0,
+    backrun_count: 9,
+    total_attacks: 55,
+    total_extracted_usd: 8240,
+    unique_attackers: 7,
+    avg_confidence: 74,
+    bundle_share: 24,
+    risk_score: 41,
+    recommendation: "monitor",
+    execution_quality_score: 69,
+    toxic_flow_rate: 34,
+    realized_slippage_bps: 1.9,
+    stale_quote_pickup_rate: 57,
+    quote_freshness_ms: 432,
+    markout_1s_bps: 1.1,
+    markout_5s_bps: 2.2,
+    markout_30s_bps: 4.1,
+    flow_quality_score: 63,
+    toxicity_probability: 35,
+    retail_likelihood: 52,
+    lp_adverse_selection_probability: 32,
+    lvr_proxy_score: 28,
+    priority_fee_pressure: 18,
+    validator_markout_quality: 66,
+    source_hint: "aggregator-routed",
+    recommended_max_notional_usd: 140000,
+    estimated_savings_bps: 2.1,
+    estimated_savings_usd: 11600,
+    order_flow_imbalance: 15.6,
+    lp_annual_loss_rate_pct: 5.2,
+    lp_annual_loss_usd_estimate: 7280,
+    policy_action: "monitor",
+    reason_codes: ["stale_quote_pickups", "legacy_pool_watch"],
+    decomposition: [
+      { label: "sandwich_concentration", value: 16 },
+      { label: "stale_quote_pickups", value: 57 },
+      { label: "bundle_pressure", value: 24 },
+      { label: "markout_deterioration", value: 12 },
+      { label: "lp_adverse_selection", value: 28 },
+    ],
+  },
+];
+
+const orcaPools: PoolToxicity[] = orcaRoutes.slice(0, 5).map((route, index) => ({
+  pool_address: route.route_key,
+  epoch: 718,
+  protocol: route.protocol,
+  sandwich_count: route.sandwich_count,
+  arbitrage_count: route.arbitrage_count,
+  jit_count: route.jit_count,
+  total_attacks: route.total_attacks,
+  total_extracted_usd: route.total_extracted_usd,
+  unique_attackers: route.unique_attackers,
+  toxicity_score: route.risk_score,
+  top_entity_id: index < 3 ? "entity_jit_labs" : null,
+  top_entity_label: index < 3 ? "Whirlpool JIT Desk" : "Cross-fee Arbitrage Desk",
+  top_entity_risk: index < 3 ? 0.82 : 0.58,
+  lvr_proxy_score: route.lvr_proxy_score,
+  adverse_selection_intensity: route.lp_adverse_selection_probability,
+  stale_quote_arb_frequency: route.stale_quote_pickup_rate,
+  lp_drag_estimate_usd: route.lp_annual_loss_usd_estimate + route.total_extracted_usd * 0.42,
+  toxic_to_benign_volume_ratio: Number((route.toxicity_probability / Math.max(12, 100 - route.toxicity_probability)).toFixed(2)),
+  quote_freshness_stress: Math.max(5, 100 - Math.round(route.quote_freshness_ms / 7)),
+  saved_fee_bps_if_segmented: route.estimated_savings_bps,
+  primary_cause: route.jit_count > route.sandwich_count ? "whirlpool JIT liquidity" : "stale quote pressure",
+  reason_codes: route.reason_codes,
+}));
+
+const orcaLpProtection: LpProtectionSnapshot[] = orcaPools.map((pool) => ({
+  pool_address: pool.pool_address,
+  protocol: pool.protocol,
+  toxicity_score: pool.toxicity_score,
+  lvr_proxy_score: pool.lvr_proxy_score ?? 0,
+  adverse_selection_intensity: pool.adverse_selection_intensity ?? 0,
+  stale_quote_arb_frequency: pool.stale_quote_arb_frequency ?? 0,
+  lp_drag_estimate_usd: pool.lp_drag_estimate_usd ?? 0,
+  toxic_to_benign_volume_ratio: pool.toxic_to_benign_volume_ratio ?? 0,
+  quote_freshness_stress: pool.quote_freshness_stress ?? 0,
+  saved_fee_bps_if_segmented: pool.saved_fee_bps_if_segmented ?? 0,
+  primary_cause: pool.primary_cause ?? "whirlpool adverse selection",
+  reason_codes: pool.reason_codes ?? [],
+}));
+
 export function getDemoRaydiumAttacks(): Attack[] {
   return raydiumAttacks;
 }
@@ -1528,4 +1996,20 @@ export function getDemoRaydiumPools(): PoolToxicity[] {
 
 export function getDemoRaydiumLpProtection(): LpProtectionSnapshot[] {
   return raydiumLpProtection;
+}
+
+export function getDemoOrcaAttacks(): Attack[] {
+  return orcaAttacks;
+}
+
+export function getDemoOrcaRoutes(): RouteRisk[] {
+  return orcaRoutes;
+}
+
+export function getDemoOrcaPools(): PoolToxicity[] {
+  return orcaPools;
+}
+
+export function getDemoOrcaLpProtection(): LpProtectionSnapshot[] {
+  return orcaLpProtection;
 }

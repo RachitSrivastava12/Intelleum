@@ -1,5 +1,7 @@
 import {
+  getOrcaProgramMeta,
   getRaydiumProgramMeta,
+  orcaGuardReasonCodes,
   raydiumGuardReasonCodes,
 } from "../ingestion/programs";
 
@@ -1418,7 +1420,9 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
       const arbitrageRate = item.total_attacks > 0 ? item.arbitrage_count / item.total_attacks : 0;
       const jitRate = item.total_attacks > 0 ? item.jit_count / item.total_attacks : 0;
       const raydiumMeta = getRaydiumProgramMeta(item.protocol);
-      const raydiumRiskBias = raydiumMeta ? Math.max(0, (raydiumMeta.riskWeight - 1) * 18) : 0;
+      const orcaMeta = getOrcaProgramMeta(item.protocol);
+      const protocolMeta = raydiumMeta ?? orcaMeta;
+      const protocolRiskBias = protocolMeta ? Math.max(0, (protocolMeta.riskWeight - 1) * 18) : 0;
       const liquidityRiskRate =
         item.total_attacks > 0 ? (item.liquidity_snipe_count + item.liquidity_drain_count) / item.total_attacks : 0;
       const riskScore = Math.min(
@@ -1436,7 +1440,7 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
             item.attackers.size * 2 +
             avgConfidence * 10 +
             bundleShare * 8 +
-            raydiumRiskBias
+            protocolRiskBias
           ).toFixed(1),
         ),
       );
@@ -1468,7 +1472,7 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
       const validatorMarkoutQuality = round(clamp(100 - markout5 * 3.1 - bundleShare * 24, 3, 96));
       const recommendedMaxNotionalUsd = round(clamp(180_000 - toxicFlowRate * 1_250 - bundleShare * 650, 7_500, 180_000), 0);
       const estimatedSavingsBps = round(
-        clamp(markout30 * 0.55 + lvrProxyScore * 0.05 + (raydiumMeta ? raydiumRiskBias * 0.08 : 0), 0.3, 18),
+        clamp(markout30 * 0.55 + lvrProxyScore * 0.05 + (protocolMeta ? protocolRiskBias * 0.08 : 0), 0.3, 18),
         2,
       );
       const estimatedSavingsUsd = round((recommendedMaxNotionalUsd * estimatedSavingsBps) / 10_000, 2);
@@ -1490,6 +1494,7 @@ export function getRouteRisks(limit = 25): RouteRiskRecord[] {
           toxicFlowRate,
         }),
         ...raydiumGuardReasonCodes(item.protocol),
+        ...orcaGuardReasonCodes(item.protocol),
       ])];
       const policyAction =
         riskScore >= 86 || toxicityProbability >= 82
@@ -1712,6 +1717,8 @@ export function evaluateRoute(request: RouteEvaluationRequest): RouteEvaluationR
   }));
   const decision = classifyRouteDecision(selected, objective, estimatedBpsAtRisk, saferAlternatives.length);
   const raydiumMeta = getRaydiumProgramMeta(selected.protocol);
+  const orcaMeta = getOrcaProgramMeta(selected.protocol);
+  const protocolMeta = raydiumMeta ?? orcaMeta;
 
   return {
     route_key: selected.route_key,
@@ -1728,8 +1735,8 @@ export function evaluateRoute(request: RouteEvaluationRequest): RouteEvaluationR
     safer_alternatives: saferAlternatives,
     rationale: [
       `matched against ${matched_on.replace("_", " ")} intel for ${selected.label}`,
-      raydiumMeta
-        ? `${raydiumMeta.label} guardrails: ${raydiumMeta.guardrails.slice(0, 2).join("; ")}`
+      protocolMeta
+        ? `${protocolMeta.label} guardrails: ${protocolMeta.guardrails.slice(0, 2).join("; ")}`
         : null,
       `${selected.total_attacks} detections and ${selected.unique_attackers} unique operators are attached to this surface`,
       `bundle-heavy share is ${selected.bundle_share.toFixed(0)}% and average detector confidence is ${selected.avg_confidence.toFixed(0)}%`,
@@ -1739,6 +1746,9 @@ export function evaluateRoute(request: RouteEvaluationRequest): RouteEvaluationR
     integration_actions: [
       raydiumMeta?.configEndpoint
         ? `refresh Raydium config from ${raydiumMeta.configEndpoint} before using fee or tick assumptions`
+        : null,
+      orcaMeta?.configEndpoint
+        ? `refresh Orca Whirlpool pool state from ${orcaMeta.configEndpoint} before using fee, tick, or adaptive-fee assumptions`
         : null,
       decision === "reroute" || decision === "avoid"
         ? "prefer the safer alternative or remove this venue from the active route set"

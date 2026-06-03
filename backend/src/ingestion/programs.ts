@@ -38,6 +38,95 @@ export const RAYDIUM_CONFIG_ENDPOINTS = {
   DEVNET_INFO: "https://api-v3-devnet.raydium.io/main/info",
 } as const;
 
+// ─── Orca product metadata ────────────────────────────────────────────────────
+// Orca Whirlpools is a CLMM. The program ID and config addresses are fixed
+// boundaries, while pool fees, tick spacing, adaptive-fee state, and Token-2022
+// badges must be read from the Whirlpool / FeeTier / Oracle / TokenBadge state.
+
+export const ORCA_PROGRAM_IDS = {
+  WHIRLPOOL: "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+  LEGACY_V1: "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP",
+  LEGACY_V2: "DjVE6JNiYqPL2QXyCUUh8rNjHrbz9hXHNYt99MQ59qw1",
+} as const;
+
+export const ORCA_CONFIG_ENDPOINTS = {
+  PROTOCOL: "https://api.orca.so/v2/solana/protocol",
+  POOLS: "https://api.orca.so/v2/solana/pools",
+  POOL_SEARCH: "https://api.orca.so/v2/solana/pools/search",
+} as const;
+
+export const ORCA_CHAIN_CONFIGS = {
+  MAINNET_WHIRLPOOLS_CONFIG: "2LecshUwdy9xi7meFgHtFJQNSKk4KdTrcpvaB56dP2NQ",
+  MAINNET_CONFIG_EXTENSION: "777H5H3Tp9U11uRVRzFwM8BinfiakbaLT8vQpeuhvEiH",
+  DEVNET_WHIRLPOOLS_CONFIG: "FcrweFY1G9HJAHG5inkGB6pKg1HZ6x9UC2WioAfWrGkR",
+  DEVNET_CONFIG_EXTENSION: "475EJ7JqnRpVLoFVzp2ruEYvWWMCf6Z8KMWRujtXXNSU",
+} as const;
+
+export type OrcaProtocol = "orca_whirlpool" | "orca_legacy_v1" | "orca_legacy_v2";
+
+export type OrcaProgramMeta = {
+  protocol: OrcaProtocol;
+  programId: string;
+  label: string;
+  product: "concentrated_liquidity" | "legacy_constant_product";
+  docsUrl: string;
+  configEndpoint: string | null;
+  feeSource: string;
+  primaryRisks: string[];
+  guardrails: string[];
+  riskWeight: number;
+};
+
+export const ORCA_PROGRAM_METADATA: Record<OrcaProtocol, OrcaProgramMeta> = {
+  orca_whirlpool: {
+    protocol: "orca_whirlpool",
+    programId: ORCA_PROGRAM_IDS.WHIRLPOOL,
+    label: "Orca Whirlpool",
+    product: "concentrated_liquidity",
+    docsUrl: "https://docs.orca.so/developers/architecture/whirlpool-parameters",
+    configEndpoint: ORCA_CONFIG_ENDPOINTS.POOLS,
+    feeSource: "Whirlpool, FeeTier, AdaptiveFeeTier/Oracle, TickArray, and TokenBadge accounts",
+    primaryRisks: [
+      "jit_liquidity",
+      "tick_array_staleness",
+      "adaptive_fee_volatility",
+      "token_extension_badge_risk",
+      "lp_adverse_selection",
+    ],
+    guardrails: [
+      "read Whirlpool feeRate, protocolFeeRate, tickSpacing, and adaptive-fee state before scoring",
+      "track add/swap/remove windows around active tick arrays",
+      "prefer V2 instructions and validate Token-2022 badge/extension risk",
+      "cap size when adaptive fees or tick crossings imply elevated volatility",
+    ],
+    riskWeight: 1.15,
+  },
+  orca_legacy_v1: {
+    protocol: "orca_legacy_v1",
+    programId: ORCA_PROGRAM_IDS.LEGACY_V1,
+    label: "Orca Legacy v1",
+    product: "legacy_constant_product",
+    docsUrl: "https://docs.orca.so/",
+    configEndpoint: null,
+    feeSource: "legacy pool state",
+    primaryRisks: ["sandwich", "stale_quote_backrun", "lp_adverse_selection"],
+    guardrails: ["treat as legacy AMM flow", "prefer Whirlpool routes when liquidity and toxicity are cleaner"],
+    riskWeight: 1.03,
+  },
+  orca_legacy_v2: {
+    protocol: "orca_legacy_v2",
+    programId: ORCA_PROGRAM_IDS.LEGACY_V2,
+    label: "Orca Legacy v2",
+    product: "legacy_constant_product",
+    docsUrl: "https://docs.orca.so/",
+    configEndpoint: null,
+    feeSource: "legacy pool state",
+    primaryRisks: ["sandwich", "stale_quote_backrun", "lp_adverse_selection"],
+    guardrails: ["treat as legacy AMM flow", "prefer Whirlpool routes when liquidity and toxicity are cleaner"],
+    riskWeight: 1.04,
+  },
+};
+
 export type RaydiumProtocol =
   | "raydium_amm_v4"
   | "raydium_cpmm"
@@ -148,6 +237,12 @@ const RAYDIUM_PROTOCOL_ALIASES: Record<RaydiumProtocol, string[]> = {
   raydium_router: ["raydium_router", "router", "amm_routing"],
 };
 
+const ORCA_PROTOCOL_ALIASES: Record<OrcaProtocol, string[]> = {
+  orca_whirlpool: ["orca_whirlpool", "whirlpool", "whirlpools", "orca_clmm", "orca_whirlpools"],
+  orca_legacy_v1: ["orca_v1", "orca_legacy_v1", "orca_legacy"],
+  orca_legacy_v2: ["orca_v2", "orca_legacy_v2"],
+};
+
 function normalizeProtocol(value?: string | null) {
   return value?.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") ?? "";
 }
@@ -173,12 +268,41 @@ export function getRaydiumProgramMetaById(programId?: string | null): RaydiumPro
   return Object.values(RAYDIUM_PROGRAM_METADATA).find((meta) => meta.programId === programId) ?? null;
 }
 
+export function resolveOrcaProtocol(value?: string | null): OrcaProtocol | null {
+  const normalized = normalizeProtocol(value);
+  if (!normalized) return null;
+  if (normalized in ORCA_PROGRAM_METADATA) return normalized as OrcaProtocol;
+
+  for (const [protocol, aliases] of Object.entries(ORCA_PROTOCOL_ALIASES) as Array<[OrcaProtocol, string[]]>) {
+    if (aliases.some((alias) => normalized === alias || normalized.includes(alias))) return protocol;
+  }
+  return null;
+}
+
+export function getOrcaProgramMeta(value?: string | null): OrcaProgramMeta | null {
+  const protocol = resolveOrcaProtocol(value);
+  return protocol ? ORCA_PROGRAM_METADATA[protocol] : null;
+}
+
+export function getOrcaProgramMetaById(programId?: string | null): OrcaProgramMeta | null {
+  if (!programId) return null;
+  return Object.values(ORCA_PROGRAM_METADATA).find((meta) => meta.programId === programId) ?? null;
+}
+
 export function isRaydiumProgramId(programId?: string | null): boolean {
   return Boolean(getRaydiumProgramMetaById(programId));
 }
 
 export function isRaydiumProtocol(value?: string | null): boolean {
   return Boolean(resolveRaydiumProtocol(value));
+}
+
+export function isOrcaProgramId(programId?: string | null): boolean {
+  return Boolean(getOrcaProgramMetaById(programId));
+}
+
+export function isOrcaProtocol(value?: string | null): boolean {
+  return Boolean(resolveOrcaProtocol(value));
 }
 
 export function isRaydiumConstantProduct(protocol?: string | null): boolean {
@@ -191,6 +315,15 @@ export function raydiumGuardReasonCodes(protocol?: string | null): string[] {
   if (!meta) return [];
   if (meta.protocol === "raydium_cpmm" || meta.protocol === "raydium_clmm") return ["read_live_amm_config", ...meta.primaryRisks];
   if (meta.protocol === "raydium_launchlab") return ["read_launch_state", ...meta.primaryRisks];
+  return meta.primaryRisks;
+}
+
+export function orcaGuardReasonCodes(protocol?: string | null): string[] {
+  const meta = getOrcaProgramMeta(protocol);
+  if (!meta) return [];
+  if (meta.protocol === "orca_whirlpool") {
+    return ["read_whirlpool_state", "read_tick_arrays", "adaptive_fee_state", ...meta.primaryRisks];
+  }
   return meta.primaryRisks;
 }
 
@@ -230,9 +363,9 @@ export const DEX_PROGRAMS: Record<string, string> = {
   [RAYDIUM_PROGRAM_IDS.ROUTER]: "raydium_router",
 
   // Orca / Whirlpool
-  "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP": "orca_v1",
-  "DjVE6JNiYqPL2QXyCUUh8rNjHrbz9hXHNYt99MQ59qw1": "orca_v2",
-  "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc":  "orca_whirlpool",
+  [ORCA_PROGRAM_IDS.LEGACY_V1]: "orca_legacy_v1",
+  [ORCA_PROGRAM_IDS.LEGACY_V2]: "orca_legacy_v2",
+  [ORCA_PROGRAM_IDS.WHIRLPOOL]:  "orca_whirlpool",
 
   // Meteora
   "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EkRBj45":  "meteora_pools",

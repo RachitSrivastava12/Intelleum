@@ -64,6 +64,8 @@ function preferredPoolPositions(programLabel: string | null): number[] {
       return [1, 2, 3, 4, 5, 6];
     case "orca_v1":
     case "orca_v2":
+    case "orca_legacy_v1":
+    case "orca_legacy_v2":
     case "orca_whirlpool":
       return [0, 1, 2, 3, 4, 5];
     case "meteora_pools":

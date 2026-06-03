@@ -46,12 +46,12 @@ const Index = () => {
 };
 
 const DEX_LIST = [
-  { name: "Raydium", favicon: "https://www.google.com/s2/favicons?domain=raydium.io&sz=64",  live: true  },
-  { name: "Orca",    favicon: "https://www.google.com/s2/favicons?domain=orca.so&sz=64",     live: false },
-  { name: "Meteora", favicon: "https://www.google.com/s2/favicons?domain=meteora.ag&sz=64",  live: false },
-  { name: "Jupiter", favicon: "https://www.google.com/s2/favicons?domain=jup.ag&sz=64",      live: false },
-  { name: "Phoenix", favicon: "https://www.google.com/s2/favicons?domain=phoenix.trade&sz=64", live: false },
-  { name: "PumpSwap",favicon: "https://www.google.com/s2/favicons?domain=pump.fun&sz=64",    live: false },
+  { name: "Raydium", slug: "raydium", favicon: "https://www.google.com/s2/favicons?domain=raydium.io&sz=64",  live: true  },
+  { name: "Orca",    slug: "orca",    favicon: "https://www.google.com/s2/favicons?domain=orca.so&sz=64",     live: true  },
+  { name: "Meteora", slug: "meteora", favicon: "https://www.google.com/s2/favicons?domain=meteora.ag&sz=64",  live: false },
+  { name: "Jupiter", slug: "jupiter", favicon: "https://www.google.com/s2/favicons?domain=jup.ag&sz=64",      live: false },
+  { name: "Phoenix", slug: "phoenix", favicon: "https://www.google.com/s2/favicons?domain=phoenix.trade&sz=64", live: false },
+  { name: "PumpSwap",slug: "pumpswap",favicon: "https://www.google.com/s2/favicons?domain=pump.fun&sz=64",    live: false },
 ];
 
 function DexFavicon({ favicon, name, live }: { favicon: string; name: string; live: boolean }) {
@@ -83,7 +83,7 @@ function DexProtectionSection() {
             MEV intelligence, per DEX, per pool.
           </h2>
           <p className="mt-3 text-[14px] leading-6 text-muted-foreground">
-            Pool-level sandwich detection, JIT monitoring, and LP protection scores — starting with Raydium.
+            Pool-level sandwich detection, JIT monitoring, and LP protection scores — live for Raydium and Orca.
           </p>
         </motion.div>
 
@@ -98,7 +98,7 @@ function DexProtectionSection() {
             >
               {dex.live ? (
                 <Link
-                  to="/dex-intelligence/raydium"
+                  to={`/dex-intelligence/${dex.slug}`}
                   className="group flex flex-col items-center gap-3 border border-primary/45 bg-primary/5 p-5 text-center transition-all hover:bg-primary/10"
                 >
                   <DexFavicon favicon={dex.favicon} name={dex.name} live={true} />
@@ -214,12 +214,12 @@ function LiveDashboardCTA() {
             OPEN LIVE DASHBOARD →
           </motion.button>
           <motion.button
-            onClick={() => navigate("/dex-intelligence/raydium")}
+            onClick={() => navigate("/dex-intelligence")}
             className="border border-primary/50 px-10 py-4 text-primary font-mono font-bold text-sm tracking-wider hover:bg-primary/10 transition-colors"
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
           >
-            RAYDIUM INTEL →
+            DEX INTEL →
           </motion.button>
           <motion.button
             onClick={() => navigate("/protection")}

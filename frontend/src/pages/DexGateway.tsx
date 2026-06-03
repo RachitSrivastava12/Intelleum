@@ -26,11 +26,11 @@ const DEXES: Dex[] = [
   {
     name: "Orca",
     slug: "orca",
-    live: false,
+    live: true,
     favicon: "https://www.google.com/s2/favicons?domain=orca.so&sz=64",
-    surfaces: "Whirlpool · CLMM",
-    detail: "Concentrated liquidity JIT and tick-range adverse selection.",
-    accent: "border-border/50 bg-card/40",
+    surfaces: "Whirlpool · CLMM · Adaptive fees",
+    detail: "Whirlpool JIT, adaptive-fee volatility, tick-array freshness, Token-2022 guardrails, and LP drag scoring.",
+    accent: "border-primary/60 bg-primary/5 hover:bg-primary/10",
   },
   {
     name: "Meteora",
@@ -129,7 +129,7 @@ export default function DexGateway() {
             MEV intelligence,<br />per DEX, per pool.
           </h1>
           <p className="mt-4 max-w-xl text-[15px] leading-7 text-muted-foreground">
-            Know which surfaces are extracting from traders and LPs before you route, quote, or provide liquidity. Starting with Raydium — Solana's highest-consequence liquidity surface.
+            Know which surfaces are extracting from traders and LPs before you route, quote, or provide liquidity. Raydium and Orca are live with protocol-specific guardrails.
           </p>
         </motion.div>
 
@@ -182,6 +182,60 @@ export default function DexGateway() {
                 </div>
                 <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-primary transition-all group-hover:gap-3">
                   Open Raydium Intelligence <ArrowRight className="h-4 w-4" />
+                </div>
+              </div>
+            </div>
+          </Link>
+        </motion.div>
+
+        {/* Orca — live Whirlpool card */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, delay: 0.16 }}
+          className="mb-6"
+        >
+          <Link
+            to="/dex-intelligence/orca"
+            className="group relative block border border-primary/45 bg-primary/5 p-8 transition-all hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <div className="pointer-events-none absolute left-0 top-0 h-3 w-3 border-l-2 border-t-2 border-primary/60" />
+            <div className="pointer-events-none absolute right-0 top-0 h-3 w-3 border-r-2 border-t-2 border-primary/60" />
+            <div className="pointer-events-none absolute bottom-0 left-0 h-3 w-3 border-b-2 border-l-2 border-primary/60" />
+            <div className="pointer-events-none absolute bottom-0 right-0 h-3 w-3 border-b-2 border-r-2 border-primary/60" />
+
+            <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-start gap-5">
+                <DexLogo favicon="https://www.google.com/s2/favicons?domain=orca.so&sz=64" name="Orca" slug="orca" live={true} />
+                <div>
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-2xl font-semibold text-foreground">Orca</h2>
+                    <span className="border border-primary/50 bg-primary/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-primary">Live</span>
+                  </div>
+                  <p className="mt-1 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Whirlpool · CLMM · Adaptive fees · Token-2022 paths</p>
+                  <p className="mt-3 max-w-2xl text-[14px] leading-6 text-muted-foreground">
+                    Whirlpool JIT windows, tick-array freshness, adaptive-fee volatility, stale quote pickups, and LP drag estimates — with route caps that can save Orca traders and LPs real money.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-col items-start gap-4 md:items-end">
+                <div className="grid grid-cols-3 gap-3 md:grid-cols-1">
+                  <div className="border border-border/60 bg-background/40 px-4 py-2 text-center md:text-right">
+                    <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Market Ref</div>
+                    <div className="mt-1 font-mono text-sm font-semibold text-foreground">Orca API</div>
+                  </div>
+                  <div className="border border-border/60 bg-background/40 px-4 py-2 text-center md:text-right">
+                    <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Surfaces</div>
+                    <div className="mt-1 font-mono text-sm font-semibold text-foreground">Whirlpools</div>
+                  </div>
+                  <div className="border border-border/60 bg-background/40 px-4 py-2 text-center md:text-right">
+                    <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Coverage</div>
+                    <div className="mt-1 font-mono text-sm font-semibold text-primary">Operational</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-primary transition-all group-hover:gap-3">
+                  Open Orca Intelligence <ArrowRight className="h-4 w-4" />
                 </div>
               </div>
             </div>

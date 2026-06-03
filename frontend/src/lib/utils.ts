@@ -21,6 +21,11 @@ const PROTOCOL_LABELS: Record<string, string> = {
   raydium_launchpad: "Raydium LaunchLab",
   raydium_router: "Raydium Router",
   raydium_stable_amm: "Raydium Stable AMM",
+  orca: "Orca",
+  orca_v1: "Orca Legacy v1",
+  orca_v2: "Orca Legacy v2",
+  orca_legacy_v1: "Orca Legacy v1",
+  orca_legacy_v2: "Orca Legacy v2",
   orca_whirlpool: "Orca Whirlpool",
   meteora_dlmm: "Meteora DLMM",
 };

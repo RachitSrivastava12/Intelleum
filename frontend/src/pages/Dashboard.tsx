@@ -107,7 +107,7 @@ export default function Dashboard() {
                 PROTECTION
               </Link>
               <Link
-                to="/dex-intelligence/raydium"
+                to="/dex-intelligence"
                 className="border border-primary/20 px-3 py-1 font-mono tracking-wider text-primary hover:bg-primary/10 transition-colors"
               >
                 DEX INTEL

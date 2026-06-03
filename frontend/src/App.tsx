@@ -18,6 +18,7 @@ const Protection = lazy(() => import("./pages/Protection"));
 const DexIntelligence = lazy(() => import("./pages/DexIntelligence"));
 const DexGateway = lazy(() => import("./pages/DexGateway"));
 const RaydiumDeepDive = lazy(() => import("./pages/RaydiumDeepDive"));
+const OrcaIntelligence = lazy(() => import("./pages/OrcaIntelligence"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -54,6 +55,14 @@ function AppRoutes() {
         <Route path="/dex-intelligence/raydium/detections" element={<RaydiumDeepDive section="detections" />} />
         <Route path="/dex-intelligence/raydium/savings"    element={<RaydiumDeepDive section="savings" />} />
         <Route path="/dex-intelligence/raydium/extraction" element={<RaydiumDeepDive section="extraction" />} />
+        <Route path="/dex-intelligence/orca"               element={<OrcaIntelligence section="overview" />} />
+        <Route path="/dex-intelligence/orca/whirlpools"    element={<OrcaIntelligence section="whirlpools" />} />
+        <Route path="/dex-intelligence/orca/jit"           element={<OrcaIntelligence section="jit" />} />
+        <Route path="/dex-intelligence/orca/adaptive"      element={<OrcaIntelligence section="adaptive" />} />
+        <Route path="/dex-intelligence/orca/lp"            element={<OrcaIntelligence section="lp" />} />
+        <Route path="/dex-intelligence/orca/detections"    element={<OrcaIntelligence section="detections" />} />
+        <Route path="/dex-intelligence/orca/savings"       element={<OrcaIntelligence section="savings" />} />
+        <Route path="/dex-intelligence/orca/extraction"    element={<OrcaIntelligence section="extraction" />} />
         <Route path="/intel-api"      element={<IntelApi />} />
         <Route path="/history"        element={<History />} />
         <Route path="/entities"       element={<EntityExplorer />} />

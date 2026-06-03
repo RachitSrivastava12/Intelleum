@@ -1,13 +1,16 @@
 // ============================================================
 // MEV DETECTION ENGINE
 // Pure in-memory detection over token flows for a given slot.
-// Raydium-specific: CPMM (CPMMoo8), AMM v4 (675kPX9), CLMM (CAMMCzo5), LaunchLab (LanMV9)
+// DEX-specific confidence boosts: Raydium surfaces and Orca Whirlpools.
 // ============================================================
 
 import {
   MAX_PROFIT_USD,
   MAX_VICTIM_LOSS_USD,
+  OrcaProgramMeta,
   RaydiumProgramMeta,
+  getOrcaProgramMeta,
+  getOrcaProgramMetaById,
   getRaydiumProgramMeta,
   getRaydiumProgramMetaById,
   isRaydiumConstantProduct,
@@ -153,6 +156,20 @@ function raydiumMetaForTx(...txs: TxFlow[]): RaydiumProgramMeta | null {
   return null;
 }
 
+function orcaMetaForTx(...txs: TxFlow[]): OrcaProgramMeta | null {
+  for (const tx of txs) {
+    for (const flow of tx.flows) {
+      const byId = getOrcaProgramMetaById(flow.program_id);
+      if (byId) return byId;
+    }
+    for (const label of tx.program_labels ?? []) {
+      const byLabel = getOrcaProgramMeta(label);
+      if (byLabel) return byLabel;
+    }
+  }
+  return null;
+}
+
 function executionFeeSignal(lamports?: number | null) {
   if (!lamports || lamports <= 0) return null;
   if (lamports >= 120_000) return "high priority-fee / bundle-lane signal";
@@ -169,6 +186,14 @@ function raydiumEvidence(meta: RaydiumProgramMeta | null) {
     return `${meta.label} confirmed; launch curve and graduation state should be read from LaunchState`;
   }
   return `${meta.label} confirmed; classify risk using the underlying pool state, not a hardcoded fee tier`;
+}
+
+function orcaEvidence(meta: OrcaProgramMeta | null) {
+  if (!meta) return null;
+  if (meta.protocol === "orca_whirlpool") {
+    return `${meta.label} confirmed; read Whirlpool feeRate/protocolFeeRate, tickSpacing, TickArrays, and adaptive-fee Oracle state`;
+  }
+  return `${meta.label} confirmed; treat as legacy Orca flow and prefer cleaner Whirlpool alternatives when available`;
 }
 
 export async function detectSandwiches(
@@ -240,10 +265,19 @@ export async function detectSandwiches(
           const victimLoss = bestVictim.loss || null;
           const tipLamports = frontrun.priority_fee;
           const raydiumMeta = raydiumMetaForTx(frontrun, bestVictim.tx, backrun);
+          const orcaMeta = orcaMetaForTx(frontrun, bestVictim.tx, backrun);
           const isRaydiumSandwichSurface = isRaydiumConstantProduct(raydiumMeta?.protocol);
-          const baseConfidence = isRaydiumSandwichSurface ? 0.94 : raydiumMeta ? 0.91 : 0.92;
+          const isOrcaLegacySandwichSurface = orcaMeta?.product === "legacy_constant_product";
+          const baseConfidence = isRaydiumSandwichSurface
+            ? 0.94
+            : isOrcaLegacySandwichSurface
+              ? 0.93
+              : raydiumMeta || orcaMeta
+                ? 0.91
+                : 0.92;
           const jitoBoost = tipLamports && tipLamports >= 10_000 ? 0.02 : 0;
-          const programBoost = raydiumMeta ? Math.min(0.03, (raydiumMeta.riskWeight - 1) * 0.18) : 0;
+          const protocolMeta = raydiumMeta ?? orcaMeta;
+          const programBoost = protocolMeta ? Math.min(0.03, (protocolMeta.riskWeight - 1) * 0.18) : 0;
           const confidence = Math.min(0.97, baseConfidence + jitoBoost);
           const feeSignal = executionFeeSignal(tipLamports);
 
@@ -263,9 +297,9 @@ export async function detectSandwiches(
             backrun_tx: backrun.tx_sig,
             tip_lamports: tipLamports,
             confidence: Number(Math.min(0.97, confidence + programBoost).toFixed(2)),
-            detector: raydiumMeta ? `raw_delta_sandwich_${raydiumMeta.protocol}` : "raw_delta_sandwich",
+            detector: protocolMeta ? `raw_delta_sandwich_${protocolMeta.protocol}` : "raw_delta_sandwich",
             evidence: [
-              raydiumEvidence(raydiumMeta) ?? "same-pool same-signer frontrun/backrun pattern",
+              raydiumEvidence(raydiumMeta) ?? orcaEvidence(orcaMeta) ?? "same-pool same-signer frontrun/backrun pattern",
               "highest-loss victim selected from bracketed window",
               "token delta confirmed attacker buy then sell",
               victimLoss != null ? `victim loss estimate: $${victimLoss.toFixed(0)}` : null,
@@ -380,7 +414,10 @@ export async function detectJIT(
     if (!victimTx) continue;
 
     const raydiumMeta = raydiumMetaForTx(add.tx, victimTx, remove.tx);
+    const orcaMeta = orcaMetaForTx(add.tx, victimTx, remove.tx);
     const isRaydiumClmm = raydiumMeta?.protocol === "raydium_clmm";
+    const isOrcaWhirlpool = orcaMeta?.protocol === "orca_whirlpool";
+    const protocolMeta = raydiumMeta ?? orcaMeta;
     const priorityFee = Math.max(add.tx.priority_fee ?? 0, remove.tx.priority_fee ?? 0);
 
     attacks.push({
@@ -398,14 +435,18 @@ export async function detectJIT(
       victim_tx: victimTx.tx_sig,
       backrun_tx: remove.tx.tx_sig,
       tip_lamports: priorityFee > 0 ? priorityFee : add.tx.priority_fee,
-      confidence: Number(Math.min(0.96, 0.88 + (isRaydiumClmm ? 0.05 : 0) + (priorityFee >= 25_000 ? 0.02 : 0)).toFixed(2)),
-      detector: raydiumMeta ? `raw_delta_jit_${raydiumMeta.protocol}` : "raw_delta_jit",
+      confidence: Number(
+        Math.min(0.97, 0.88 + (isRaydiumClmm ? 0.05 : 0) + (isOrcaWhirlpool ? 0.06 : 0) + (priorityFee >= 25_000 ? 0.02 : 0)).toFixed(2),
+      ),
+      detector: protocolMeta ? `raw_delta_jit_${protocolMeta.protocol}` : "raw_delta_jit",
       evidence: [
-        raydiumEvidence(raydiumMeta),
+        raydiumEvidence(raydiumMeta) ?? orcaEvidence(orcaMeta),
         "same signer added and removed liquidity in-slot",
         "victim swap observed between LP legs",
         "profit leg detected on liquidity removal",
         isRaydiumClmm ? "CLMM JIT check: add/swap/remove ordering maps to concentrated range fee capture" : null,
+        isOrcaWhirlpool ? "Whirlpool JIT check: add/swap/remove ordering maps to active tick-range fee capture" : null,
+        isOrcaWhirlpool ? "Whirlpool guardrail: verify tick arrays, adaptive fee state, and Token-2022 V2 path before routing" : null,
         executionFeeSignal(priorityFee),
       ].filter((entry): entry is string => entry != null),
     });
