@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Check, Copy as CopyIcon, ExternalLink as ExternalLinkIcon, RefreshCw, ShieldCheck } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -15,7 +15,9 @@ import {
 } from "recharts";
 import {
   api,
+  API_BASE,
   Attack,
+  AttackDetail,
   LpProtectionSnapshot,
   PoolToxicity,
   PreventionGuard,
@@ -32,6 +34,7 @@ import {
 } from "@/lib/demoData";
 import {
   ORCA_API_ENDPOINTS,
+  ORCA_CONFIGS,
   ORCA_PROGRAMS,
   ORCA_RESEARCH_NOTES,
   fmtBps,
@@ -83,8 +86,8 @@ const EMPTY_MARKET: MarketReference = {
   source: "unavailable",
 };
 
-const ENABLE_LOCAL_ORCA_DEMO =
-  import.meta.env.DEV || import.meta.env.VITE_ENABLE_ORCA_DEMO === "true";
+const ENABLE_LOCAL_ORCA_DEMO = import.meta.env.VITE_ENABLE_ORCA_DEMO === "true";
+const ORCA_FEED_CAP = 300;
 
 const TOOLTIP_STYLE = {
   background: "hsl(var(--background))",
@@ -136,6 +139,79 @@ function pairFromSurface(surface: string) {
       return truncateAddress(mint, 4, 4);
     })
     .join(" / ");
+}
+
+function formatAxisCurrency(value: number) {
+  if (!Number.isFinite(value)) return "$0";
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1)}M`;
+  if (abs >= 1_000) return `$${(value / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}K`;
+  if (abs > 0) return `$${value.toFixed(abs >= 100 ? 0 : 1)}`;
+  return "$0";
+}
+
+function solscanAccount(address: string) {
+  return `https://solscan.io/account/${address}`;
+}
+
+function solscanTx(sig: string) {
+  return `https://solscan.io/tx/${sig}`;
+}
+
+const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]+$/;
+
+function explorerAccountLink(value?: string | null) {
+  if (!value || value.length < 32 || value.length > 44 || !BASE58_RE.test(value)) return undefined;
+  return solscanAccount(value);
+}
+
+function explorerTxLink(value?: string | null) {
+  if (!value || value.length < 64 || value.length > 90 || !BASE58_RE.test(value)) return undefined;
+  return solscanTx(value);
+}
+
+function displayKey(value: string, head = 10, tail = 6) {
+  return value.length > head + tail + 3 ? truncateAddress(value, head, tail) : value;
+}
+
+function ExternalLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex min-h-8 items-center gap-1 px-1 font-mono text-[10px] text-primary underline decoration-primary/40 transition-all hover:decoration-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      onClick={(event) => event.stopPropagation()}
+    >
+      {children}
+      <ExternalLinkIcon className="h-3 w-3 shrink-0" aria-hidden="true" />
+    </a>
+  );
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        void navigator.clipboard.writeText(text).then(() => {
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1300);
+        });
+      }}
+      title={copied ? "Copied" : "Copy"}
+      aria-label={copied ? "Copied" : "Copy value"}
+      className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-border/50 text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    >
+      {copied ? (
+        <Check className="h-3.5 w-3.5" aria-hidden="true" />
+      ) : (
+        <CopyIcon className="h-3.5 w-3.5" aria-hidden="true" />
+      )}
+    </button>
+  );
 }
 
 function buildDemoStatus(base?: SystemStatus | null): SystemStatus {
@@ -309,6 +385,16 @@ function useOrcaData() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const mergeAttacks = useCallback((existing: Attack[], incoming: Attack[]) => {
+    if (incoming.length === 0) return existing;
+    const byId = new Map<number, Attack>();
+    for (const attack of incoming) byId.set(attack.id, attack);
+    for (const attack of existing) if (!byId.has(attack.id)) byId.set(attack.id, attack);
+    return [...byId.values()]
+      .sort((a, b) => new Date(b.block_time).getTime() - new Date(a.block_time).getTime())
+      .slice(0, ORCA_FEED_CAP);
+  }, []);
+
   const load = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
     else setLoading(true);
@@ -329,10 +415,11 @@ function useOrcaData() {
       setData((prev) => {
         if (shouldUseDemo(status, routes, attacks, pools, lp) && !prev) return buildDemoData(prev, status);
         if (prev?.source === "demo" && attacks.length === 0) return prev;
+        const mergedAttacks = prev?.source === "chain" ? mergeAttacks(prev.attacks, attacks) : attacks;
         return {
           status,
           routes,
-          attacks,
+          attacks: mergedAttacks,
           pools,
           lp,
           terminal: prev?.terminal ?? null,
@@ -352,13 +439,33 @@ function useOrcaData() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [mergeAttacks]);
 
   useEffect(() => {
     void load();
     const interval = window.setInterval(() => void load(true), 30_000);
     return () => window.clearInterval(interval);
   }, [load]);
+
+  useEffect(() => {
+    const es = new EventSource(`${API_BASE}/api/attacks/stream`);
+    es.onmessage = (event) => {
+      try {
+        const attack = JSON.parse(event.data) as Attack;
+        if (!isOrcaAttack(attack)) return;
+        if (attack.detector === "suspicious_orderflow_candidate") return;
+        setData((prev) => {
+          if (!prev || prev.source !== "chain") return prev;
+          if (prev.attacks.some((item) => item.id === attack.id)) return prev;
+          return { ...prev, attacks: mergeAttacks(prev.attacks, [attack]) };
+        });
+      } catch {
+        // EventSource reconnects; ignore malformed messages.
+      }
+    };
+    es.onerror = () => {};
+    return () => es.close();
+  }, [mergeAttacks]);
 
   useEffect(() => {
     loadMarketReference()
@@ -429,14 +536,19 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
   );
 }
 
-function DetectionFeed({ attacks }: { attacks: Attack[] }) {
+function DetectionFeed({ attacks, onAttackClick }: { attacks: Attack[]; onAttackClick: (attack: Attack) => void }) {
   const items = attacks.slice(0, 7);
   if (items.length === 0) return <EmptyInline message="No Orca detections in the current feed window." />;
 
   return (
     <div className="divide-y divide-border/40">
       {items.map((attack) => (
-        <div key={attack.id} className="grid gap-3 px-4 py-3 text-xs md:grid-cols-[110px_1fr_90px_100px_90px] md:items-center">
+        <button
+          key={attack.id}
+          type="button"
+          onClick={() => onAttackClick(attack)}
+          className="grid w-full gap-3 px-4 py-3 text-left text-xs transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary md:grid-cols-[110px_1fr_90px_100px_90px] md:items-center"
+        >
           <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-primary">{attack.attack_type.replace("_", " ")}</div>
           <div className="min-w-0">
             <div className="truncate font-medium text-foreground">{attack.surface_label ?? formatPoolLabel(attack.pool_address)}</div>
@@ -445,24 +557,62 @@ function DetectionFeed({ attacks }: { attacks: Attack[] }) {
           <div className="font-mono text-red-300">{fmtUsd(attack.profit_usd ?? attack.victim_loss_usd)}</div>
           <div className="font-mono text-muted-foreground">{truncateAddress(attack.attacker_wallet, 5, 4)}</div>
           <div className="font-mono text-[10px] text-muted-foreground/70">{formatRelativeTime(attack.block_time)}</div>
-        </div>
+        </button>
       ))}
     </div>
   );
 }
 
-function renderWhirlpoolsSection(routes: RouteRisk[], pools: PoolToxicity[]) {
+function LiveTicker({ attacks, onAttackClick }: { attacks: Attack[]; onAttackClick: (attack: Attack) => void }) {
+  const items = attacks.slice(0, 6);
+
+  if (items.length === 0) {
+    return (
+      <div className="border border-border/60 bg-card/40 p-4 text-sm text-muted-foreground">
+        No Orca detections available in the current feed window. Live Orca detections append here as soon as the chain stream classifies them.
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-border/60 bg-card/40">
+      <div className="flex items-center gap-3 border-b border-border/50 px-4 py-2">
+        <span className="flex h-2 w-2 rounded-full bg-primary shadow-[0_0_6px_hsl(var(--primary))]" />
+        <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Live Orca Detections</span>
+        <Link to="/dex-intelligence/orca/detections" className="ml-auto font-mono text-[10px] text-primary hover:underline">View all</Link>
+      </div>
+      <div className="divide-y divide-border/30">
+        {items.map((attack) => (
+          <button
+            key={`${attack.id}-${attack.frontrun_tx ?? attack.pool_address}`}
+            type="button"
+            onClick={() => onAttackClick(attack)}
+            className="grid w-full gap-3 px-4 py-2 text-left transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary md:grid-cols-[90px_1fr_92px_90px_82px] md:items-center"
+          >
+            <span className="font-mono text-[10px] uppercase tracking-[0.12em] font-semibold text-primary">{attack.attack_type.replace("_", " ")}</span>
+            <span className="min-w-0 truncate font-mono text-[10px] text-foreground">{attack.surface_label ?? formatPoolLabel(attack.pool_address)}</span>
+            <span className="shrink-0 font-mono text-[10px] text-red-300">{fmtUsd(attack.profit_usd ?? attack.victim_loss_usd)}</span>
+            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{truncateAddress(attack.attacker_wallet, 5, 4)}</span>
+            <span className="shrink-0 font-mono text-[9px] text-muted-foreground/60">{formatRelativeTime(attack.block_time)}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function renderWhirlpoolsSection(routes: RouteRisk[], pools: PoolToxicity[], onRouteClick: (route: RouteRisk) => void) {
   const rows = routes.filter(isOrcaRoute);
   const poolMap = new Map(pools.filter(isOrcaPool).map((pool) => [pool.pool_address, pool]));
 
   return (
-    <SectionShell eyebrow="Whirlpools" title="Tick-Range Risk By Pool">
+    <SectionShell eyebrow="Whirlpools" title="Tick-Range Risk By Surface">
       {rows.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] text-left">
             <thead className="border-b border-border/50">
               <tr className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Pool / Pair</th>
+                <th className="px-4 py-3 font-medium">Surface / Pair</th>
                 <th className="px-4 py-3 font-medium">Program</th>
                 <th className="px-4 py-3 font-medium">JIT</th>
                 <th className="px-4 py-3 font-medium">Stale Quote</th>
@@ -474,15 +624,32 @@ function renderWhirlpoolsSection(routes: RouteRisk[], pools: PoolToxicity[]) {
             <tbody>
               {rows.map((route) => {
                 const pool = poolMap.get(route.route_key);
+                const programId = orcaProgramId(route.protocol) ?? ORCA_PROGRAMS.WHIRLPOOL;
                 return (
-                  <tr key={route.route_key} className="border-b border-border/30 last:border-0">
+                  <tr
+                    key={route.route_key}
+                    className="border-b border-border/30 transition-colors last:border-0 hover:bg-primary/5"
+                  >
                     <td className="px-4 py-3">
-                      <div className="font-mono text-xs font-semibold text-foreground">{pairFromSurface(route.route_key)}</div>
-                      <div className="mt-0.5 max-w-[240px] truncate font-mono text-[9px] text-muted-foreground">{route.label}</div>
+                      <div className="flex items-start gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onRouteClick(route)}
+                          className="min-h-10 min-w-0 flex-1 text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        >
+                          <div className="font-mono text-xs font-semibold text-foreground">{pairFromSurface(route.route_key)}</div>
+                          <div className="mt-0.5 max-w-[240px] truncate font-mono text-[9px] text-muted-foreground">{route.label}</div>
+                          <div className="mt-1 max-w-[240px] truncate font-mono text-[9px] text-muted-foreground/70">{displayKey(route.route_key, 8, 6)}</div>
+                        </button>
+                        <CopyButton text={route.route_key} />
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-mono text-[10px] text-primary">{orcaProgramLabel(route.protocol)}</div>
-                      <div className="mt-0.5 font-mono text-[9px] text-muted-foreground">{truncateAddress(orcaProgramId(route.protocol) ?? ORCA_PROGRAMS.WHIRLPOOL, 5, 4)}</div>
+                      <div className="mt-0.5 flex items-center gap-1 font-mono text-[9px] text-muted-foreground">
+                        <span>{truncateAddress(programId, 5, 4)}</span>
+                        <CopyButton text={programId} />
+                      </div>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-foreground">{route.jit_count}</td>
                     <td className="px-4 py-3 font-mono text-xs text-foreground">{route.stale_quote_pickup_rate.toFixed(0)}%</td>
@@ -502,7 +669,7 @@ function renderWhirlpoolsSection(routes: RouteRisk[], pools: PoolToxicity[]) {
   );
 }
 
-function renderJitSection(routes: RouteRisk[], attacks: Attack[]) {
+function renderJitSection(routes: RouteRisk[], attacks: Attack[], onAttackClick: (attack: Attack) => void) {
   const rows = routes.filter(isOrcaRoute).filter((route) => route.jit_count > 0);
   const jitAttacks = attacks.filter(isOrcaAttack).filter((attack) => attack.attack_type === "jit");
 
@@ -524,7 +691,12 @@ function renderJitSection(routes: RouteRisk[], attacks: Attack[]) {
         </div>
         <div className="divide-y divide-border/40 border border-border/50">
           {jitAttacks.length > 0 ? jitAttacks.slice(0, 4).map((attack) => (
-            <div key={attack.id} className="px-4 py-3">
+            <button
+              key={attack.id}
+              type="button"
+              onClick={() => onAttackClick(attack)}
+              className="block w-full px-4 py-3 text-left transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+            >
               <div className="flex items-center justify-between gap-3">
                 <div className="truncate text-xs font-medium text-foreground">{attack.surface_label ?? formatPoolLabel(attack.pool_address)}</div>
                 <span className="font-mono text-[10px] text-primary">{Math.round(attack.confidence * 100)}%</span>
@@ -534,7 +706,7 @@ function renderJitSection(routes: RouteRisk[], attacks: Attack[]) {
                 <span>{fmtUsd(attack.profit_usd)} profit</span>
                 <span>{fmtLamports(attack.tip_lamports)}</span>
               </div>
-            </div>
+            </button>
           )) : <EmptyInline message="No JIT attack cards are present yet." />}
         </div>
       </div>
@@ -542,7 +714,7 @@ function renderJitSection(routes: RouteRisk[], attacks: Attack[]) {
   );
 }
 
-function renderAdaptiveSection(routes: RouteRisk[]) {
+function renderAdaptiveSection(routes: RouteRisk[], onRouteClick: (route: RouteRisk) => void) {
   const rows = routes.filter(isOrcaRoute).sort((a, b) => b.stale_quote_pickup_rate - a.stale_quote_pickup_rate).slice(0, 5);
 
   return (
@@ -559,7 +731,12 @@ function renderAdaptiveSection(routes: RouteRisk[]) {
         </div>
         <div className="divide-y divide-border/40 border border-border/50">
           {rows.map((route) => (
-            <div key={route.route_key} className="px-4 py-3">
+            <button
+              key={route.route_key}
+              type="button"
+              onClick={() => onRouteClick(route)}
+              className="block w-full px-4 py-3 text-left transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+            >
               <div className="flex items-center justify-between gap-3">
                 <div className="truncate text-xs font-medium text-foreground">{route.label}</div>
                 <span className={`border px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] ${actionTone(route.policy_action)}`}>{actionLabel(route.policy_action)}</span>
@@ -569,7 +746,7 @@ function renderAdaptiveSection(routes: RouteRisk[]) {
                 <MiniMetric label="Freshness" value={`${route.quote_freshness_ms.toFixed(0)}ms`} />
                 <MiniMetric label="Bps saved" value={fmtBps(route.estimated_savings_bps)} />
               </div>
-            </div>
+            </button>
           ))}
           {rows.length === 0 && <EmptyInline message="No adaptive-fee or tick-array risk rows yet." />}
         </div>
@@ -578,14 +755,19 @@ function renderAdaptiveSection(routes: RouteRisk[]) {
   );
 }
 
-function renderLpSection(lpRows: LpProtectionSnapshot[]) {
+function renderLpSection(lpRows: LpProtectionSnapshot[], onLpClick: (row: LpProtectionSnapshot) => void) {
   const rows = lpRows.filter(isOrcaPool).sort((a, b) => b.lp_drag_estimate_usd - a.lp_drag_estimate_usd);
 
   return (
     <SectionShell eyebrow="LP Protection" title="Whirlpool LP Drag And Fee Dilution">
       <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
         {rows.length > 0 ? rows.map((row) => (
-          <div key={row.pool_address} className={`border p-4 ${row.toxicity_score >= 80 ? "border-red-500/35 bg-red-500/5" : row.toxicity_score >= 60 ? "border-yellow-500/35 bg-yellow-500/5" : "border-border bg-background/25"}`}>
+          <button
+            key={row.pool_address}
+            type="button"
+            onClick={() => onLpClick(row)}
+            className={`border p-4 text-left transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary ${row.toxicity_score >= 80 ? "border-red-500/35 bg-red-500/5" : row.toxicity_score >= 60 ? "border-yellow-500/35 bg-yellow-500/5" : "border-border bg-background/25"}`}
+          >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium text-foreground">{formatPoolLabel(row.pool_address)}</div>
@@ -599,15 +781,250 @@ function renderLpSection(lpRows: LpProtectionSnapshot[]) {
               <MiniMetric label="LVR" value={row.lvr_proxy_score.toFixed(0)} />
               <MiniMetric label="Toxic/benign" value={`${row.toxic_to_benign_volume_ratio.toFixed(2)}x`} />
             </div>
-          </div>
+          </button>
         )) : <EmptyInline message="No Orca LP protection rows are present yet." />}
       </div>
     </SectionShell>
   );
 }
 
+function PanelRow({
+  label,
+  value,
+  link,
+  copyValue,
+}: {
+  label: string;
+  value: string;
+  link?: string;
+  copyValue?: string | null;
+}) {
+  const canCopy = !!copyValue && copyValue !== "--";
+  return (
+    <div className="flex items-start justify-between gap-3 border-b border-border/40 py-2 last:border-b-0">
+      <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground">{label}</span>
+      <span className="flex min-w-0 items-center justify-end gap-1.5 text-right">
+        {link ? (
+          <ExternalLink href={link}>{value}</ExternalLink>
+        ) : (
+          <span className="break-all font-mono text-[10px] text-foreground">{value}</span>
+        )}
+        {canCopy && <CopyButton text={copyValue!} />}
+      </span>
+    </div>
+  );
+}
+
+function DrawerShell({
+  eyebrow,
+  title,
+  onClose,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Close detail panel"
+        className="fixed inset-0 z-40 cursor-default bg-background/60 backdrop-blur-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        onClick={onClose}
+      />
+      <aside className="fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-border bg-background shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div className="min-w-0">
+            <p className="font-mono text-[9px] uppercase tracking-[0.2em] text-primary">{eyebrow}</p>
+            <h2 className="mt-0.5 truncate text-base font-semibold text-foreground">{title}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="border border-border px-3 py-2 font-mono text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            Close
+          </button>
+        </div>
+        <div className="flex-1 space-y-5 p-5">{children}</div>
+      </aside>
+    </>
+  );
+}
+
+function AttackDrawer({
+  attack,
+  detail,
+  loading,
+  error,
+  onClose,
+}: {
+  attack: Attack;
+  detail: AttackDetail | null;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+}) {
+  const displayEvidence = detail?.evidence ?? attack.evidence ?? [];
+  const surfaceLabel = attack.surface_label ?? formatPoolLabel(attack.pool_address);
+  return (
+    <DrawerShell
+      eyebrow="Orca detection"
+      title={`${attack.attack_type.replace("_", " ").toUpperCase()} - ${surfaceLabel}`}
+      onClose={onClose}
+    >
+      <div className="space-y-0 border border-border/60 p-4">
+        <PanelRow label="Surface key" value={displayKey(attack.pool_address)} link={explorerAccountLink(attack.pool_address)} copyValue={attack.pool_address} />
+        <PanelRow label="Protocol" value={attack.protocol ?? "orca"} />
+        <PanelRow label="Attacker" value={displayKey(attack.attacker_wallet)} link={explorerAccountLink(attack.attacker_wallet)} copyValue={explorerAccountLink(attack.attacker_wallet) ? attack.attacker_wallet : null} />
+        {attack.victim_wallet && <PanelRow label="Victim" value={displayKey(attack.victim_wallet)} link={explorerAccountLink(attack.victim_wallet)} copyValue={explorerAccountLink(attack.victim_wallet) ? attack.victim_wallet : null} />}
+        <PanelRow label="Validator" value={displayKey(attack.validator)} link={explorerAccountLink(attack.validator)} copyValue={explorerAccountLink(attack.validator) ? attack.validator : null} />
+        <PanelRow label="Confidence" value={`${Math.round((attack.confidence ?? 0) * 100)}%`} />
+        <PanelRow label="Model" value={attack.detector ?? "unknown"} />
+        <PanelRow label="Lane" value={attack.execution_lane ?? "standard"} />
+        <PanelRow label="Bundle" value={attack.bundle_likelihood == null ? "--" : `${Math.round(attack.bundle_likelihood * 100)}%`} />
+        <PanelRow label="Block time" value={new Date(attack.block_time).toLocaleString()} />
+        {attack.profit_usd != null && <PanelRow label="Profit" value={fmtUsd(attack.profit_usd)} />}
+        {attack.victim_loss_usd != null && <PanelRow label="Victim harm" value={fmtUsd(attack.victim_loss_usd)} />}
+      </div>
+
+      <div className="space-y-3 border border-border/60 p-4">
+        <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Transaction links</div>
+        <div className="flex flex-col gap-2">
+          {attack.frontrun_tx && <PanelRow label="Frontrun tx" value={displayKey(attack.frontrun_tx, 8, 6)} link={explorerTxLink(attack.frontrun_tx)} copyValue={attack.frontrun_tx} />}
+          {attack.victim_tx && <PanelRow label="Victim tx" value={displayKey(attack.victim_tx, 8, 6)} link={explorerTxLink(attack.victim_tx)} copyValue={attack.victim_tx} />}
+          {attack.backrun_tx && <PanelRow label="Backrun tx" value={displayKey(attack.backrun_tx, 8, 6)} link={explorerTxLink(attack.backrun_tx)} copyValue={attack.backrun_tx} />}
+          {!attack.frontrun_tx && !attack.victim_tx && !attack.backrun_tx && (
+            <div className="text-sm text-muted-foreground">No transaction signatures are attached to this detection yet.</div>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-3 border border-border/60 p-4">
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Evidence trail</span>
+          {loading && <span className="font-mono text-[9px] text-primary">Loading</span>}
+        </div>
+        {error ? (
+          <div className="text-sm text-red-300">{error}</div>
+        ) : displayEvidence.length > 0 ? (
+          <div className="space-y-2 text-[10px] text-foreground">
+            {displayEvidence.map((item) => (
+              <div key={item} className="border border-border/70 px-2 py-2">{item}</div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-sm text-muted-foreground">No evidence details are available for this detection.</div>
+        )}
+      </div>
+    </DrawerShell>
+  );
+}
+
+function RouteDrawer({ route, onClose }: { route: RouteRisk; onClose: () => void }) {
+  const programId = orcaProgramId(route.protocol) ?? ORCA_PROGRAMS.WHIRLPOOL;
+  const isWhirlpoolProgram = programId === ORCA_PROGRAMS.WHIRLPOOL;
+  return (
+    <DrawerShell eyebrow="Orca surface" title={route.label} onClose={onClose}>
+      <div className="space-y-0 border border-border/60 p-4">
+        <PanelRow label="Surface key" value={displayKey(route.route_key)} link={explorerAccountLink(route.route_key)} copyValue={route.route_key} />
+        <PanelRow label="Protocol" value={route.protocol ?? "orca"} />
+        <PanelRow label="Program" value={orcaProgramLabel(route.protocol)} />
+        <PanelRow label="Program ID" value={truncateAddress(programId, 10, 6)} link={solscanAccount(programId)} copyValue={programId} />
+        {isWhirlpoolProgram && (
+          <>
+            <PanelRow
+              label="Whirlpool config"
+              value={truncateAddress(ORCA_CONFIGS.MAINNET_WHIRLPOOLS_CONFIG, 10, 6)}
+              link={solscanAccount(ORCA_CONFIGS.MAINNET_WHIRLPOOLS_CONFIG)}
+              copyValue={ORCA_CONFIGS.MAINNET_WHIRLPOOLS_CONFIG}
+            />
+            <PanelRow
+              label="Config extension"
+              value={truncateAddress(ORCA_CONFIGS.MAINNET_CONFIG_EXTENSION, 10, 6)}
+              link={solscanAccount(ORCA_CONFIGS.MAINNET_CONFIG_EXTENSION)}
+              copyValue={ORCA_CONFIGS.MAINNET_CONFIG_EXTENSION}
+            />
+          </>
+        )}
+        <PanelRow label="Pair" value={pairFromSurface(route.route_key)} />
+        <PanelRow label="Policy" value={actionLabel(route.policy_action).toUpperCase()} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <MiniMetric label="Risk" value={route.risk_score.toFixed(0)} />
+        <MiniMetric label="Toxicity" value={`${route.toxicity_probability.toFixed(0)}%`} />
+        <MiniMetric label="JIT windows" value={String(route.jit_count)} />
+        <MiniMetric label="Stale quote" value={`${route.stale_quote_pickup_rate.toFixed(0)}%`} />
+        <MiniMetric label="30s markout" value={fmtBps(route.markout_30s_bps)} />
+        <MiniMetric label="Savings" value={fmtUsd(route.estimated_savings_usd)} />
+      </div>
+
+      <div className="space-y-3 border border-primary/30 bg-primary/5 p-4">
+        <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Reason codes</div>
+        <div className="flex flex-wrap gap-1.5">
+          {route.reason_codes.map((code) => (
+            <span key={code} className="border border-border/60 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+              {code.split("_").join(" ")}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-2 border border-border/60 p-4">
+        <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Orca guardrails</div>
+        {[
+          "Refresh Whirlpool fee, tick-array, and adaptive-fee state before routing.",
+          "Cap notional when JIT windows or stale quote pickup pressure rises.",
+          "Prefer cleaner same-pair venues when policy is reroute or avoid.",
+        ].map((step, index) => (
+          <div key={step} className="flex gap-2 text-xs text-muted-foreground">
+            <span className="shrink-0 font-mono text-primary">{String(index + 1).padStart(2, "0")}</span>
+            <span>{step}</span>
+          </div>
+        ))}
+      </div>
+    </DrawerShell>
+  );
+}
+
+function LpDrawer({ row, onClose }: { row: LpProtectionSnapshot; onClose: () => void }) {
+  return (
+    <DrawerShell eyebrow="Orca LP protection" title={formatPoolLabel(row.pool_address)} onClose={onClose}>
+      <div className={`border p-4 ${row.toxicity_score >= 80 ? "border-red-500/30 bg-red-500/5" : row.toxicity_score >= 60 ? "border-yellow-500/30 bg-yellow-500/5" : "border-green-500/30 bg-green-500/5"}`}>
+        <div className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">Protection score</div>
+        <div className="mt-2 text-4xl font-bold text-foreground">{row.toxicity_score.toFixed(0)}<span className="text-lg font-normal text-muted-foreground">/100</span></div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <MiniMetric label="LP drag" value={fmtUsd(row.lp_drag_estimate_usd)} />
+        <MiniMetric label="Saved bps" value={fmtBps(row.saved_fee_bps_if_segmented)} />
+        <MiniMetric label="LVR proxy" value={row.lvr_proxy_score.toFixed(0)} />
+        <MiniMetric label="Adverse selection" value={row.adverse_selection_intensity.toFixed(0)} />
+        <MiniMetric label="Stale arb" value={`${row.stale_quote_arb_frequency.toFixed(0)}%`} />
+        <MiniMetric label="Quote stress" value={row.quote_freshness_stress.toFixed(0)} />
+      </div>
+
+      <div className="space-y-0 border border-border/60 p-4">
+        <PanelRow label="Surface key" value={displayKey(row.pool_address)} link={explorerAccountLink(row.pool_address)} copyValue={row.pool_address} />
+        <PanelRow label="Protocol" value={row.protocol ?? "orca"} />
+        <PanelRow label="Primary cause" value={row.primary_cause} />
+        <PanelRow label="Toxic/benign" value={`${row.toxic_to_benign_volume_ratio.toFixed(2)}x`} />
+      </div>
+    </DrawerShell>
+  );
+}
+
 export default function OrcaIntelligence({ section = "overview" }: { section?: OrcaSection }) {
   const { data, loading, refreshing, error, reload } = useOrcaData();
+  const [selectedAttack, setSelectedAttack] = useState<Attack | null>(null);
+  const [selectedRoute, setSelectedRoute] = useState<RouteRisk | null>(null);
+  const [selectedLp, setSelectedLp] = useState<LpProtectionSnapshot | null>(null);
+  const [attackDetails, setAttackDetails] = useState<Record<number, AttackDetail>>({});
+  const [attackDetailLoading, setAttackDetailLoading] = useState(false);
+  const [attackDetailError, setAttackDetailError] = useState<string | null>(null);
 
   const routes = useMemo(() => data?.routes.filter(isOrcaRoute) ?? [], [data?.routes]);
   const attacks = useMemo(() => data?.attacks.filter(isOrcaAttack) ?? [], [data?.attacks]);
@@ -653,12 +1070,69 @@ export default function OrcaIntelligence({ section = "overview" }: { section?: O
     ? ["whirlpools", "jit", "adaptive", "lp", "detections", "savings", "extraction"]
     : [section];
 
+  const openAttack = useCallback((attack: Attack) => {
+    setSelectedRoute(null);
+    setSelectedLp(null);
+    setSelectedAttack(attack);
+  }, []);
+
+  const openRoute = useCallback((route: RouteRisk) => {
+    setSelectedAttack(null);
+    setSelectedLp(null);
+    setSelectedRoute(route);
+  }, []);
+
+  const openLp = useCallback((row: LpProtectionSnapshot) => {
+    setSelectedAttack(null);
+    setSelectedRoute(null);
+    setSelectedLp(row);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedAttack) {
+      setAttackDetailLoading(false);
+      setAttackDetailError(null);
+      return;
+    }
+
+    if (attackDetails[selectedAttack.id]) {
+      setAttackDetailLoading(false);
+      setAttackDetailError(null);
+      return;
+    }
+
+    setAttackDetailLoading(true);
+    setAttackDetailError(null);
+    api.attackDetail(selectedAttack.id)
+      .then((detail) => setAttackDetails((prev) => ({ ...prev, [detail.id]: detail })))
+      .catch((err) => {
+        if (data?.source === "demo") {
+          setAttackDetails((prev) => ({ ...prev, [selectedAttack.id]: selectedAttack as AttackDetail }));
+          return;
+        }
+        setAttackDetailError(err instanceof Error ? err.message : "Failed to load attack details");
+      })
+      .finally(() => setAttackDetailLoading(false));
+  }, [attackDetails, data?.source, selectedAttack]);
+
   if (loading && !data) return <LoadingState />;
   if (error && !data) return <ErrorState message={error} onRetry={reload} />;
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-background px-4 py-5 text-foreground md:px-6">
       <div className="pointer-events-none fixed inset-0 grid-overlay-subtle opacity-15" />
+      {selectedAttack && (
+        <AttackDrawer
+          attack={selectedAttack}
+          detail={attackDetails[selectedAttack.id] ?? null}
+          loading={attackDetailLoading}
+          error={attackDetailError}
+          onClose={() => setSelectedAttack(null)}
+        />
+      )}
+      {selectedRoute && <RouteDrawer route={selectedRoute} onClose={() => setSelectedRoute(null)} />}
+      {selectedLp && <LpDrawer row={selectedLp} onClose={() => setSelectedLp(null)} />}
+
       <div className="relative mx-auto max-w-7xl space-y-5">
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-4">
           <div className="flex flex-wrap gap-2 font-mono text-[11px] tracking-[0.16em] text-muted-foreground">
@@ -698,6 +1172,8 @@ export default function OrcaIntelligence({ section = "overview" }: { section?: O
           </div>
         )}
 
+        <LiveTicker attacks={attacks} onAttackClick={openAttack} />
+
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div className="border border-red-500/40 bg-red-500/5 p-5">
             <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground">Observed Orca extraction</div>
@@ -722,13 +1198,13 @@ export default function OrcaIntelligence({ section = "overview" }: { section?: O
         </section>
 
         {selectedSections.includes("savings") && (
-          <SectionShell eyebrow="Savings" title="Estimated Savings — Top Orca Pools">
+          <SectionShell eyebrow="Savings" title="Estimated Savings — Top Orca Surfaces">
             <div className="h-56 p-4">
               {savingsChart.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={savingsChart} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
                     <CartesianGrid horizontal={false} stroke="hsl(var(--border))" strokeOpacity={0.4} />
-                    <XAxis type="number" tickFormatter={(v) => `$${Math.round(v / 1000)}K`} tick={TICK_STYLE} axisLine={false} tickLine={false} />
+                    <XAxis type="number" tickFormatter={(v) => formatAxisCurrency(Number(v))} tick={TICK_STYLE} axisLine={false} tickLine={false} />
                     <YAxis type="category" dataKey="name" width={84} tick={TICK_STYLE} axisLine={false} tickLine={false} />
                     <Tooltip formatter={(v: number) => [fmtUsd(v), "Savings"]} contentStyle={TOOLTIP_STYLE} />
                     <Bar dataKey="savings" radius={[0, 2, 2, 0]}>
@@ -751,7 +1227,7 @@ export default function OrcaIntelligence({ section = "overview" }: { section?: O
                   <AreaChart data={trendData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
                     <CartesianGrid stroke="hsl(var(--border))" strokeOpacity={0.4} />
                     <XAxis dataKey="time" tick={TICK_STYLE} axisLine={false} tickLine={false} />
-                    <YAxis tickFormatter={(v) => `$${Math.round(v / 1000)}K`} tick={TICK_STYLE} axisLine={false} tickLine={false} width={40} />
+                    <YAxis tickFormatter={(v) => formatAxisCurrency(Number(v))} tick={TICK_STYLE} axisLine={false} tickLine={false} width={46} />
                     <Tooltip formatter={(v: number, name: string) => [fmtUsd(v), name]} contentStyle={TOOLTIP_STYLE} />
                     <Area type="monotone" dataKey="jit" stackId="1" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.3} strokeWidth={1.5} />
                     <Area type="monotone" dataKey="stale" stackId="1" stroke="hsl(210 80% 65%)" fill="hsl(210 80% 65%)" fillOpacity={0.3} strokeWidth={1.5} />
@@ -763,14 +1239,14 @@ export default function OrcaIntelligence({ section = "overview" }: { section?: O
           </SectionShell>
         )}
 
-        {selectedSections.includes("whirlpools") && renderWhirlpoolsSection(routes, pools)}
-        {selectedSections.includes("jit") && renderJitSection(routes, attacks)}
-        {selectedSections.includes("adaptive") && renderAdaptiveSection(routes)}
-        {selectedSections.includes("lp") && renderLpSection(lpRows)}
+        {selectedSections.includes("whirlpools") && renderWhirlpoolsSection(routes, pools, openRoute)}
+        {selectedSections.includes("jit") && renderJitSection(routes, attacks, openAttack)}
+        {selectedSections.includes("adaptive") && renderAdaptiveSection(routes, openRoute)}
+        {selectedSections.includes("lp") && renderLpSection(lpRows, openLp)}
 
         {selectedSections.includes("detections") && (
           <SectionShell eyebrow="Live Feed" title="Orca MEV Detections">
-            <DetectionFeed attacks={attacks} />
+            <DetectionFeed attacks={attacks} onAttackClick={openAttack} />
           </SectionShell>
         )}
 

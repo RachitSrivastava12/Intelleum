@@ -3,8 +3,8 @@
 
 export const ORCA_PROGRAMS = {
   WHIRLPOOL: "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
-  LEGACY_V1: "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP",
-  LEGACY_V2: "DjVE6JNiYqPL2QXyCUUh8rNjHrbz9hXHNYt99MQ59qw1",
+  LEGACY_V1: "DjVE6JNiYqPL2QXyCUUh8rNjHrbz9hXHNYt99MQ59qw1",
+  LEGACY_V2: "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP",
 } as const;
 
 export type OrcaProgramKey = keyof typeof ORCA_PROGRAMS;
